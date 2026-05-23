@@ -12,6 +12,8 @@ import {
 import { resolveDispatchTarget } from './input/dispatcher.js';
 import { normalizeInput } from './input/normalizer.js';
 import { validateInput } from './input/validator.js';
+import type { ColumnFilter } from './operators/types.js';
+import { validateColumnFilters } from './operators/validate-column-filter.js';
 import { FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
 import type { FilterContext, FilterModuleOptions } from './types.js';
 
@@ -32,7 +34,11 @@ export class FilterRunner {
     context: FilterContext = {},
   ): Promise<Q> {
     const filter = await this.resolveFilter(FilterClass);
-    const normalized = normalizeInput(input, {
+
+    // Extract column filters from input before normalization
+    const { columnFilters, remainingInput } = this.extractColumnFilters(input);
+
+    const normalized = normalizeInput(remainingInput, {
       normalizer: this.options.inputNormalizer ?? 'camelCase',
       dropId: this.options.dropId ?? true,
       ...(this.options.stripEmpty !== undefined && { stripEmpty: this.options.stripEmpty }),
@@ -58,6 +64,17 @@ export class FilterRunner {
       },
       async () => {
         await this.runSetup(filter);
+
+        // Apply column filters via adapter before @FilterFor dispatch
+        if (columnFilters.length > 0 && this.adapter?.applyColumnFilters) {
+          validateColumnFilters(columnFilters);
+          this.adapter.applyColumnFilters(qb, columnFilters);
+        } else if (columnFilters.length > 0 && !this.adapter?.applyColumnFilters) {
+          this.logger.warn(
+            'Column filters (where) provided but adapter does not support applyColumnFilters. Skipping.',
+          );
+        }
+
         // Collect relation-bound keys for batched processing
         const relationBatches = new Map<
           string,
@@ -201,6 +218,39 @@ export class FilterRunner {
     await this.adapter.applyRelationConstraint(qb, relationName, async (relationQb: unknown) => {
       await this.apply(RelatedFilterClass, inputObj, relationQb, context);
     });
+  }
+
+  /**
+   * Extracts `where` (ColumnFilter[]) from input and returns the remaining
+   * input keys for @FilterFor dispatch.
+   *
+   * Detects three input modes:
+   * 1. Plain Record<string, unknown> → no column filters, input passes through
+   * 2. Object with `where: ColumnFilter[]` → column filters extracted, remaining keys pass through
+   * 3. null/undefined/non-object → no column filters, empty remaining input
+   */
+  private extractColumnFilters(input: unknown): {
+    columnFilters: ColumnFilter[];
+    remainingInput: unknown;
+  } {
+    if (input == null || typeof input !== 'object') {
+      return { columnFilters: [], remainingInput: input };
+    }
+
+    const inputObj = input as Record<string, unknown>;
+    if (!('where' in inputObj) || !Array.isArray(inputObj.where)) {
+      return { columnFilters: [], remainingInput: input };
+    }
+
+    const columnFilters = inputObj.where as ColumnFilter[];
+    // Build remaining input without the 'where' key
+    const remaining: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(inputObj)) {
+      if (key !== 'where') {
+        remaining[key] = value;
+      }
+    }
+    return { columnFilters, remainingInput: remaining };
   }
 
   private handleUnknownKey(key: string): void {
