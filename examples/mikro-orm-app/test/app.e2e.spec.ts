@@ -29,4 +29,29 @@ describe('mikro-orm example app (e2e)', () => {
 
     await app.close();
   });
+
+  it('POST /users/search merges body+query, body wins', async () => {
+    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const app = mod.createNestApplication<NestExpressApplication>();
+    await app.init();
+
+    const orm = mod.get(MikroORM);
+    await orm.schema.create();
+    const em = orm.em.fork();
+    em.persist([
+      em.create(User, { name: 'Alice', age: 30 }),
+      em.create(User, { name: 'Albert', age: 20 }),
+      em.create(User, { name: 'Bob', age: 25 }),
+    ]);
+    await em.flush();
+
+    const res = await request(app.getHttpServer())
+      .post('/users/search?name=Al')
+      .send({ name: 'Bob' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Bob']);
+
+    await app.close();
+  });
 });

@@ -82,6 +82,29 @@ class AnotherFilter extends BaseFilter<FakeQB> {
 })
 class TestAppModule {}
 
+@Injectable()
+@Filterable({ entity: FakeEntity })
+class AdminFilter extends BaseFilter<FakeQB> {
+  @FilterFor('name')
+  applyName(v: string) {
+    this.$query.andWhere({ name: v, role: 'admin' });
+  }
+}
+
+@Controller('resolve')
+class ResolveController {
+  @Get()
+  list(
+    @ApplyFilter(UserFilter, {
+      resolve: (req: { query?: { admin?: string } }) =>
+        req.query?.admin === 'true' ? AdminFilter : UserFilter,
+    })
+    qb: FakeQB,
+  ) {
+    return { result: qb };
+  }
+}
+
 @Module({
   imports: [
     FilterModule.forRoot({ inputNormalizer: 'camelCase', validation: 'off' }),
@@ -92,6 +115,16 @@ class TestAppModule {}
   providers: [{ provide: FILTER_ADAPTER, useValue: fakeAdapter }],
 })
 class TestAppModuleDoubleFeature {}
+
+@Module({
+  imports: [
+    FilterModule.forRoot({ inputNormalizer: 'camelCase', validation: 'off' }),
+    FilterModule.forFeature([UserFilter, AdminFilter]),
+  ],
+  controllers: [ResolveController],
+  providers: [{ provide: FILTER_ADAPTER, useValue: fakeAdapter }],
+})
+class TestAppModuleResolve {}
 
 describe('@ApplyFilter via Express interceptor', () => {
   it('GET uses query string', async () => {
@@ -117,6 +150,24 @@ describe('@ApplyFilter via Express interceptor', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.result.calls).toEqual([['andWhere', { name: 'fromBody' }]]);
+
+    await app.close();
+  });
+
+  it('resolve option picks filter dynamically', async () => {
+    const mod = await Test.createTestingModule({ imports: [TestAppModuleResolve] }).compile();
+    const app = mod.createNestApplication<NestExpressApplication>();
+    await app.init();
+
+    // Without admin flag -> UserFilter
+    const res1 = await request(app.getHttpServer()).get('/resolve?name=foo');
+    expect(res1.status).toBe(200);
+    expect(res1.body.result.calls).toEqual([['andWhere', { name: 'foo' }]]);
+
+    // With admin flag -> AdminFilter
+    const res2 = await request(app.getHttpServer()).get('/resolve?name=foo&admin=true');
+    expect(res2.status).toBe(200);
+    expect(res2.body.result.calls).toEqual([['andWhere', { name: 'foo', role: 'admin' }]]);
 
     await app.close();
   });

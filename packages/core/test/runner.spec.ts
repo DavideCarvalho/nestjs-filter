@@ -136,6 +136,44 @@ describe('FilterRunner.apply', () => {
     expect(qb.calls).toEqual([]);
   });
 
+  it('wraps setup() errors in FilterMethodException with key "setup"', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class SetupBoomFilter extends BaseFilter<MockQB> {
+      override setup() {
+        throw new Error('setup went wrong');
+      }
+
+      @FilterFor()
+      name(_v: string) {}
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        SetupBoomFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off' },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+
+    try {
+      await runner.apply(SetupBoomFilter, { name: 'x' }, makeMockQB());
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(FilterMethodException);
+      expect((err as FilterMethodException).key).toBe('setup');
+      expect((err as FilterMethodException).value).toBeUndefined();
+      expect((err as FilterMethodException).cause).toBeInstanceOf(Error);
+      expect(((err as FilterMethodException).cause as Error).message).toBe('setup went wrong');
+    }
+  });
+
   it('onUnknownKey warn skips unknown key without throwing', async () => {
     const mod = await makeModule({ onUnknownKey: 'warn' });
     const runner = mod.get(FilterRunner);
