@@ -154,6 +154,28 @@ describe('BaseFilter', () => {
     );
   });
 
+  it('input(key, defaultValue) returns null when key is explicitly null', () => {
+    const f = new StubFilter();
+    const input = Object.freeze({ status: null });
+    runWithFilterState(
+      {
+        $query: {},
+        $input: input,
+        $context: {},
+        $adapter: null,
+        $whitelisted: new Set(),
+        $blacklisted: new Set(),
+        $pushed: [],
+      },
+      () => {
+        // Explicitly null should NOT fall through to defaultValue
+        expect(f.publicInput('status', 'active')).toBeNull();
+        // Missing key should still use defaultValue
+        expect(f.publicInput('missing', 'active')).toBe('active');
+      },
+    );
+  });
+
   it('input() throws outside of apply() context', () => {
     const f = new StubFilter();
     expect(() => f.publicInput()).toThrow(FilterStateUnavailableException);

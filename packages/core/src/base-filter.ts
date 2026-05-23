@@ -58,7 +58,7 @@ export abstract class BaseFilter<TQuery = unknown> {
   input(key?: string, defaultValue?: unknown): unknown {
     const inp = this.$input;
     if (key === undefined) return inp;
-    return inp[key] ?? defaultValue;
+    return key in (inp as object) ? inp[key] : defaultValue;
   }
 
   /**
