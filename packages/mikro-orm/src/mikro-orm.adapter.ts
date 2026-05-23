@@ -14,10 +14,10 @@ export class MikroOrmAdapter implements FilterAdapter {
     relationName: string,
     callback: (relationQb: unknown) => Promise<void>,
   ): Promise<void> {
-    // Join the relation and apply the callback filter on the same query builder.
-    // The related filter's methods add andWhere conditions for the joined relation.
-    const parentQb = qb as { joinAndSelect: (field: string, alias: string) => void };
-    parentQb.joinAndSelect(relationName, relationName);
+    // Use join (not joinAndSelect) to filter by relation constraints
+    // without eagerly selecting relation columns or producing duplicate rows.
+    const parentQb = qb as { join: (field: string, alias: string) => void };
+    parentQb.join(relationName, relationName);
     await callback(qb);
   }
 }

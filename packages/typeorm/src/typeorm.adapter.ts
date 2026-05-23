@@ -18,8 +18,9 @@ export class TypeOrmAdapter implements FilterAdapter {
   ): Promise<void> {
     const parentQb = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = parentQb.alias;
-    // Join the relation and apply the filter callback on the same query builder
-    parentQb.leftJoinAndSelect(`${alias}.${relationName}`, relationName);
+    // Use innerJoin (not leftJoinAndSelect) to filter by relation constraints
+    // without eagerly selecting relation columns or producing duplicate rows.
+    parentQb.innerJoin(`${alias}.${relationName}`, relationName);
     await callback(parentQb);
   }
 }
