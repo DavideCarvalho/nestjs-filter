@@ -13,5 +13,10 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": []
+  "ignore": [
+    "@integration/mikro-orm-postgres",
+    "@integration/mikro-orm-mysql",
+    "@integration/typeorm-postgres",
+    "@integration/typeorm-mysql"
+  ]
 }
