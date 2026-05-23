@@ -43,6 +43,8 @@ export class FilterRunner {
     const $whitelisted = new Set<string>();
     const $blacklisted = new Set<string>();
 
+    const $pushed: Array<[string, unknown]> = [];
+
     return runWithFilterState(
       {
         $query: qb,
@@ -51,6 +53,7 @@ export class FilterRunner {
         $adapter: this.adapter,
         $whitelisted,
         $blacklisted,
+        $pushed,
       },
       async () => {
         await this.runSetup(filter);
@@ -60,6 +63,26 @@ export class FilterRunner {
           const methodName = $whitelisted.has(key)
             ? this.resolveWhitelistedMethod(FilterClass, key)
             : resolveDispatchTarget(FilterClass, key);
+          if (!methodName) {
+            this.handleUnknownKey(key);
+            continue;
+          }
+          try {
+            const method = (
+              filter as unknown as Record<string, (v: unknown, k: string) => unknown>
+            )[methodName]!;
+            await method.call(filter, value, key);
+          } catch (cause) {
+            throw new FilterMethodException(key, value, cause);
+          }
+        }
+        // Process pushed entries (BFS: pushed handlers may push more entries)
+        while ($pushed.length > 0) {
+          const [key, value] = $pushed.shift()!;
+          if (value === undefined) continue;
+          const methodName =
+            resolveDispatchTarget(FilterClass, key) ??
+            this.resolveWhitelistedMethod(FilterClass, key);
           if (!methodName) {
             this.handleUnknownKey(key);
             continue;

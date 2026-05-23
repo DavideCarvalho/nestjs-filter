@@ -283,4 +283,163 @@ describe('FilterRunner.apply', () => {
     // name is blacklisted, only companyId dispatched
     expect(qb.calls).toEqual([['andWhere', { company: 5 }]]);
   });
+
+  it('push() dispatches additional keys after the current method', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class PushFilter extends BaseFilter<MockQB> {
+      @FilterFor()
+      trigger(v: string) {
+        this.$query.andWhere({ trigger: v });
+        this.push('secondary', 'pushed-value');
+      }
+
+      @FilterFor()
+      secondary(v: string) {
+        this.$query.andWhere({ secondary: v });
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        PushFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(PushFilter, { trigger: 'go' }, qb);
+    expect(qb.calls).toEqual([
+      ['andWhere', { trigger: 'go' }],
+      ['andWhere', { secondary: 'pushed-value' }],
+    ]);
+  });
+
+  it('push(object) dispatches multiple keys', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class PushObjectFilter extends BaseFilter<MockQB> {
+      @FilterFor()
+      trigger(v: string) {
+        this.$query.andWhere({ trigger: v });
+        this.push({ a: 1, b: 2 });
+      }
+
+      @FilterFor()
+      a(v: number) {
+        this.$query.andWhere({ a: v });
+      }
+
+      @FilterFor()
+      b(v: number) {
+        this.$query.andWhere({ b: v });
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        PushObjectFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(PushObjectFilter, { trigger: 'go' }, qb);
+    expect(qb.calls).toEqual([
+      ['andWhere', { trigger: 'go' }],
+      ['andWhere', { a: 1 }],
+      ['andWhere', { b: 2 }],
+    ]);
+  });
+
+  it('push() skips undefined values', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class PushUndefinedFilter extends BaseFilter<MockQB> {
+      @FilterFor()
+      trigger(v: string) {
+        this.$query.andWhere({ trigger: v });
+        this.push('secondary', undefined);
+      }
+
+      @FilterFor()
+      secondary(v: string) {
+        this.$query.andWhere({ secondary: v });
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        PushUndefinedFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(PushUndefinedFilter, { trigger: 'go' }, qb);
+    // secondary should not be dispatched because the pushed value is undefined
+    expect(qb.calls).toEqual([['andWhere', { trigger: 'go' }]]);
+  });
+
+  it('push() chains: pushed handler can push more entries', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class PushChainFilter extends BaseFilter<MockQB> {
+      @FilterFor()
+      first(v: string) {
+        this.$query.andWhere({ first: v });
+        this.push('second', 'two');
+      }
+
+      @FilterFor()
+      second(v: string) {
+        this.$query.andWhere({ second: v });
+        this.push('third', 'three');
+      }
+
+      @FilterFor()
+      third(v: string) {
+        this.$query.andWhere({ third: v });
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        PushChainFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(PushChainFilter, { first: 'one' }, qb);
+    expect(qb.calls).toEqual([
+      ['andWhere', { first: 'one' }],
+      ['andWhere', { second: 'two' }],
+      ['andWhere', { third: 'three' }],
+    ]);
+  });
 });

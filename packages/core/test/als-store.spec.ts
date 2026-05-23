@@ -14,6 +14,7 @@ describe('filterAls', () => {
       $adapter: null,
       $whitelisted: new Set<string>(),
       $blacklisted: new Set<string>(),
+      $pushed: [],
     };
     runWithFilterState(state, () => {
       expect(filterAls.getStore()).toBe(state);
@@ -28,6 +29,7 @@ describe('filterAls', () => {
       $adapter: null,
       $whitelisted: new Set<string>(),
       $blacklisted: new Set<string>(),
+      $pushed: [],
     };
     const b = {
       $query: { tag: 'b' },
@@ -36,6 +38,7 @@ describe('filterAls', () => {
       $adapter: null,
       $whitelisted: new Set<string>(),
       $blacklisted: new Set<string>(),
+      $pushed: [],
     };
 
     const results: string[] = [];

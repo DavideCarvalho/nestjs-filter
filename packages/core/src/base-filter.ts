@@ -61,5 +61,23 @@ export abstract class BaseFilter<TQuery = unknown> {
     return inp[key] ?? defaultValue;
   }
 
+  /**
+   * Injects additional key/value pairs into the filter input queue.
+   * Pushed entries are dispatched after the current dispatch loop completes.
+   */
+  protected push(key: string, value: unknown): void;
+  protected push(input: Record<string, unknown>): void;
+  protected push(keyOrInput: string | Record<string, unknown>, value?: unknown): void {
+    const state = filterAls.getStore();
+    if (!state) throw new FilterStateUnavailableException();
+    if (typeof keyOrInput === 'string') {
+      state.$pushed.push([keyOrInput, value]);
+    } else {
+      for (const [k, v] of Object.entries(keyOrInput)) {
+        state.$pushed.push([k, v]);
+      }
+    }
+  }
+
   setup?(): void | Promise<void>;
 }

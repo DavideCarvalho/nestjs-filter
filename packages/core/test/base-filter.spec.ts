@@ -12,6 +12,17 @@ class StubFilter extends BaseFilter<{ tag: string }> {
     if (key === undefined) return this.input();
     return this.input(key, defaultValue);
   }
+
+  // Expose protected push() for testing
+  publicPush(key: string, value: unknown): void;
+  publicPush(input: Record<string, unknown>): void;
+  publicPush(keyOrInput: string | Record<string, unknown>, value?: unknown): void {
+    if (typeof keyOrInput === 'string') {
+      this.push(keyOrInput, value);
+    } else {
+      this.push(keyOrInput);
+    }
+  }
 }
 
 describe('BaseFilter', () => {
@@ -36,6 +47,7 @@ describe('BaseFilter', () => {
         $adapter: null,
         $whitelisted: new Set(),
         $blacklisted: new Set(),
+        $pushed: [],
       },
       () => {
         expect(f.$query).toBe(qb);
@@ -56,6 +68,7 @@ describe('BaseFilter', () => {
         $adapter: null,
         $whitelisted: new Set(),
         $blacklisted: new Set(),
+        $pushed: [],
       },
       () => {
         expect(Object.isFrozen(f.$input)).toBe(true);
@@ -74,6 +87,7 @@ describe('BaseFilter', () => {
         $adapter: null,
         $whitelisted: new Set(),
         $blacklisted: new Set(),
+        $pushed: [],
       },
       () => {
         expect(f.publicInput()).toEqual({ name: 'foo', age: 30 });
@@ -92,6 +106,7 @@ describe('BaseFilter', () => {
         $adapter: null,
         $whitelisted: new Set(),
         $blacklisted: new Set(),
+        $pushed: [],
       },
       () => {
         expect(f.publicInput('name')).toBe('foo');
@@ -111,6 +126,7 @@ describe('BaseFilter', () => {
         $adapter: null,
         $whitelisted: new Set(),
         $blacklisted: new Set(),
+        $pushed: [],
       },
       () => {
         expect(f.publicInput('missing')).toBeUndefined();
@@ -129,6 +145,7 @@ describe('BaseFilter', () => {
         $adapter: null,
         $whitelisted: new Set(),
         $blacklisted: new Set(),
+        $pushed: [],
       },
       () => {
         expect(f.publicInput('missing', 'fallback')).toBe('fallback');
@@ -140,5 +157,53 @@ describe('BaseFilter', () => {
   it('input() throws outside of apply() context', () => {
     const f = new StubFilter();
     expect(() => f.publicInput()).toThrow(FilterStateUnavailableException);
+  });
+
+  it('push(key, value) appends to $pushed array', () => {
+    const f = new StubFilter();
+    const pushed: Array<[string, unknown]> = [];
+    runWithFilterState(
+      {
+        $query: {},
+        $input: Object.freeze({}),
+        $context: {},
+        $adapter: null,
+        $whitelisted: new Set(),
+        $blacklisted: new Set(),
+        $pushed: pushed,
+      },
+      () => {
+        f.publicPush('key1', 'value1');
+        expect(pushed).toEqual([['key1', 'value1']]);
+      },
+    );
+  });
+
+  it('push(object) appends multiple entries to $pushed array', () => {
+    const f = new StubFilter();
+    const pushed: Array<[string, unknown]> = [];
+    runWithFilterState(
+      {
+        $query: {},
+        $input: Object.freeze({}),
+        $context: {},
+        $adapter: null,
+        $whitelisted: new Set(),
+        $blacklisted: new Set(),
+        $pushed: pushed,
+      },
+      () => {
+        f.publicPush({ a: 1, b: 2 });
+        expect(pushed).toEqual([
+          ['a', 1],
+          ['b', 2],
+        ]);
+      },
+    );
+  });
+
+  it('push() throws outside of apply() context', () => {
+    const f = new StubFilter();
+    expect(() => f.publicPush('key', 'value')).toThrow(FilterStateUnavailableException);
   });
 });

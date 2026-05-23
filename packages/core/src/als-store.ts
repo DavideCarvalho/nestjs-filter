@@ -9,6 +9,7 @@ export interface FilterState {
   $adapter: FilterAdapter | null;
   $whitelisted: Set<string>;
   $blacklisted: Set<string>;
+  $pushed: Array<[string, unknown]>;
 }
 
 export const filterAls = new AsyncLocalStorage<FilterState>();
