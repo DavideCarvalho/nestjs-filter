@@ -49,10 +49,33 @@ class ValidatedFilter extends BaseFilter<MockQB> {
   }
 }
 
-async function makeModule(opts = {}) {
+@Injectable()
+@Filterable({ entity: FakeEntity })
+class FilterWithDefault extends BaseFilter<MockQB> {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  status = 'active';
+
+  @FilterFor('name')
+  applyName(v: string) {
+    this.$query.andWhere({ name: v });
+  }
+
+  @FilterFor('status')
+  applyStatus(v: string) {
+    this.$query.andWhere({ status: v });
+  }
+}
+
+async function makeModule(opts = {}, extraProviders: any[] = []) {
   return Test.createTestingModule({
     providers: [
       ValidatedFilter,
+      ...extraProviders,
       FilterRunner,
       {
         provide: FILTER_MODULE_OPTIONS,
@@ -86,5 +109,14 @@ describe('FilterRunner — class-validator', () => {
     const qb = makeMockQB();
     await runner.apply(ValidatedFilter, { companyId: 'x' as unknown as number }, qb);
     expect(qb.calls.length).toBe(1);
+  });
+
+  it('does not dispatch default property values from the filter class', async () => {
+    const mod = await makeModule({}, [FilterWithDefault]);
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    // Send only "name", NOT "status" — the default "active" should NOT be dispatched
+    await runner.apply(FilterWithDefault, { name: 'Alice' }, qb);
+    expect(qb.calls).toEqual([['andWhere', { name: 'Alice' }]]);
   });
 });

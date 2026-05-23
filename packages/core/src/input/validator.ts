@@ -27,5 +27,5 @@ export async function validateInput<F>(
     forbidNonWhitelisted: false,
   })) as unknown[];
   if (errors.length > 0) throw new FilterValidationException(errors);
-  return instance as Record<string, unknown>;
+  return input;
 }
