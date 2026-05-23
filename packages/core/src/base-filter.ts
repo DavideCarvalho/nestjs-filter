@@ -48,5 +48,18 @@ export abstract class BaseFilter<TQuery = unknown> {
     s.$blacklisted.add(key);
   }
 
+  /**
+   * Returns the full input object, a single input value by key,
+   * or a default value if the key is not present.
+   */
+  input(): Readonly<Record<string, unknown>>;
+  input(key: string): unknown;
+  input(key: string, defaultValue: unknown): unknown;
+  input(key?: string, defaultValue?: unknown): unknown {
+    const inp = this.$input;
+    if (key === undefined) return inp;
+    return inp[key] ?? defaultValue;
+  }
+
   setup?(): void | Promise<void>;
 }
