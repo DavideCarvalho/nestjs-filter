@@ -228,4 +228,66 @@ describe('BaseFilter', () => {
     const f = new StubFilter();
     expect(() => f.publicPush('key', 'value')).toThrow(FilterStateUnavailableException);
   });
+
+  it('related() delegates to adapter.applyRelationConstraint', async () => {
+    class RelatedFilter extends BaseFilter<{ andWhere: (c: unknown) => void }> {
+      async publicRelated(name: string, conditions: Record<string, unknown>) {
+        return this.related(name, conditions);
+      }
+    }
+
+    const f = new RelatedFilter();
+    const calls: unknown[] = [];
+    const mockQb = { andWhere: (c: unknown) => calls.push(c) };
+    const mockAdapter = {
+      createQueryBuilder: () => ({}),
+      async applyRelationConstraint(
+        _qb: unknown,
+        _rel: string,
+        cb: (rqb: unknown) => Promise<void>,
+      ) {
+        await cb(mockQb);
+      },
+    };
+
+    await runWithFilterState(
+      {
+        $query: mockQb,
+        $input: Object.freeze({}),
+        $context: {},
+        $adapter: mockAdapter,
+        $whitelisted: new Set(),
+        $blacklisted: new Set(),
+        $pushed: [],
+      },
+      () => f.publicRelated('posts', { status: 'published', title: 'Hello' }),
+    );
+
+    expect(calls).toEqual([{ status: 'published' }, { title: 'Hello' }]);
+  });
+
+  it('related() throws when adapter lacks support', async () => {
+    class RelatedFilter2 extends BaseFilter<object> {
+      async publicRelated(name: string, conditions: Record<string, unknown>) {
+        return this.related(name, conditions);
+      }
+    }
+
+    const f = new RelatedFilter2();
+
+    await expect(
+      runWithFilterState(
+        {
+          $query: {},
+          $input: Object.freeze({}),
+          $context: {},
+          $adapter: { createQueryBuilder: () => ({}) },
+          $whitelisted: new Set(),
+          $blacklisted: new Set(),
+          $pushed: [],
+        },
+        () => f.publicRelated('posts', { status: 'published' }),
+      ),
+    ).rejects.toThrow('Adapter does not support relation constraints');
+  });
 });

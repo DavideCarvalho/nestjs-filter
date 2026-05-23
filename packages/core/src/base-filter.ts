@@ -79,5 +79,38 @@ export abstract class BaseFilter<TQuery = unknown> {
     }
   }
 
+  /**
+   * Imperatively constrain a relation. Delegates to the adapter's
+   * `applyRelationConstraint` with the given conditions applied via callback.
+   *
+   * @param relationName - The relation property name on the entity (e.g. 'posts').
+   * @param conditions - A record of column/value pairs to match on the related entity.
+   *
+   * @example
+   * ```ts
+   * await this.related('posts', { status: 'published' });
+   * ```
+   */
+  protected async related(
+    relationName: string,
+    conditions: Record<string, unknown>,
+  ): Promise<void> {
+    const adapter = this.$adapter;
+    if (!adapter?.applyRelationConstraint) {
+      throw new Error(
+        `Adapter does not support relation constraints. Use $query directly to filter relation "${relationName}".`,
+      );
+    }
+    await adapter.applyRelationConstraint(this.$query, relationName, async (relationQb: unknown) => {
+      // Apply each condition as an andWhere on the relation query builder.
+      // The exact shape depends on the adapter — TypeORM and MikroORM both
+      // support object-based andWhere calls.
+      const qb = relationQb as { andWhere: (condition: unknown) => void };
+      for (const [column, value] of Object.entries(conditions)) {
+        qb.andWhere({ [column]: value });
+      }
+    });
+  }
+
   setup?(): void | Promise<void>;
 }
