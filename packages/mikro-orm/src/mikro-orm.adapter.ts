@@ -1,5 +1,5 @@
 import type { FilterAdapter } from '@dudousxd/nestjs-filter';
-import type { SqlEntityManager } from '@mikro-orm/knex';
+import type { SqlEntityManager } from '@mikro-orm/sql';
 import type { Type } from '@nestjs/common';
 
 export class MikroOrmAdapter implements FilterAdapter {

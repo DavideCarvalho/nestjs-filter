@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import { Entity, MikroORM, PrimaryKey, Property } from '@mikro-orm/core';
+import { MikroORM } from '@mikro-orm/core';
+import { Entity, PrimaryKey, Property, ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Injectable } from '@nestjs/common';
@@ -49,6 +50,7 @@ describe('MikroORM end-to-end filter', () => {
           dbName: ':memory:',
           entities: [User],
           allowGlobalContext: true,
+          metadataProvider: ReflectMetadataProvider,
         }),
         FilterModule.forRoot({ validation: 'off' }),
         MikroOrmFilterModule.forRoot(),
@@ -57,7 +59,7 @@ describe('MikroORM end-to-end filter', () => {
     }).compile();
 
     const orm = mod.get(MikroORM);
-    await orm.schema.createSchema();
+    await orm.schema.create();
 
     const em = orm.em.fork();
     em.persist([

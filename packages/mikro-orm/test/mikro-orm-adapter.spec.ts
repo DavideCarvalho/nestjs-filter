@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import { Entity, MikroORM, PrimaryKey, Property } from '@mikro-orm/core';
+import { MikroORM } from '@mikro-orm/core';
+import { Entity, PrimaryKey, Property, ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { describe, expect, it, afterEach } from 'vitest';
 import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
@@ -26,15 +27,16 @@ describe('MikroOrmAdapter', () => {
       dbName: ':memory:',
       entities: [Item],
       allowGlobalContext: true,
+      metadataProvider: ReflectMetadataProvider,
     });
-    await orm.schema.createSchema();
+    await orm.schema.create();
 
     const adapter = new MikroOrmAdapter(orm.em);
     const qb = adapter.createQueryBuilder(Item as any);
 
-    // MikroORM QueryBuilder has a getKnexQuery method
+    // MikroORM QueryBuilder has a getQuery method
     expect(qb).toBeDefined();
-    expect(typeof (qb as any).getKnexQuery).toBe('function');
+    expect(typeof (qb as any).getQuery).toBe('function');
   });
 
   it('applyFilterToQuery mutates and returns the query builder', async () => {
@@ -43,8 +45,9 @@ describe('MikroOrmAdapter', () => {
       dbName: ':memory:',
       entities: [Item],
       allowGlobalContext: true,
+      metadataProvider: ReflectMetadataProvider,
     });
-    await orm.schema.createSchema();
+    await orm.schema.create();
 
     const adapter = new MikroOrmAdapter(orm.em);
     const qb = orm.em.createQueryBuilder(Item);
