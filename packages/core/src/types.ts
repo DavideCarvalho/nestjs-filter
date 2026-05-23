@@ -29,6 +29,8 @@ export interface FilterModuleOptions {
   dropId?: boolean;
   onUnknownKey?: OnUnknownKey;
   validation?: ValidationMode;
+  /** When true (default), null, undefined and empty string values are stripped from input. */
+  stripEmpty?: boolean;
 }
 
 export interface FilterModuleOptionsFactory {

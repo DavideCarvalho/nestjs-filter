@@ -182,4 +182,25 @@ describe('FilterRunner.apply', () => {
     await runner.apply(UserFilter, { unknown: 1, name: 'foo' }, qb);
     expect(qb.calls).toEqual([['andWhere', { name: 'foo' }]]);
   });
+
+  it('strips null and empty string values by default (stripEmpty)', async () => {
+    const mod = await makeModule();
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(UserFilter, { name: '', companyId: null }, qb);
+    // Both are stripped, so nothing dispatched
+    expect(qb.calls).toEqual([]);
+  });
+
+  it('does not strip empty values when stripEmpty is false', async () => {
+    const mod = await makeModule({ stripEmpty: false });
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(UserFilter, { name: '', companyId: 5 }, qb);
+    // Empty string is NOT stripped, so name is dispatched with ''
+    expect(qb.calls).toEqual([
+      ['andWhere', { name: '' }],
+      ['andWhere', { company: 5 }],
+    ]);
+  });
 });

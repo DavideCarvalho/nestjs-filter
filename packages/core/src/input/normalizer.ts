@@ -3,6 +3,8 @@ import type { InputNormalizer } from '../types.js';
 export interface NormalizeOptions {
   normalizer: InputNormalizer;
   dropId?: boolean;
+  /** When true, null, undefined and empty string values are stripped. Defaults to true. */
+  stripEmpty?: boolean;
 }
 
 const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -11,9 +13,11 @@ export function normalizeInput(input: unknown, options: NormalizeOptions): Recor
   if (input == null || typeof input !== 'object') return {};
   const norm = pickNormalizer(options.normalizer);
   const drop = options.dropId === true;
+  const strip = options.stripEmpty !== false;
   const out: Record<string, unknown> = {};
   for (const [rawKey, value] of Object.entries(input as Record<string, unknown>)) {
     if (BLOCKED_KEYS.has(rawKey)) continue;
+    if (strip && (value === null || value === undefined || value === '')) continue;
     let key = norm(rawKey);
     if (BLOCKED_KEYS.has(key)) continue;
     if (drop) key = stripId(key);
