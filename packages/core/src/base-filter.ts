@@ -101,15 +101,19 @@ export abstract class BaseFilter<TQuery = unknown> {
         `Adapter does not support relation constraints. Use $query directly to filter relation "${relationName}".`,
       );
     }
-    await adapter.applyRelationConstraint(this.$query, relationName, async (relationQb: unknown) => {
-      // Apply each condition as an andWhere on the relation query builder.
-      // The exact shape depends on the adapter — TypeORM and MikroORM both
-      // support object-based andWhere calls.
-      const qb = relationQb as { andWhere: (condition: unknown) => void };
-      for (const [column, value] of Object.entries(conditions)) {
-        qb.andWhere({ [column]: value });
-      }
-    });
+    await adapter.applyRelationConstraint(
+      this.$query,
+      relationName,
+      async (relationQb: unknown) => {
+        // Apply each condition as an andWhere on the relation query builder.
+        // The exact shape depends on the adapter -- TypeORM and MikroORM both
+        // support object-based andWhere calls.
+        const qb = relationQb as { andWhere: (condition: unknown) => void };
+        for (const [column, value] of Object.entries(conditions)) {
+          qb.andWhere({ [column]: value });
+        }
+      },
+    );
   }
 
   setup?(): void | Promise<void>;

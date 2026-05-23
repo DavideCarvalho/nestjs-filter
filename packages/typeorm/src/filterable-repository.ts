@@ -66,6 +66,9 @@ export class FilterableRepository<E extends ObjectLiteral> {
     runner?: FilterRunner,
   ): Promise<[E[], number]> {
     const qb = await this.filter(input, runner);
-    return qb.skip((page - 1) * limit).take(limit).getManyAndCount();
+    return qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
   }
 }

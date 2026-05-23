@@ -63,6 +63,9 @@ export class FilterableEntityRepository<E extends object> {
     runner?: FilterRunner,
   ): Promise<E[]> {
     const qb = await this.filter(input, runner);
-    return qb.offset((page - 1) * limit).limit(limit).getResultList();
+    return qb
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getResultList();
   }
 }
