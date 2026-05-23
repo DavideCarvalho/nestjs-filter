@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FilterInput } from '../src/types.js';
+import type { FilterInput, FilterInputLoose, FilterInputStrict } from '../src/types.js';
 
 class FakeEntity {}
 
@@ -39,5 +39,48 @@ describe('FilterInput<F> type helper', () => {
     }
     const input: FilterInput<EmptyFilter> = {};
     expect(input).toEqual({});
+  });
+
+  it('FilterInputStrict<F> is identical to FilterInput<F>', () => {
+    const strict: FilterInputStrict<SampleFilter> = { name: 'Alice', age: 30 };
+    const base: FilterInput<SampleFilter> = strict;
+    expect(base).toEqual({ name: 'Alice', age: 30 });
+  });
+
+  it('FilterInputLoose<F> accepts snake_case key variants', () => {
+    class CamelFilter {
+      $query!: unknown;
+      firstName?: string;
+      lastName?: string;
+      age?: number;
+      setup() {}
+      applyFirstName(_v: string) {}
+    }
+    // snake_case variants should compile
+    const loose: FilterInputLoose<CamelFilter> = {
+      firstName: 'Alice',
+      first_name: 'Alice',
+      lastName: 'Smith',
+      last_name: 'Smith',
+      age: 30,
+    };
+    expect(loose).toBeDefined();
+  });
+
+  it('FilterInputLoose<F> accepts Id and _id suffixed variants for numeric keys', () => {
+    class NumericFilter {
+      $query!: unknown;
+      company?: number;
+      role?: string;
+      setup() {}
+    }
+    // Id and _id suffixed variants only for numeric keys
+    const loose: FilterInputLoose<NumericFilter> = {
+      company: 5,
+      companyId: 5,
+      company_id: 5,
+      role: 'admin',
+    };
+    expect(loose).toBeDefined();
   });
 });

@@ -33,6 +33,8 @@ export type {
   FilterableOptions,
   FilterContext,
   FilterInput,
+  FilterInputStrict,
+  FilterInputLoose,
   FilterMetadata,
   FilterModuleOptions,
   FilterModuleOptionsFactory,
