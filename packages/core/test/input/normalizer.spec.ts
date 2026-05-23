@@ -94,6 +94,11 @@ describe('normalizeInput', () => {
     expect(out).toEqual({ name: 'safe' });
   });
 
+  it('snakeCase handles consecutive uppercase (acronyms)', () => {
+    const out = normalizeInput({ myURLField: 1 }, { normalizer: 'snakeCase' });
+    expect(out).toEqual({ my_url_field: 1 });
+  });
+
   it('output uses null-prototype object', () => {
     const out = normalizeInput({ name: 'safe' }, { normalizer: 'camelCase' });
     expect(Object.getPrototypeOf(out)).toBeNull();
