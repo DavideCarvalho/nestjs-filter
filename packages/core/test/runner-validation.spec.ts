@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { Type } from 'class-transformer';
 import { IsNumber, IsOptional, IsString } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import { BaseFilter } from '../src/base-filter.js';
@@ -109,6 +110,29 @@ describe('FilterRunner — class-validator', () => {
     const qb = makeMockQB();
     await runner.apply(ValidatedFilter, { companyId: 'x' as unknown as number }, qb);
     expect(qb.calls.length).toBe(1);
+  });
+
+  it('returns class-transformer transformed values', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class TransformedFilter extends BaseFilter<MockQB> {
+      @IsOptional()
+      @IsNumber()
+      @Type(() => Number)
+      age?: number;
+
+      @FilterFor('age')
+      applyAge(v: number) {
+        this.$query.andWhere({ age: v });
+      }
+    }
+    const mod = await makeModule({}, [TransformedFilter]);
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    // Send age as string (as it would come from a query string)
+    await runner.apply(TransformedFilter, { age: '25' }, qb);
+    // The value should have been transformed to a number by class-transformer
+    expect(qb.calls).toEqual([['andWhere', { age: 25 }]]);
   });
 
   it('does not dispatch default property values from the filter class', async () => {

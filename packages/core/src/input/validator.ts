@@ -27,5 +27,9 @@ export async function validateInput<F>(
     forbidNonWhitelisted: false,
   })) as unknown[];
   if (errors.length > 0) throw new FilterValidationException(errors);
-  return input;
+  const transformed: Record<string, unknown> = {};
+  for (const key of Object.keys(input)) {
+    transformed[key] = (instance as Record<string, unknown>)[key];
+  }
+  return transformed;
 }
