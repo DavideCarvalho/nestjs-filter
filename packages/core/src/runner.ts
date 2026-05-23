@@ -65,7 +65,7 @@ export class FilterRunner {
         }
         return qb;
       },
-    ) as Promise<Q>;
+    );
   }
 
   private async resolveFilter<F>(FilterClass: Type<F>): Promise<F> {
