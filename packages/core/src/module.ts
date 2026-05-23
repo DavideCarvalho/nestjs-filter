@@ -22,6 +22,8 @@ export class FilterModule {
       { provide: FILTER_MODULE_OPTIONS, useValue: options },
       { provide: FILTER_ADAPTER, useValue: null },
       FilterRunner,
+      ApplyFilterInterceptor,
+      { provide: APP_INTERCEPTOR, useExisting: ApplyFilterInterceptor },
     ];
     return {
       module: FilterCoreModule,
@@ -37,6 +39,8 @@ export class FilterModule {
       asyncProvider,
       { provide: FILTER_ADAPTER, useValue: null },
       FilterRunner,
+      ApplyFilterInterceptor,
+      { provide: APP_INTERCEPTOR, useExisting: ApplyFilterInterceptor },
     ];
     return {
       module: FilterCoreModule,
@@ -50,11 +54,7 @@ export class FilterModule {
   static forFeature(filters: Array<Type<unknown>>): DynamicModule {
     return {
       module: FilterFeatureModule,
-      providers: [
-        ...filters.map((F) => F as Provider),
-        ApplyFilterInterceptor,
-        { provide: APP_INTERCEPTOR, useExisting: ApplyFilterInterceptor },
-      ],
+      providers: [...filters.map((F) => F as Provider)],
       exports: filters,
     };
   }

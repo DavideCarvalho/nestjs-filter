@@ -65,6 +65,17 @@ class UsersController {
   }
 }
 
+class AnotherEntity {}
+
+@Injectable()
+@Filterable({ entity: AnotherEntity })
+class AnotherFilter extends BaseFilter<FakeQB> {
+  @FilterFor('status')
+  applyStatus(v: string) {
+    this.$query.andWhere({ status: v });
+  }
+}
+
 @Module({
   imports: [
     FilterModule.forRoot({ inputNormalizer: 'camelCase', validation: 'off' }),
@@ -74,6 +85,17 @@ class UsersController {
   providers: [{ provide: FILTER_ADAPTER, useValue: fakeAdapter }],
 })
 class TestAppModule {}
+
+@Module({
+  imports: [
+    FilterModule.forRoot({ inputNormalizer: 'camelCase', validation: 'off' }),
+    FilterModule.forFeature([UserFilter]),
+    FilterModule.forFeature([AnotherFilter]),
+  ],
+  controllers: [UsersController],
+  providers: [{ provide: FILTER_ADAPTER, useValue: fakeAdapter }],
+})
+class TestAppModuleDoubleFeature {}
 
 describe('@ApplyFilter via Express interceptor', () => {
   it('GET uses query string', async () => {
@@ -99,6 +121,21 @@ describe('@ApplyFilter via Express interceptor', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.result.calls).toEqual([['andWhere', { name: 'fromBody' }]]);
+
+    await app.close();
+  });
+
+  it('two forFeature calls do not duplicate interceptor (filter runs once)', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [TestAppModuleDoubleFeature],
+    }).compile();
+    const app = mod.createNestApplication<NestExpressApplication>();
+    await app.init();
+
+    const res = await request(app.getHttpServer()).get('/users?name=bar');
+    expect(res.status).toBe(200);
+    // Should have exactly 1 andWhere call, not 2 (which would happen if interceptor ran twice)
+    expect(res.body.result.calls).toEqual([['andWhere', { name: 'bar' }]]);
 
     await app.close();
   });
