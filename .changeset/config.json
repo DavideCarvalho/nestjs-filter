@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@2.3.0/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "DavideCarvalho/nestjs-filter" }],
+  "commit": false,
+  "fixed": [],
+  "linked": [
+    [
+      "@dudousxd/nestjs-filter",
+      "@dudousxd/nestjs-filter-mikro-orm",
+      "@dudousxd/nestjs-filter-typeorm"
+    ]
+  ],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": []
+}
