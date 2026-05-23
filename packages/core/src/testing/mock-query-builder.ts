@@ -1,19 +1,18 @@
-export interface MockQueryBuilder<_E = unknown> {
-  calls: Array<[string, ...unknown[]]>;
-  [method: string]: (...args: unknown[]) => MockQueryBuilder<_E>;
-}
+export type MockQueryBuilder<_E = unknown> = {
+  readonly calls: Array<[string, ...unknown[]]>;
+} & Record<string, (...args: unknown[]) => MockQueryBuilder<_E>>;
 
-export function makeMockQueryBuilder<E = unknown>(): MockQueryBuilder<E> & { calls: Array<[string, ...unknown[]]> } {
-  const target = { calls: [] as Array<[string, ...unknown[]]> };
-  const proxy: MockQueryBuilder<E> = new Proxy(target as unknown as MockQueryBuilder<E>, {
-    get(t, prop) {
-      if (prop === 'calls') return (t as unknown as { calls: unknown[] }).calls;
+export function makeMockQueryBuilder<E = unknown>(): MockQueryBuilder<E> {
+  const calls: Array<[string, ...unknown[]]> = [];
+  const proxy = new Proxy({} as MockQueryBuilder<E>, {
+    get(_t, prop) {
+      if (prop === 'calls') return calls;
       const name = String(prop);
       return (...args: unknown[]) => {
-        (t as unknown as { calls: Array<[string, ...unknown[]]> }).calls.push([name, ...args]);
+        calls.push([name, ...args]);
         return proxy;
       };
     },
   });
-  return proxy as MockQueryBuilder<E> & { calls: Array<[string, ...unknown[]]> };
+  return proxy;
 }
