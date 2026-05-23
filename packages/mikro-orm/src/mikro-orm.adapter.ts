@@ -1,12 +1,12 @@
 import type { FilterAdapter } from '@dudousxd/nestjs-filter';
-import type { EntityManager } from '@mikro-orm/core';
+import type { SqlEntityManager } from '@mikro-orm/knex';
 import type { Type } from '@nestjs/common';
 
 export class MikroOrmAdapter implements FilterAdapter {
-  constructor(private readonly em: EntityManager) {}
+  constructor(private readonly em: SqlEntityManager) {}
 
   createQueryBuilder<E>(entity: Type<E>): unknown {
-    return this.em.createQueryBuilder<E>(entity as unknown as new () => E);
+    return this.em.createQueryBuilder(entity as unknown as new () => E);
   }
 
   applyFilterToQuery<Q>(qb: Q, mutate: (qb: Q) => void): Q {
