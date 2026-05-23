@@ -1,6 +1,7 @@
-import type { FilterAdapter } from '@dudousxd/nestjs-filter';
+import type { ColumnFilter, FilterAdapter } from '@dudousxd/nestjs-filter';
 import type { Type } from '@nestjs/common';
 import type { DataSource, ObjectLiteral, SelectQueryBuilder } from 'typeorm';
+import { applyColumnFiltersTypeOrm } from './operator-resolver.js';
 
 export class TypeOrmAdapter implements FilterAdapter {
   constructor(private readonly dataSource: DataSource) {}
@@ -22,5 +23,10 @@ export class TypeOrmAdapter implements FilterAdapter {
     // without eagerly selecting relation columns or producing duplicate rows.
     parentQb.innerJoin(`${alias}.${relationName}`, relationName);
     await callback(parentQb);
+  }
+
+  applyColumnFilters(qb: unknown, filters: ColumnFilter[]): void {
+    if (filters.length === 0) return;
+    applyColumnFiltersTypeOrm(qb as SelectQueryBuilder<ObjectLiteral>, filters);
   }
 }
