@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { FilterFor, FilterModule, FilterRunner, Filterable } from '@dudousxd/nestjs-filter';
+import { FilterFor, FilterModule, FilterRunner, Filterable, escapeLike } from '@dudousxd/nestjs-filter';
 import { MikroORM } from '@mikro-orm/core';
 import {
   Entity,
@@ -34,7 +34,7 @@ class User {
 class UserFilter extends MikroOrmFilter<User> {
   @FilterFor('name')
   applyName(v: string) {
-    this.$query.andWhere({ name: { $like: `%${v}%` } });
+    this.$query.andWhere({ name: { $like: `%${escapeLike(v)}%` } });
   }
 
   @FilterFor('minAge')

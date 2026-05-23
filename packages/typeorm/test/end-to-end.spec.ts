@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { FilterFor, FilterModule, FilterRunner, Filterable } from '@dudousxd/nestjs-filter';
+import { FilterFor, FilterModule, FilterRunner, Filterable, escapeLike } from '@dudousxd/nestjs-filter';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -27,7 +27,7 @@ class User {
 class UserFilter extends TypeOrmFilter<User> {
   @FilterFor('name')
   applyName(v: string) {
-    this.$query.andWhere('user.name LIKE :name', { name: `%${v}%` });
+    this.$query.andWhere('user.name LIKE :name', { name: `%${escapeLike(v)}%` });
   }
 
   @FilterFor('minAge')

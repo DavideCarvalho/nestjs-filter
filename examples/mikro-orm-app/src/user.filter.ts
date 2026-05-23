@@ -1,4 +1,4 @@
-import { FilterFor, Filterable } from '@dudousxd/nestjs-filter';
+import { FilterFor, Filterable, escapeLike } from '@dudousxd/nestjs-filter';
 import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
 import { Injectable } from '@nestjs/common';
 import { Type } from 'class-transformer';
@@ -19,7 +19,7 @@ export class UserFilter extends MikroOrmFilter<User> {
 
   @FilterFor('name')
   applyName(value: string) {
-    this.$query.andWhere({ name: { $like: `%${value}%` } });
+    this.$query.andWhere({ name: { $like: `%${escapeLike(value)}%` } });
   }
 
   @FilterFor('minAge')
