@@ -3,6 +3,7 @@ import { ModuleRef } from '@nestjs/core';
 import type { FilterAdapter } from './adapter/adapter.js';
 import { runWithFilterState } from './als-store.js';
 import { getFilterForMap } from './decorator/filter-for.decorator.js';
+import { type RelationConfig, resolveRelation } from './decorator/relations.decorator.js';
 import {
   FilterMethodException,
   FilterNotRegisteredException,
@@ -57,24 +58,49 @@ export class FilterRunner {
       },
       async () => {
         await this.runSetup(filter);
+        // Collect relation-bound keys for batched processing
+        const relationBatches = new Map<
+          string,
+          { config: RelationConfig; entries: Array<[string, unknown]> }
+        >();
         for (const [key, value] of Object.entries(finalInput)) {
           if (value === undefined) continue;
           if ($blacklisted.has(key)) continue;
           const methodName = $whitelisted.has(key)
             ? this.resolveWhitelistedMethod(FilterClass, key)
             : resolveDispatchTarget(FilterClass, key);
-          if (!methodName) {
-            this.handleUnknownKey(key);
+          if (methodName) {
+            try {
+              const method = (
+                filter as unknown as Record<string, (v: unknown, k: string) => unknown>
+              )[methodName]!;
+              await method.call(filter, value, key);
+            } catch (cause) {
+              throw new FilterMethodException(key, value, cause);
+            }
             continue;
           }
-          try {
-            const method = (
-              filter as unknown as Record<string, (v: unknown, k: string) => unknown>
-            )[methodName]!;
-            await method.call(filter, value, key);
-          } catch (cause) {
-            throw new FilterMethodException(key, value, cause);
+          // Check if this key is mapped to a relation
+          const relation = resolveRelation(FilterClass, key);
+          if (relation) {
+            const [relationName, config] = relation;
+            if (!relationBatches.has(relationName)) {
+              relationBatches.set(relationName, { config, entries: [] });
+            }
+            relationBatches.get(relationName)!.entries.push([key, value]);
+            continue;
           }
+          this.handleUnknownKey(key);
+        }
+        // Apply relation constraints in batch per relation
+        for (const [relationName, { config, entries }] of relationBatches) {
+          await this.applyRelation(
+            config.filter as Type<object>,
+            qb,
+            relationName,
+            entries,
+            context,
+          );
         }
         // Process pushed entries (BFS: pushed handlers may push more entries)
         while ($pushed.length > 0) {
@@ -137,6 +163,32 @@ export class FilterRunner {
   private resolveWhitelistedMethod(FilterClass: Function, key: string): string | null {
     const map = getFilterForMap(FilterClass);
     return map.get(key) ?? null;
+  }
+
+  /**
+   * Applies relation-bound input keys by delegating to the related filter
+   * via the adapter's applyRelationConstraint.
+   */
+  private async applyRelation<Q>(
+    RelatedFilterClass: Type<object>,
+    qb: Q,
+    relationName: string,
+    entries: Array<[string, unknown]>,
+    context: FilterContext,
+  ): Promise<void> {
+    if (!this.adapter?.applyRelationConstraint) {
+      this.logger.warn(
+        `Relation "${relationName}" skipped: adapter does not support applyRelationConstraint.`,
+      );
+      return;
+    }
+    const inputObj: Record<string, unknown> = {};
+    for (const [key, value] of entries) {
+      inputObj[key] = value;
+    }
+    await this.adapter.applyRelationConstraint(qb, relationName, async (relationQb: unknown) => {
+      await this.apply(RelatedFilterClass, inputObj, relationQb, context);
+    });
   }
 
   private handleUnknownKey(key: string): void {

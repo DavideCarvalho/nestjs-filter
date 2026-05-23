@@ -2,9 +2,11 @@ import 'reflect-metadata';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
+import type { FilterAdapter } from '../src/adapter/adapter.js';
 import { BaseFilter } from '../src/base-filter.js';
 import { FilterFor } from '../src/decorator/filter-for.decorator.js';
 import { Filterable } from '../src/decorator/filterable.decorator.js';
+import { Relations } from '../src/decorator/relations.decorator.js';
 import {
   FilterMethodException,
   FilterNotRegisteredException,
@@ -441,5 +443,119 @@ describe('FilterRunner.apply', () => {
       ['andWhere', { second: 'two' }],
       ['andWhere', { third: 'three' }],
     ]);
+  });
+
+  it('@Relations delegates keys to related filter via adapter', async () => {
+    class PostEntity {}
+
+    @Injectable()
+    @Filterable({ entity: PostEntity })
+    class PostFilter extends BaseFilter<MockQB> {
+      @FilterFor()
+      postTitle(v: string) {
+        this.$query.andWhere({ postTitle: v });
+      }
+
+      @FilterFor()
+      postStatus(v: string) {
+        this.$query.andWhere({ postStatus: v });
+      }
+    }
+
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    @Relations({
+      posts: { filter: PostFilter, keys: ['postTitle', 'postStatus'] },
+    })
+    class UserWithRelationsFilter extends BaseFilter<MockQB> {
+      @FilterFor()
+      name(v: string) {
+        this.$query.andWhere({ name: v });
+      }
+    }
+
+    // Mock adapter with applyRelationConstraint
+    const relationAdapter: FilterAdapter = {
+      createQueryBuilder: () => makeMockQB(),
+      async applyRelationConstraint(qb, relationName, callback) {
+        // Record the relation join on the parent QB
+        (qb as MockQB).andWhere({ $relation: relationName });
+        // Pass the same qb to the callback (in real ORMs this would be a sub-qb)
+        await callback(qb);
+      },
+    };
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        UserWithRelationsFilter,
+        PostFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
+        },
+        { provide: FILTER_ADAPTER, useValue: relationAdapter },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(
+      UserWithRelationsFilter,
+      { name: 'Alice', postTitle: 'Hello', postStatus: 'published' },
+      qb,
+    );
+
+    expect(qb.calls).toEqual([
+      ['andWhere', { name: 'Alice' }],
+      ['andWhere', { $relation: 'posts' }],
+      ['andWhere', { postTitle: 'Hello' }],
+      ['andWhere', { postStatus: 'published' }],
+    ]);
+  });
+
+  it('@Relations ignores relation keys when adapter lacks applyRelationConstraint', async () => {
+    class PostEntity {}
+
+    @Injectable()
+    @Filterable({ entity: PostEntity })
+    class PostFilter2 extends BaseFilter<MockQB> {
+      @FilterFor()
+      postTitle(v: string) {
+        this.$query.andWhere({ postTitle: v });
+      }
+    }
+
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    @Relations({
+      posts: { filter: PostFilter2, keys: ['postTitle'] },
+    })
+    class UserRelNoAdapterFilter extends BaseFilter<MockQB> {
+      @FilterFor()
+      name(v: string) {
+        this.$query.andWhere({ name: v });
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        UserRelNoAdapterFilter,
+        PostFilter2,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
+        },
+        // Adapter without applyRelationConstraint
+        { provide: FILTER_ADAPTER, useValue: { createQueryBuilder: () => makeMockQB() } },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    // postTitle is relation-mapped but adapter doesn't support it — silently skipped
+    await runner.apply(UserRelNoAdapterFilter, { name: 'Alice', postTitle: 'Hello' }, qb);
+    expect(qb.calls).toEqual([['andWhere', { name: 'Alice' }]]);
   });
 });
