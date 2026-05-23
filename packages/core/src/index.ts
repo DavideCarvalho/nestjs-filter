@@ -30,6 +30,7 @@ export type {
   ApplyFilterOptions,
   FilterableOptions,
   FilterContext,
+  FilterInput,
   FilterMetadata,
   FilterModuleOptions,
   FilterModuleOptionsFactory,
