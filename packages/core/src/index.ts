@@ -6,6 +6,7 @@ export { Filterable, getFilterableMetadata } from './decorator/filterable.decora
 export { FilterFor, getFilterForMap } from './decorator/filter-for.decorator.js';
 export { ApplyFilter, getApplyFilterMetadata } from './decorator/apply-filter.decorator.js';
 export { ApplyFilterInterceptor } from './interceptor/apply-filter.interceptor.js';
+export { FilterExceptionFilter } from './filter/filter-exception.filter.js';
 export { FilterRunner } from './runner.js';
 export { FilterModule } from './module.js';
 export {
