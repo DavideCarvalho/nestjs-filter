@@ -8,9 +8,4 @@ export class MikroOrmAdapter implements FilterAdapter {
   createQueryBuilder<E>(entity: Type<E>): unknown {
     return this.em.createQueryBuilder(entity as unknown as new () => E);
   }
-
-  applyFilterToQuery<Q>(qb: Q, mutate: (qb: Q) => void): Q {
-    mutate(qb);
-    return qb;
-  }
 }

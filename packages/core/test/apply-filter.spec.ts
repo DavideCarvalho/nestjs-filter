@@ -37,10 +37,6 @@ function makeFakeQB(): FakeQB {
 
 const fakeAdapter: FilterAdapter = {
   createQueryBuilder: () => makeFakeQB(),
-  applyFilterToQuery: (qb, mutate) => {
-    mutate(qb);
-    return qb;
-  },
 };
 
 @Injectable()

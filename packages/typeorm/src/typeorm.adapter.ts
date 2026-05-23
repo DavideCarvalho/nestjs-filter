@@ -10,9 +10,4 @@ export class TypeOrmAdapter implements FilterAdapter {
     const alias = (entity as unknown as { name: string }).name.toLowerCase();
     return repo.createQueryBuilder(alias);
   }
-
-  applyFilterToQuery<Q>(qb: Q, mutate: (qb: Q) => void): Q {
-    mutate(qb);
-    return qb;
-  }
 }
