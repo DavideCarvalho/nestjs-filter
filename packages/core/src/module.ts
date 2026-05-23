@@ -62,6 +62,7 @@ export class FilterModule {
 
   static forFeatureAsync(options: {
     imports?: DynamicModule[];
+    filters?: Array<Type<unknown>>;
     useFactory: (...args: unknown[]) => Promise<Array<Type<unknown>>> | Array<Type<unknown>>;
     inject?: unknown[];
   }): DynamicModule {
@@ -71,11 +72,16 @@ export class FilterModule {
       useFactory: options.useFactory,
       inject: (options.inject ?? []) as Array<Type<unknown>>,
     };
+
+    // If filter classes are known up front, register them directly as providers
+    // so they can be resolved by moduleRef.resolve(FilterClass).
+    const filterProviders: Provider[] = (options.filters ?? []).map((F) => F as Provider);
+
     return {
       module: FilterFeatureModule,
       imports: options.imports ?? [],
-      providers: [filtersProvider],
-      exports: [FILTER_FEATURE_CLASSES],
+      providers: [filtersProvider, ...filterProviders],
+      exports: [FILTER_FEATURE_CLASSES, ...(options.filters ?? [])],
     };
   }
 

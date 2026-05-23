@@ -104,6 +104,28 @@ describe('FilterModule', () => {
     expect(classes).toEqual([UserFilter]);
   });
 
+  it('forFeatureAsync registers filter classes as providers when passed via filters option', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class AsyncRegisteredFilter extends BaseFilter<unknown> {}
+
+    const mod = await Test.createTestingModule({
+      imports: [
+        FilterModule.forRoot({ validation: 'off' }),
+        FilterModule.forFeatureAsync({
+          filters: [AsyncRegisteredFilter],
+          useFactory: async () => [AsyncRegisteredFilter],
+        }),
+      ],
+    }).compile();
+
+    // The filter class should be resolvable as an individual provider
+    expect(mod.get(AsyncRegisteredFilter)).toBeInstanceOf(AsyncRegisteredFilter);
+    // The factory result should also be available
+    const classes = mod.get('FILTER_FEATURE_CLASSES');
+    expect(classes).toEqual([AsyncRegisteredFilter]);
+  });
+
   it('forFeatureAsync accepts imports and inject options', async () => {
     const CONFIG_TOKEN = 'CONFIG_TOKEN';
 
