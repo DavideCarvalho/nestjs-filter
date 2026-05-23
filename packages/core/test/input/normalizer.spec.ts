@@ -83,4 +83,19 @@ describe('normalizeInput', () => {
     const out = normalizeInput({ count: 0, active: false, name: '' }, { normalizer: 'camelCase' });
     expect(out).toEqual({ count: 0, active: false });
   });
+
+  it('drops toString key to prevent prototype pollution', () => {
+    const out = normalizeInput({ toString: 'evil', name: 'safe' }, { normalizer: 'camelCase' });
+    expect(out).toEqual({ name: 'safe' });
+  });
+
+  it('drops valueOf key to prevent prototype pollution', () => {
+    const out = normalizeInput({ valueOf: 'evil', name: 'safe' }, { normalizer: 'camelCase' });
+    expect(out).toEqual({ name: 'safe' });
+  });
+
+  it('output uses null-prototype object', () => {
+    const out = normalizeInput({ name: 'safe' }, { normalizer: 'camelCase' });
+    expect(Object.getPrototypeOf(out)).toBeNull();
+  });
 });

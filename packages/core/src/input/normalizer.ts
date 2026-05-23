@@ -7,14 +7,14 @@ export interface NormalizeOptions {
   stripEmpty?: boolean;
 }
 
-const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype', 'toString', 'valueOf']);
 
 export function normalizeInput(input: unknown, options: NormalizeOptions): Record<string, unknown> {
   if (input == null || typeof input !== 'object') return {};
   const norm = pickNormalizer(options.normalizer);
   const drop = options.dropId === true;
   const strip = options.stripEmpty !== false;
-  const out: Record<string, unknown> = {};
+  const out = Object.create(null) as Record<string, unknown>;
   for (const [rawKey, value] of Object.entries(input as Record<string, unknown>)) {
     if (BLOCKED_KEYS.has(rawKey)) continue;
     if (strip && (value === null || value === undefined || value === '')) continue;
