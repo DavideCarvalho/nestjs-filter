@@ -8,6 +8,9 @@ export function Filterable(options: FilterableOptions): ClassDecorator {
     if (!options || !options.entity) {
       throw new FilterMissingEntityException(target.name || 'AnonymousFilter');
     }
+    if (options.allowed && options.blocked) {
+      throw new Error(`@Filterable on ${target.name}: specify 'allowed' or 'blocked', not both.`);
+    }
     const meta: FilterMetadata = {
       entity: options.entity,
       ...(options.allowed !== undefined && { allowed: options.allowed }),

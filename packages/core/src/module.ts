@@ -35,8 +35,9 @@ export class FilterModule {
 
   static forRootAsync(options: FilterModuleAsyncOptions): DynamicModule {
     const asyncProvider = FilterModule.buildAsyncOptionsProvider(options);
+    const asyncProviders = Array.isArray(asyncProvider) ? asyncProvider : [asyncProvider];
     const providers: Provider[] = [
-      asyncProvider,
+      ...asyncProviders,
       { provide: FILTER_ADAPTER, useValue: null },
       FilterRunner,
       ApplyFilterInterceptor,
@@ -78,7 +79,7 @@ export class FilterModule {
     };
   }
 
-  private static buildAsyncOptionsProvider(options: FilterModuleAsyncOptions): Provider {
+  private static buildAsyncOptionsProvider(options: FilterModuleAsyncOptions): Provider | Provider[] {
     if (options.useFactory) {
       return {
         provide: FILTER_MODULE_OPTIONS,
@@ -86,8 +87,17 @@ export class FilterModule {
         inject: (options.inject ?? []) as unknown as Array<Type<unknown>>,
       };
     }
-    const factoryClass = (options.useClass ??
-      options.useExisting) as Type<FilterModuleOptionsFactory>;
+    if (options.useClass) {
+      return [
+        { provide: options.useClass, useClass: options.useClass },
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useFactory: async (factory: FilterModuleOptionsFactory) => factory.createFilterOptions(),
+          inject: [options.useClass],
+        },
+      ];
+    }
+    const factoryClass = options.useExisting as Type<FilterModuleOptionsFactory>;
     return {
       provide: FILTER_MODULE_OPTIONS,
       useFactory: async (factory: FilterModuleOptionsFactory) => factory.createFilterOptions(),

@@ -7,6 +7,7 @@ import { Filterable } from '../src/decorator/filterable.decorator.js';
 import { FilterModule } from '../src/module.js';
 import { FilterRunner } from '../src/runner.js';
 import { FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from '../src/tokens.js';
+import type { FilterModuleOptions, FilterModuleOptionsFactory } from '../src/types.js';
 
 class FakeEntity {}
 
@@ -53,6 +54,26 @@ describe('FilterModule', () => {
       imports: [FilterModule.forRoot({ validation: 'off' })],
     }).compile();
     expect(mod.get(FILTER_ADAPTER)).toBeNull();
+  });
+
+  it('forRootAsync useClass registers and resolves the factory class', async () => {
+    @Injectable()
+    class MyOptionsFactory implements FilterModuleOptionsFactory {
+      createFilterOptions(): FilterModuleOptions {
+        return { inputNormalizer: 'camelCase', validation: 'off' };
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      imports: [
+        FilterModule.forRootAsync({
+          useClass: MyOptionsFactory,
+        }),
+      ],
+    }).compile();
+
+    const options = mod.get(FILTER_MODULE_OPTIONS);
+    expect(options).toMatchObject({ inputNormalizer: 'camelCase', validation: 'off' });
   });
 
   it('forFeatureAsync registers filters resolved by async factory', async () => {

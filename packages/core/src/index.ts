@@ -16,6 +16,7 @@ export {
   FilterStateUnavailableException,
   UnknownFilterKeyException,
   FilterValidationException,
+  FilterMissingAdapterException,
   FilterMethodException,
 } from './errors/exceptions.js';
 export {

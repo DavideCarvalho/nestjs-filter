@@ -15,6 +15,7 @@ import {
   getApplyFilterMetadata,
 } from '../decorator/apply-filter.decorator.js';
 import { getFilterableMetadata } from '../decorator/filterable.decorator.js';
+import { FilterMissingAdapterException, FilterMissingEntityException } from '../errors/exceptions.js';
 import { resolveInputFromRequest } from '../input/source-resolver.js';
 import { FilterRunner } from '../runner.js';
 import { APPLY_FILTER_REQ_KEY, FILTER_ADAPTER } from '../tokens.js';
@@ -68,16 +69,14 @@ export class ApplyFilterInterceptor implements NestInterceptor {
     adapter: FilterAdapter | null,
   ): Promise<void> {
     if (!adapter) {
-      throw new Error(
-        'No FilterAdapter registered. Import an adapter module (e.g. MikroOrmFilterModule.forRoot()).',
-      );
+      throw new FilterMissingAdapterException();
     }
 
     for (const entry of entries) {
       const FilterClass = entry.options.resolve ? entry.options.resolve(req) : entry.filterClass;
       const filterableMeta = getFilterableMetadata(FilterClass);
       if (!filterableMeta) {
-        throw new Error(`Filter ${FilterClass.name} is missing @Filterable({ entity }).`);
+        throw new FilterMissingEntityException(FilterClass.name);
       }
 
       const qb = adapter.createQueryBuilder(filterableMeta.entity);

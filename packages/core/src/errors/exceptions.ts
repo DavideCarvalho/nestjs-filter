@@ -35,6 +35,12 @@ export class FilterValidationException extends FilterException {
   }
 }
 
+export class FilterMissingAdapterException extends FilterException {
+  constructor() {
+    super('No FilterAdapter registered. Import an adapter module (e.g. MikroOrmFilterModule.forRoot()).');
+  }
+}
+
 export class FilterMethodException extends FilterException {
   constructor(
     public readonly key: string,

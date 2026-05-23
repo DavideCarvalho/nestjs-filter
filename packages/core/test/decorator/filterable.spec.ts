@@ -16,12 +16,25 @@ describe('@Filterable', () => {
     expect(meta?.entity).toBe(FakeEntity);
   });
 
-  it('stores allowed/blocked when provided', () => {
-    @Filterable({ entity: FakeEntity, allowed: ['name'], blocked: ['secret'] })
+  it('stores allowed when provided', () => {
+    @Filterable({ entity: FakeEntity, allowed: ['name'] })
     class F {}
     const meta = getFilterableMetadata(F);
     expect(meta?.allowed).toEqual(['name']);
+  });
+
+  it('stores blocked when provided', () => {
+    @Filterable({ entity: FakeEntity, blocked: ['secret'] })
+    class F {}
+    const meta = getFilterableMetadata(F);
     expect(meta?.blocked).toEqual(['secret']);
+  });
+
+  it('throws when both allowed and blocked are specified', () => {
+    expect(() => {
+      @Filterable({ entity: FakeEntity, allowed: ['name'], blocked: ['secret'] })
+      class _F {}
+    }).toThrow("specify 'allowed' or 'blocked', not both");
   });
 
   it('returns undefined for undecorated class', () => {
