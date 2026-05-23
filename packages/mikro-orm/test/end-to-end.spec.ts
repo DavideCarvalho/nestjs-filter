@@ -6,9 +6,12 @@ import {
   Filterable,
   escapeLike,
 } from '@dudousxd/nestjs-filter';
-import { MikroORM } from '@mikro-orm/core';
+import { Collection, MikroORM } from '@mikro-orm/core';
 import {
   Entity,
+  ManyToMany,
+  ManyToOne,
+  OneToMany,
   PrimaryKey,
   Property,
   ReflectMetadataProvider,
@@ -17,9 +20,20 @@ import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MikroOrmFilter } from '../src/mikro-orm-filter.js';
 import { MikroOrmFilterModule } from '../src/module.js';
+
+// ─── Entities ───────────────────────────────────────────────────────────────────
+
+@Entity({ tableName: 'tags' })
+class Tag {
+  @PrimaryKey()
+  id!: number;
+
+  @Property()
+  name!: string;
+}
 
 @Entity({ tableName: 'users' })
 class User {
@@ -30,127 +44,452 @@ class User {
   name!: string;
 
   @Property()
+  email!: string;
+
+  @Property()
   age!: number;
+
+  @Property()
+  role!: string;
+
+  @Property()
+  active!: boolean;
+
+  @Property({ nullable: true })
+  bio?: string;
+
+  @OneToMany(
+    () => Post,
+    (post) => post.author,
+  )
+  posts = new Collection<Post>(this);
+
+  @ManyToMany(() => Tag)
+  tags = new Collection<Tag>(this);
 }
+
+@Entity({ tableName: 'posts' })
+class Post {
+  @PrimaryKey()
+  id!: number;
+
+  @Property()
+  title!: string;
+
+  @Property()
+  status!: string;
+
+  @ManyToOne(() => User)
+  author!: User;
+}
+
+// ─── Filters ────────────────────────────────────────────────────────────────────
 
 @Injectable()
 @Filterable({ entity: User })
 class UserFilter extends MikroOrmFilter<User> {
   @FilterFor('name')
   applyName(v: string) {
-    this.$query.andWhere({ name: { $like: `%${escapeLike(v)}%` } });
+    this.whereLike('name', v);
+  }
+
+  @FilterFor('role')
+  applyRole(v: string) {
+    this.$query.andWhere({ role: v });
   }
 
   @FilterFor('minAge')
   applyMinAge(v: number) {
     this.$query.andWhere({ age: { $gte: v } });
   }
-}
 
-@Injectable()
-@Filterable({ entity: User })
-class UserHelperFilter extends MikroOrmFilter<User> {
-  @FilterFor('name')
-  applyName(v: string) {
-    this.whereLike('name', v);
+  @FilterFor('maxAge')
+  applyMaxAge(v: number) {
+    this.$query.andWhere({ age: { $lte: v } });
   }
 
-  @FilterFor('namePrefix')
-  applyNamePrefix(v: string) {
+  @FilterFor('active')
+  applyActive(v: boolean) {
+    this.$query.andWhere({ active: v });
+  }
+
+  @FilterFor('bio')
+  applyBio(v: string) {
+    this.whereLike('bio', v);
+  }
+
+  @FilterFor('nameStartsWith')
+  applyNameStartsWith(v: string) {
     this.whereBeginsWith('name', v);
   }
 
-  @FilterFor('nameSuffix')
-  applyNameSuffix(v: string) {
+  @FilterFor('nameEndsWith')
+  applyNameEndsWith(v: string) {
     this.whereEndsWith('name', v);
+  }
+
+  @FilterFor('postStatus')
+  applyPostStatus(v: string) {
+    this.$query.joinAndSelect('posts', 'posts');
+    this.$query.andWhere({ posts: { status: v } });
+  }
+
+  @FilterFor('postTitle')
+  applyPostTitle(v: string) {
+    this.$query.joinAndSelect('posts', 'posts');
+    this.$query.andWhere({ posts: { title: { $like: `%${escapeLike(v)}%` } } });
   }
 }
 
+// ─── Test Suite ─────────────────────────────────────────────────────────────────
+
 describe('MikroORM end-to-end filter', () => {
-  it('filters users by name LIKE + age >= via runner', async () => {
+  let orm: MikroORM;
+  let runner: FilterRunner;
+
+  async function createModule(opts?: { stripEmpty?: boolean }) {
     const mod = await Test.createTestingModule({
       imports: [
         MikroOrmModule.forRoot({
           driver: SqliteDriver,
           dbName: ':memory:',
-          entities: [User],
+          entities: [User, Post, Tag],
           allowGlobalContext: true,
           metadataProvider: ReflectMetadataProvider,
         }),
-        FilterModule.forRoot({ validation: 'off' }),
+        FilterModule.forRoot({
+          validation: 'off',
+          ...(opts?.stripEmpty !== undefined && { stripEmpty: opts.stripEmpty }),
+        }),
         MikroOrmFilterModule.forRoot(),
         FilterModule.forFeature([UserFilter]),
       ],
     }).compile();
 
-    const orm = mod.get(MikroORM);
+    orm = mod.get(MikroORM);
+    runner = mod.get(FilterRunner);
     await orm.schema.create();
+    return mod;
+  }
 
+  async function seed() {
     const em = orm.em.fork();
+
+    const tagTs = em.create(Tag, { name: 'typescript' });
+    const tagNest = em.create(Tag, { name: 'nestjs' });
+    const tagJs = em.create(Tag, { name: 'javascript' });
+    em.persist([tagTs, tagNest, tagJs]);
+    await em.flush();
+
+    const alice = em.create(User, {
+      name: 'Alice',
+      email: 'alice@test.com',
+      age: 30,
+      role: 'admin',
+      active: true,
+      bio: 'Engineer',
+    });
+    alice.tags.add(tagTs, tagNest);
+
+    const bob = em.create(User, {
+      name: 'Bob',
+      email: 'bob@test.com',
+      age: 25,
+      role: 'user',
+      active: true,
+      bio: undefined,
+    });
+    bob.tags.add(tagJs);
+
+    const charlie = em.create(User, {
+      name: 'Charlie',
+      email: 'charlie@test.com',
+      age: 35,
+      role: 'moderator',
+      active: false,
+      bio: 'Retired',
+    });
+    charlie.tags.add(tagTs);
+
+    const diana = em.create(User, {
+      name: 'Diana',
+      email: 'diana@test.com',
+      age: 22,
+      role: 'user',
+      active: true,
+      bio: '',
+    });
+    diana.tags.add(tagNest, tagTs);
+
+    em.persist([alice, bob, charlie, diana]);
+    await em.flush();
+
+    // Posts
     em.persist([
-      em.create(User, { name: 'Alice', age: 30 }),
-      em.create(User, { name: 'Albert', age: 20 }),
-      em.create(User, { name: 'Bob', age: 25 }),
+      em.create(Post, { title: 'GraphQL Tips', status: 'published', author: alice }),
+      em.create(Post, { title: 'Draft Post', status: 'draft', author: alice }),
+      em.create(Post, { title: 'REST API Guide', status: 'published', author: bob }),
+      em.create(Post, { title: 'MikroORM Tutorial', status: 'archived', author: diana }),
     ]);
     await em.flush();
 
-    const runner = mod.get(FilterRunner);
-    const qb = em.createQueryBuilder(User);
-    await runner.apply(UserFilter, { name: 'Al', minAge: 25 }, qb);
-    const rows = await qb.getResultList();
+    return em;
+  }
 
-    expect(rows.map((r) => r.name)).toEqual(['Alice']);
-
-    await orm.close();
+  afterEach(async () => {
+    if (orm) await orm.close(true);
   });
 
-  it('whereLike/whereBeginsWith/whereEndsWith helpers work correctly', async () => {
-    const mod = await Test.createTestingModule({
-      imports: [
-        MikroOrmModule.forRoot({
-          driver: SqliteDriver,
-          dbName: ':memory:',
-          entities: [User],
-          allowGlobalContext: true,
-          metadataProvider: ReflectMetadataProvider,
-        }),
-        FilterModule.forRoot({ validation: 'off' }),
-        MikroOrmFilterModule.forRoot(),
-        FilterModule.forFeature([UserHelperFilter]),
-      ],
-    }).compile();
+  // ─── Basic Filtering ───────────────────────────────────────────────────────
 
-    const orm = mod.get(MikroORM);
-    await orm.schema.create();
+  describe('Basic filtering', () => {
+    it('1. filters by name LIKE (partial match)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { name: 'li' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Charlie']);
+    });
 
-    const em = orm.em.fork();
-    em.persist([
-      em.create(User, { name: 'Alice', age: 30 }),
-      em.create(User, { name: 'Albert', age: 20 }),
-      em.create(User, { name: 'Bob', age: 25 }),
-    ]);
-    await em.flush();
+    it('2. filters by exact role', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { role: 'admin' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
 
-    const runner = mod.get(FilterRunner);
+    it('3. filters by age >= (minAge)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { minAge: 30 }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Charlie']);
+    });
 
-    // whereLike: contains 'li' -> Alice
-    const qb1 = em.createQueryBuilder(User);
-    await runner.apply(UserHelperFilter, { name: 'li' }, qb1);
-    const rows1 = await qb1.getResultList();
-    expect(rows1.map((r) => r.name)).toEqual(['Alice']);
+    it('4. filters by age <= (maxAge)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { maxAge: 25 }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Bob', 'Diana']);
+    });
 
-    // whereBeginsWith: starts with 'Al' -> Alice, Albert
-    const qb2 = em.createQueryBuilder(User);
-    await runner.apply(UserHelperFilter, { namePrefix: 'Al' }, qb2);
-    const rows2 = await qb2.getResultList();
-    expect(rows2.map((r) => r.name).sort()).toEqual(['Albert', 'Alice']);
+    it('5. filters by boolean true', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { active: true }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob', 'Diana']);
+    });
 
-    // whereEndsWith: ends with 'ce' -> Alice
-    const qb3 = em.createQueryBuilder(User);
-    await runner.apply(UserHelperFilter, { nameSuffix: 'ce' }, qb3);
-    const rows3 = await qb3.getResultList();
-    expect(rows3.map((r) => r.name)).toEqual(['Alice']);
+    it('6. filters by boolean false', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { active: false }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Charlie']);
+    });
+  });
 
-    await orm.close();
+  // ─── Combined Filters ──────────────────────────────────────────────────────
+
+  describe('Combined filters', () => {
+    it('7. name + role combined', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { name: 'a', role: 'admin' }, qb);
+      const rows = await qb.getResultList();
+      // "a" matches Alice (admin) and Diana (user), Charlie (moderator)
+      // but role=admin narrows to Alice only
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('8. age range (minAge + maxAge)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { minAge: 25, maxAge: 35 }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob', 'Charlie']);
+    });
+
+    it('9. three filters combined (active + role + minAge)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { active: true, role: 'user', minAge: 23 }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Bob']);
+    });
+  });
+
+  // ─── Edge Cases ─────────────────────────────────────────────────────────────
+
+  describe('Edge cases', () => {
+    it('10. empty input returns all users', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, {}, qb);
+      const rows = await qb.getResultList();
+      expect(rows).toHaveLength(4);
+    });
+
+    it('11. null input returns all users', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, null, qb);
+      const rows = await qb.getResultList();
+      expect(rows).toHaveLength(4);
+    });
+
+    it('12. undefined values are skipped', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { name: undefined, role: 'admin' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('13. empty string is stripped by default (stripEmpty: true)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { name: '' }, qb);
+      const rows = await qb.getResultList();
+      // stripEmpty is true by default, so name='' is dropped, returns all
+      expect(rows).toHaveLength(4);
+    });
+
+    it('14. empty string dispatches when stripEmpty is false', async () => {
+      await createModule({ stripEmpty: false });
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { name: '' }, qb);
+      const rows = await qb.getResultList();
+      // name LIKE '%%' matches all rows
+      expect(rows).toHaveLength(4);
+    });
+
+    it('15. no matching results returns empty array', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { name: 'zzzzz' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows).toEqual([]);
+    });
+
+    it('16. filter on nullable field', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { bio: 'Engineer' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('17. special characters in LIKE are escaped', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      // '%' should be escaped so it does not act as wildcard
+      await runner.apply(UserFilter, { name: '%' }, qb);
+      const rows = await qb.getResultList();
+      // No user has '%' in their name
+      expect(rows).toEqual([]);
+    });
+  });
+
+  // ─── Helper Methods ─────────────────────────────────────────────────────────
+
+  describe('Helper methods (whereLike, whereBeginsWith, whereEndsWith)', () => {
+    it('18. whereLike matches partial substring', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { name: 'ob' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Bob']);
+    });
+
+    it('19. whereBeginsWith matches prefix only', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { nameStartsWith: 'Al' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('20. whereEndsWith matches suffix only', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      // "ie" only matches Charlie (Charl-ie). Alice ends with "ce", not "ie".
+      await runner.apply(UserFilter, { nameEndsWith: 'ie' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Charlie']);
+    });
+  });
+
+  // ─── Relation Filtering ─────────────────────────────────────────────────────
+
+  describe('Relation filtering', () => {
+    it('21. filters users who have at least one published post', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { postStatus: 'published' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
+    });
+
+    it('22. filters users by post title LIKE', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { postTitle: 'GraphQL' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
+  });
+
+  // ─── Sequential Apply ──────────────────────────────────────────────────────
+
+  describe('Sequential apply on same query builder', () => {
+    it('23. applying filter twice narrows results', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { active: true }, qb);
+      await runner.apply(UserFilter, { role: 'user' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Bob', 'Diana']);
+    });
+  });
+
+  // ─── Empty Table ────────────────────────────────────────────────────────────
+
+  describe('Empty table', () => {
+    it('24. filter on empty table returns empty array', async () => {
+      await createModule();
+      // No seed data — table exists but is empty
+      const em = orm.em.fork();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { name: 'test' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows).toEqual([]);
+    });
   });
 });
