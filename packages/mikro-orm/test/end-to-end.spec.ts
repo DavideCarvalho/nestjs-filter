@@ -206,6 +206,48 @@ describe('MikroORM end-to-end filter', () => {
     await orm.close();
   });
 
+  it('FilterableEntityRepository.filterAndPaginate() returns paginated results', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        MikroOrmModule.forRoot({
+          driver: SqliteDriver,
+          dbName: ':memory:',
+          entities: [User],
+          allowGlobalContext: true,
+          metadataProvider: ReflectMetadataProvider,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        MikroOrmFilterModule.forRoot(),
+        FilterModule.forFeature([UserFilter]),
+      ],
+    }).compile();
+
+    const orm = mod.get(MikroORM);
+    await orm.schema.create();
+
+    const em = orm.em.fork();
+    em.persist([
+      em.create(User, { name: 'Alice', age: 30 }),
+      em.create(User, { name: 'Albert', age: 20 }),
+      em.create(User, { name: 'Alex', age: 28 }),
+      em.create(User, { name: 'Bob', age: 25 }),
+    ]);
+    await em.flush();
+
+    const runner = mod.get(FilterRunner);
+    const repo = new FilterableEntityRepository(em as SqlEntityManager, User, UserFilter, runner);
+
+    // Filter by name containing 'Al', paginate page 1 with limit 2
+    const rows = await repo.filterAndPaginate({ name: 'Al' }, 1, 2);
+    expect(rows.length).toBe(2);
+
+    // Page 2
+    const rows2 = await repo.filterAndPaginate({ name: 'Al' }, 2, 2);
+    expect(rows2.length).toBe(1);
+
+    await orm.close();
+  });
+
   it('whereLike/whereBeginsWith/whereEndsWith helpers work correctly', async () => {
     const mod = await Test.createTestingModule({
       imports: [

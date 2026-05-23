@@ -190,6 +190,46 @@ describe('TypeORM end-to-end filter', () => {
     await mod.close();
   });
 
+  it('FilterableRepository.filterAndPaginate() returns paginated results with count', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        TypeOrmModule.forRoot({
+          type: 'better-sqlite3',
+          database: ':memory:',
+          entities: [User],
+          synchronize: true,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        TypeOrmFilterModule.forRoot(),
+        FilterModule.forFeature([UserFilter]),
+      ],
+    }).compile();
+
+    const ds = mod.get(DataSource);
+    const repo = ds.getRepository(User);
+    await repo.save([
+      { name: 'Alice', age: 30 },
+      { name: 'Albert', age: 20 },
+      { name: 'Alex', age: 28 },
+      { name: 'Bob', age: 25 },
+    ]);
+
+    const runner = mod.get(FilterRunner);
+    const filterableRepo = new FilterableRepository(repo, UserFilter, runner);
+
+    // Filter by name containing 'Al', paginate page 1 with limit 2
+    const [rows, count] = await filterableRepo.filterAndPaginate({ name: 'Al' }, 1, 2);
+    expect(count).toBe(3); // Alice, Albert, Alex
+    expect(rows.length).toBe(2);
+
+    // Page 2
+    const [rows2, count2] = await filterableRepo.filterAndPaginate({ name: 'Al' }, 2, 2);
+    expect(count2).toBe(3);
+    expect(rows2.length).toBe(1);
+
+    await mod.close();
+  });
+
   it('whereLike/whereBeginsWith/whereEndsWith helpers work correctly', async () => {
     const mod = await Test.createTestingModule({
       imports: [

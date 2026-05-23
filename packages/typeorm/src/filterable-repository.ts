@@ -49,4 +49,23 @@ export class FilterableRepository<E extends ObjectLiteral> {
     await resolvedRunner.apply(this.filterClass, input, qb);
     return qb;
   }
+
+  /**
+   * Applies the filter and returns a paginated result with total count.
+   *
+   * @param input - The filter input object.
+   * @param page - The 1-based page number.
+   * @param limit - The number of items per page.
+   * @param runner - Optional FilterRunner override.
+   * @returns A tuple of `[entities, totalCount]`.
+   */
+  async filterAndPaginate(
+    input: Record<string, unknown>,
+    page: number,
+    limit: number,
+    runner?: FilterRunner,
+  ): Promise<[E[], number]> {
+    const qb = await this.filter(input, runner);
+    return qb.skip((page - 1) * limit).take(limit).getManyAndCount();
+  }
 }

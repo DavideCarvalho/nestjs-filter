@@ -46,4 +46,23 @@ export class FilterableEntityRepository<E extends object> {
     await resolvedRunner.apply(this.filterClass, input, qb);
     return qb;
   }
+
+  /**
+   * Applies the filter and returns a paginated result set.
+   *
+   * @param input - The filter input object.
+   * @param page - The 1-based page number.
+   * @param limit - The number of items per page.
+   * @param runner - Optional FilterRunner override.
+   * @returns An array of matching entities for the requested page.
+   */
+  async filterAndPaginate(
+    input: Record<string, unknown>,
+    page: number,
+    limit: number,
+    runner?: FilterRunner,
+  ): Promise<E[]> {
+    const qb = await this.filter(input, runner);
+    return qb.offset((page - 1) * limit).limit(limit).getResultList();
+  }
 }
