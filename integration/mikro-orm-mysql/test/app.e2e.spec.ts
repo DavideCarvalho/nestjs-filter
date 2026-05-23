@@ -36,9 +36,19 @@ describe('MikroORM + MySQL integration', () => {
 
   async function seed() {
     const em = orm.em.fork();
-    const alice = em.create(User, { name: 'Alice', age: 30, email: 'alice@test.com', role: 'admin' });
+    const alice = em.create(User, {
+      name: 'Alice',
+      age: 30,
+      email: 'alice@test.com',
+      role: 'admin',
+    });
     const bob = em.create(User, { name: 'Bob', age: 25, email: 'bob@test.com', role: 'user' });
-    const charlie = em.create(User, { name: 'Charlie', age: 35, email: 'charlie@test.com', role: 'admin' });
+    const charlie = em.create(User, {
+      name: 'Charlie',
+      age: 35,
+      email: 'charlie@test.com',
+      role: 'admin',
+    });
     em.persist([alice, bob, charlie]);
     await em.flush();
 

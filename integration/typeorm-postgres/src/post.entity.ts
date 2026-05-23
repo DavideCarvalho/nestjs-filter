@@ -12,6 +12,9 @@ export class Post {
   @Column()
   status!: string;
 
-  @ManyToOne(() => User, (user) => user.posts)
+  @ManyToOne(
+    () => User,
+    (user) => user.posts,
+  )
   user!: User;
 }

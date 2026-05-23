@@ -35,7 +35,12 @@ describe('TypeORM + PostgreSQL integration', () => {
     const userRepo = ds.getRepository(User);
     const postRepo = ds.getRepository(Post);
 
-    const alice = await userRepo.save({ name: 'Alice', age: 30, email: 'alice@test.com', role: 'admin' });
+    const alice = await userRepo.save({
+      name: 'Alice',
+      age: 30,
+      email: 'alice@test.com',
+      role: 'admin',
+    });
     const bob = await userRepo.save({ name: 'Bob', age: 25, email: 'bob@test.com', role: 'user' });
     await userRepo.save({ name: 'Charlie', age: 35, email: 'charlie@test.com', role: 'admin' });
 
