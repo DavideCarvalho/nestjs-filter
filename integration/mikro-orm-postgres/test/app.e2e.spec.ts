@@ -18,7 +18,7 @@ describe('MikroORM + PostgreSQL integration', () => {
     await app.init();
 
     orm = mod.get(MikroORM);
-    await orm.schema.refreshDatabase();
+    await orm.schema.refresh();
   });
 
   afterEach(async () => {
