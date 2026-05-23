@@ -14,12 +14,10 @@ import {
   ReflectMetadataProvider,
 } from '@mikro-orm/decorators/legacy';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
-import type { SqlEntityManager } from '@mikro-orm/sql';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
-import { FilterableEntityRepository } from '../src/filterable-repository.js';
 import { MikroOrmFilter } from '../src/mikro-orm-filter.js';
 import { MikroOrmFilterModule } from '../src/module.js';
 
@@ -102,148 +100,6 @@ describe('MikroORM end-to-end filter', () => {
     const rows = await qb.getResultList();
 
     expect(rows.map((r) => r.name)).toEqual(['Alice']);
-
-    await orm.close();
-  });
-
-  it('FilterableEntityRepository.filter() applies filter and returns QB', async () => {
-    const mod = await Test.createTestingModule({
-      imports: [
-        MikroOrmModule.forRoot({
-          driver: SqliteDriver,
-          dbName: ':memory:',
-          entities: [User],
-          allowGlobalContext: true,
-          metadataProvider: ReflectMetadataProvider,
-        }),
-        FilterModule.forRoot({ validation: 'off' }),
-        MikroOrmFilterModule.forRoot(),
-        FilterModule.forFeature([UserFilter]),
-      ],
-    }).compile();
-
-    const orm = mod.get(MikroORM);
-    await orm.schema.create();
-
-    const em = orm.em.fork();
-    em.persist([
-      em.create(User, { name: 'Alice', age: 30 }),
-      em.create(User, { name: 'Albert', age: 20 }),
-      em.create(User, { name: 'Bob', age: 25 }),
-    ]);
-    await em.flush();
-
-    const runner = mod.get(FilterRunner);
-    const repo = new FilterableEntityRepository(em as SqlEntityManager, User, UserFilter);
-    const qb = await repo.filter({ name: 'Al', minAge: 25 }, runner);
-    const rows = await qb.getResultList();
-
-    expect(rows.map((r) => r.name)).toEqual(['Alice']);
-
-    await orm.close();
-  });
-
-  it('FilterableEntityRepository.filter(input) works without runner when pre-bound', async () => {
-    const mod = await Test.createTestingModule({
-      imports: [
-        MikroOrmModule.forRoot({
-          driver: SqliteDriver,
-          dbName: ':memory:',
-          entities: [User],
-          allowGlobalContext: true,
-          metadataProvider: ReflectMetadataProvider,
-        }),
-        FilterModule.forRoot({ validation: 'off' }),
-        MikroOrmFilterModule.forRoot(),
-        FilterModule.forFeature([UserFilter]),
-      ],
-    }).compile();
-
-    const orm = mod.get(MikroORM);
-    await orm.schema.create();
-
-    const em = orm.em.fork();
-    em.persist([
-      em.create(User, { name: 'Alice', age: 30 }),
-      em.create(User, { name: 'Albert', age: 20 }),
-      em.create(User, { name: 'Bob', age: 25 }),
-    ]);
-    await em.flush();
-
-    const runner = mod.get(FilterRunner);
-    const repo = new FilterableEntityRepository(em as SqlEntityManager, User, UserFilter, runner);
-    const qb = await repo.filter({ name: 'Al', minAge: 25 });
-    const rows = await qb.getResultList();
-
-    expect(rows.map((r) => r.name)).toEqual(['Alice']);
-
-    await orm.close();
-  });
-
-  it('FilterableEntityRepository.filter() throws when no runner available', async () => {
-    const mod = await Test.createTestingModule({
-      imports: [
-        MikroOrmModule.forRoot({
-          driver: SqliteDriver,
-          dbName: ':memory:',
-          entities: [User],
-          allowGlobalContext: true,
-          metadataProvider: ReflectMetadataProvider,
-        }),
-        FilterModule.forRoot({ validation: 'off' }),
-        MikroOrmFilterModule.forRoot(),
-        FilterModule.forFeature([UserFilter]),
-      ],
-    }).compile();
-
-    const orm = mod.get(MikroORM);
-    await orm.schema.create();
-
-    const em = orm.em.fork();
-    const repo = new FilterableEntityRepository(em as SqlEntityManager, User, UserFilter);
-    await expect(repo.filter({ name: 'Al' })).rejects.toThrow('FilterRunner not available');
-
-    await orm.close();
-  });
-
-  it('FilterableEntityRepository.filterAndPaginate() returns paginated results', async () => {
-    const mod = await Test.createTestingModule({
-      imports: [
-        MikroOrmModule.forRoot({
-          driver: SqliteDriver,
-          dbName: ':memory:',
-          entities: [User],
-          allowGlobalContext: true,
-          metadataProvider: ReflectMetadataProvider,
-        }),
-        FilterModule.forRoot({ validation: 'off' }),
-        MikroOrmFilterModule.forRoot(),
-        FilterModule.forFeature([UserFilter]),
-      ],
-    }).compile();
-
-    const orm = mod.get(MikroORM);
-    await orm.schema.create();
-
-    const em = orm.em.fork();
-    em.persist([
-      em.create(User, { name: 'Alice', age: 30 }),
-      em.create(User, { name: 'Albert', age: 20 }),
-      em.create(User, { name: 'Alex', age: 28 }),
-      em.create(User, { name: 'Bob', age: 25 }),
-    ]);
-    await em.flush();
-
-    const runner = mod.get(FilterRunner);
-    const repo = new FilterableEntityRepository(em as SqlEntityManager, User, UserFilter, runner);
-
-    // Filter by name containing 'Al', paginate page 1 with limit 2
-    const rows = await repo.filterAndPaginate({ name: 'Al' }, 1, 2);
-    expect(rows.length).toBe(2);
-
-    // Page 2
-    const rows2 = await repo.filterAndPaginate({ name: 'Al' }, 2, 2);
-    expect(rows2.length).toBe(1);
 
     await orm.close();
   });

@@ -2,7 +2,7 @@
 
 MikroORM 7 adapter for [`@dudousxd/nestjs-filter`](../../README.md).
 
-Provides `MikroOrmFilter`, `MikroOrmAdapter`, `MikroOrmFilterModule`, and `FilterableEntityRepository`.
+Provides `MikroOrmFilter`, `MikroOrmAdapter`, and `MikroOrmFilterModule`.
 
 ## Install
 
@@ -79,17 +79,5 @@ Registers the `MikroOrmAdapter` globally. Requires `@mikro-orm/nestjs` `MikroOrm
 ### `MikroOrmAdapter`
 
 Implements `FilterAdapter`. Creates query builders via `em.createQueryBuilder(entity)`.
-
-### `FilterableEntityRepository<E>`
-
-Convenience wrapper that combines entity + filter in a repository-like API.
-
-```typescript
-import { FilterableEntityRepository } from '@dudousxd/nestjs-filter-mikro-orm';
-
-const repo = new FilterableEntityRepository(em, User, UserFilter);
-const qb = await repo.filter({ name: 'Al' }, runner);
-const users = await qb.getResultList();
-```
 
 See the [root README](../../README.md) for full documentation.

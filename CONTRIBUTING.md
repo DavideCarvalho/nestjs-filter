@@ -72,7 +72,7 @@ Examples:
 ```
 feat(core): add @FilterFor inference from method name
 fix(mikro-orm): handle null entity manager gracefully
-test(typeorm): cover FilterableRepository with empty input
+test(typeorm): cover TypeOrmFilter with empty input
 chore: bump pnpm to 9.1
 ```
 

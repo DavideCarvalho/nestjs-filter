@@ -37,7 +37,6 @@ Full documentation: **https://davidecarvalho.github.io/nestjs-filter/**
 - **`FilterRunner.apply()`** for programmatic use in services
 - **`FilterTestingModule` + `makeMockQueryBuilder`** for isolated unit tests
 - **`FilterExceptionFilter`** maps validation errors to 400 responses
-- **`FilterableEntityRepository` / `FilterableRepository`** convenience wrappers per ORM
 - **Input normalization** (camelCase, snake_case, or custom)
 - **Unknown key policies** (ignore, warn, throw)
 
@@ -274,30 +273,6 @@ Response shape:
   "message": "Filter input validation failed.",
   "errors": [...]
 }
-```
-
-### `FilterableEntityRepository` (MikroORM)
-
-Convenience wrapper that combines entity repository + filter application.
-
-```typescript
-import { FilterableEntityRepository } from '@dudousxd/nestjs-filter-mikro-orm';
-
-const repo = new FilterableEntityRepository(em, User, UserFilter);
-const qb = await repo.filter({ name: 'Al' }, runner);
-const users = await qb.getResultList();
-```
-
-### `FilterableRepository` (TypeORM)
-
-Convenience wrapper for TypeORM repositories.
-
-```typescript
-import { FilterableRepository } from '@dudousxd/nestjs-filter-typeorm';
-
-const repo = new FilterableRepository(dataSource.getRepository(User), UserFilter);
-const qb = await repo.filter({ name: 'Al' }, runner);
-const users = await qb.getMany();
 ```
 
 ## Configuration

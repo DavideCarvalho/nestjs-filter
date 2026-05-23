@@ -29,8 +29,6 @@ nestjs-filter is a TypeScript-first monorepo of three focused packages that brin
  │  MikroOrmFilter<E>          │       │  TypeOrmFilter<E>           │
  │  MikroOrmAdapter            │       │  TypeOrmAdapter             │
  │  MikroOrmFilterModule       │       │  TypeOrmFilterModule        │
- │  FilterableEntityRepository │       │  FilterableRepository       │
- │                             │       │  @HasFilter                 │
  └─────────────────────────────┘       └─────────────────────────────┘
 ```
 
@@ -51,15 +49,12 @@ nestjs-filter is a TypeScript-first monorepo of three focused packages that brin
 - **MikroOrmFilter\<E\>** -- Extends BaseFilter with MikroORM QueryBuilder type and LIKE helper methods.
 - **MikroOrmAdapter** -- Implements `FilterAdapter`. Creates QueryBuilders from `SqlEntityManager`. Supports relation constraints via `joinAndSelect`.
 - **MikroOrmFilterModule** -- Registers the adapter globally.
-- **FilterableEntityRepository** -- Convenience wrapper combining entity repository + filter application.
 
 ### `@dudousxd/nestjs-filter-typeorm`
 
 - **TypeOrmFilter\<E\>** -- Extends BaseFilter with TypeORM SelectQueryBuilder type, `entityAlias`, and LIKE helper methods.
 - **TypeOrmAdapter** -- Implements `FilterAdapter`. Creates QueryBuilders from `DataSource`. Supports relation constraints via `leftJoinAndSelect`.
 - **TypeOrmFilterModule** -- Registers the adapter globally. Supports named DataSources.
-- **FilterableRepository** -- Convenience wrapper combining TypeORM repository + filter application.
-- **@HasFilter** -- Entity decorator that associates an entity with its filter class.
 
 ## Request lifecycle
 

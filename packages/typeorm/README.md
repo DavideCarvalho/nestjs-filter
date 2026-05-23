@@ -2,7 +2,7 @@
 
 TypeORM adapter for [`@dudousxd/nestjs-filter`](../../README.md).
 
-Provides `TypeOrmFilter`, `TypeOrmAdapter`, `TypeOrmFilterModule`, `FilterableRepository`, and the `@HasFilter` decorator.
+Provides `TypeOrmFilter`, `TypeOrmAdapter`, and `TypeOrmFilterModule`.
 
 ## Install
 
@@ -79,27 +79,5 @@ Registers the `TypeOrmAdapter` globally. Requires `@nestjs/typeorm` `TypeOrmModu
 ### `TypeOrmAdapter`
 
 Implements `FilterAdapter`. Creates query builders via `dataSource.getRepository(entity).createQueryBuilder(alias)`.
-
-### `FilterableRepository<E>`
-
-Convenience wrapper that combines a TypeORM repository + filter in a repository-like API.
-
-```typescript
-import { FilterableRepository } from '@dudousxd/nestjs-filter-typeorm';
-
-const repo = new FilterableRepository(dataSource.getRepository(User), UserFilter);
-const qb = await repo.filter({ name: 'Al' }, runner);
-const users = await qb.getMany();
-```
-
-### `@HasFilter(FilterClass)`
-
-Class decorator that associates a filter class with an entity via metadata. Useful for auto-discovery patterns.
-
-```typescript
-@HasFilter(UserFilter)
-@Entity('users')
-class User { ... }
-```
 
 See the [root README](../../README.md) for full documentation.

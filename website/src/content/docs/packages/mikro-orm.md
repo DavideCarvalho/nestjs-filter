@@ -1,13 +1,13 @@
 ---
 title: "@dudousxd/nestjs-filter-mikro-orm"
-description: MikroORM 7 adapter — MikroOrmFilter, MikroOrmAdapter, MikroOrmFilterModule, and FilterableEntityRepository.
+description: MikroORM 7 adapter — MikroOrmFilter, MikroOrmAdapter, and MikroOrmFilterModule.
 ---
 
 ```bash
 pnpm add @dudousxd/nestjs-filter-mikro-orm
 ```
 
-The MikroORM adapter package provides the filter base class, ORM adapter, NestJS module, and repository wrapper for MikroORM projects.
+The MikroORM adapter package provides the filter base class, ORM adapter, and NestJS module for MikroORM projects.
 
 ## MikroOrmFilter\<E\>
 
@@ -81,37 +81,6 @@ export class AppModule {}
 Registers the `MikroOrmAdapter` as the `FILTER_ADAPTER` provider. Requires `EntityManager` from `@mikro-orm/core` to be available in the DI container (provided by `@mikro-orm/nestjs`).
 
 The module is `@Global()`, so the adapter is available application-wide.
-
----
-
-## FilterableEntityRepository\<E\>
-
-Convenience wrapper that combines entity repository access with filter application.
-
-```ts
-import { FilterableEntityRepository } from '@dudousxd/nestjs-filter-mikro-orm';
-
-const repo = new FilterableEntityRepository(em, User, UserFilter, runner);
-const qb = await repo.filter({ name: 'Al' });
-const users = await qb.getResultList();
-```
-
-### Constructor
-
-```ts
-new FilterableEntityRepository<E>(
-  em: SqlEntityManager,
-  entity: Type<E>,
-  filterClass: Type<object>,
-  runner?: FilterRunner,
-)
-```
-
-### Methods
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `filter` | `(input: Record<string, unknown>, runner?: FilterRunner) => Promise<QueryBuilder<E>>` | Creates a QB, applies the filter, returns the QB. |
 
 ---
 
