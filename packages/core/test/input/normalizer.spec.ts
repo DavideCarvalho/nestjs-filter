@@ -58,18 +58,12 @@ describe('normalizeInput', () => {
   });
 
   it('strips null and empty string values by default', () => {
-    const out = normalizeInput(
-      { name: '', age: null, role: 'admin' },
-      { normalizer: 'camelCase' },
-    );
+    const out = normalizeInput({ name: '', age: null, role: 'admin' }, { normalizer: 'camelCase' });
     expect(out).toEqual({ role: 'admin' });
   });
 
   it('strips undefined values by default', () => {
-    const out = normalizeInput(
-      { name: undefined, role: 'admin' },
-      { normalizer: 'camelCase' },
-    );
+    const out = normalizeInput({ name: undefined, role: 'admin' }, { normalizer: 'camelCase' });
     expect(out).toEqual({ role: 'admin' });
   });
 
@@ -86,10 +80,7 @@ describe('normalizeInput', () => {
   });
 
   it('preserves zero and false values when stripping', () => {
-    const out = normalizeInput(
-      { count: 0, active: false, name: '' },
-      { normalizer: 'camelCase' },
-    );
+    const out = normalizeInput({ count: 0, active: false, name: '' }, { normalizer: 'camelCase' });
     expect(out).toEqual({ count: 0, active: false });
   });
 });

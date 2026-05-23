@@ -28,18 +28,35 @@ describe('BaseFilter', () => {
     const input = { name: 'foo' };
     const ctx = { user: { id: 1 } };
 
-    runWithFilterState({ $query: qb, $input: input, $context: ctx, $adapter: null, $whitelisted: new Set(), $blacklisted: new Set() }, () => {
-      expect(f.$query).toBe(qb);
-      expect(f.$input).toEqual(input);
-      expect(f.$context).toEqual(ctx);
-      expect(f.$adapter).toBeNull();
-    });
+    runWithFilterState(
+      {
+        $query: qb,
+        $input: input,
+        $context: ctx,
+        $adapter: null,
+        $whitelisted: new Set(),
+        $blacklisted: new Set(),
+      },
+      () => {
+        expect(f.$query).toBe(qb);
+        expect(f.$input).toEqual(input);
+        expect(f.$context).toEqual(ctx);
+        expect(f.$adapter).toBeNull();
+      },
+    );
   });
 
   it('$input is frozen', () => {
     const f = new StubFilter();
     runWithFilterState(
-      { $query: {}, $input: Object.freeze({ a: 1 }), $context: {}, $adapter: null, $whitelisted: new Set(), $blacklisted: new Set() },
+      {
+        $query: {},
+        $input: Object.freeze({ a: 1 }),
+        $context: {},
+        $adapter: null,
+        $whitelisted: new Set(),
+        $blacklisted: new Set(),
+      },
       () => {
         expect(Object.isFrozen(f.$input)).toBe(true);
       },
@@ -50,7 +67,14 @@ describe('BaseFilter', () => {
     const f = new StubFilter();
     const input = Object.freeze({ name: 'foo', age: 30 });
     runWithFilterState(
-      { $query: {}, $input: input, $context: {}, $adapter: null, $whitelisted: new Set(), $blacklisted: new Set() },
+      {
+        $query: {},
+        $input: input,
+        $context: {},
+        $adapter: null,
+        $whitelisted: new Set(),
+        $blacklisted: new Set(),
+      },
       () => {
         expect(f.publicInput()).toEqual({ name: 'foo', age: 30 });
       },
@@ -61,7 +85,14 @@ describe('BaseFilter', () => {
     const f = new StubFilter();
     const input = Object.freeze({ name: 'foo', age: 30 });
     runWithFilterState(
-      { $query: {}, $input: input, $context: {}, $adapter: null, $whitelisted: new Set(), $blacklisted: new Set() },
+      {
+        $query: {},
+        $input: input,
+        $context: {},
+        $adapter: null,
+        $whitelisted: new Set(),
+        $blacklisted: new Set(),
+      },
       () => {
         expect(f.publicInput('name')).toBe('foo');
         expect(f.publicInput('age')).toBe(30);
@@ -73,7 +104,14 @@ describe('BaseFilter', () => {
     const f = new StubFilter();
     const input = Object.freeze({ name: 'foo' });
     runWithFilterState(
-      { $query: {}, $input: input, $context: {}, $adapter: null, $whitelisted: new Set(), $blacklisted: new Set() },
+      {
+        $query: {},
+        $input: input,
+        $context: {},
+        $adapter: null,
+        $whitelisted: new Set(),
+        $blacklisted: new Set(),
+      },
       () => {
         expect(f.publicInput('missing')).toBeUndefined();
       },
@@ -84,7 +122,14 @@ describe('BaseFilter', () => {
     const f = new StubFilter();
     const input = Object.freeze({ name: 'foo' });
     runWithFilterState(
-      { $query: {}, $input: input, $context: {}, $adapter: null, $whitelisted: new Set(), $blacklisted: new Set() },
+      {
+        $query: {},
+        $input: input,
+        $context: {},
+        $adapter: null,
+        $whitelisted: new Set(),
+        $blacklisted: new Set(),
+      },
       () => {
         expect(f.publicInput('missing', 'fallback')).toBe('fallback');
         expect(f.publicInput('name', 'fallback')).toBe('foo');

@@ -79,7 +79,9 @@ export class FilterModule {
     };
   }
 
-  private static buildAsyncOptionsProvider(options: FilterModuleAsyncOptions): Provider | Provider[] {
+  private static buildAsyncOptionsProvider(
+    options: FilterModuleAsyncOptions,
+  ): Provider | Provider[] {
     if (options.useFactory) {
       return {
         provide: FILTER_MODULE_OPTIONS,

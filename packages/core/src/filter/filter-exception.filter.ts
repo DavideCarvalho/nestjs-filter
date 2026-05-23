@@ -6,7 +6,13 @@ export class FilterExceptionFilter implements ExceptionFilter {
   catch(exception: FilterValidationException, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse();
-    const sanitizedErrors = (exception.errors as any[]).map((err) => ({
+    const sanitizedErrors = (
+      exception.errors as Array<{
+        property?: unknown;
+        constraints?: unknown;
+        children?: unknown[];
+      }>
+    ).map((err) => ({
       property: err.property,
       constraints: err.constraints,
       ...(err.children?.length ? { children: err.children } : {}),
