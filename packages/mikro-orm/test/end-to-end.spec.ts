@@ -117,4 +117,67 @@ describe('MikroORM end-to-end filter', () => {
 
     await orm.close();
   });
+
+  it('FilterableEntityRepository.filter(input) works without runner when pre-bound', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        MikroOrmModule.forRoot({
+          driver: SqliteDriver,
+          dbName: ':memory:',
+          entities: [User],
+          allowGlobalContext: true,
+          metadataProvider: ReflectMetadataProvider,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        MikroOrmFilterModule.forRoot(),
+        FilterModule.forFeature([UserFilter]),
+      ],
+    }).compile();
+
+    const orm = mod.get(MikroORM);
+    await orm.schema.create();
+
+    const em = orm.em.fork();
+    em.persist([
+      em.create(User, { name: 'Alice', age: 30 }),
+      em.create(User, { name: 'Albert', age: 20 }),
+      em.create(User, { name: 'Bob', age: 25 }),
+    ]);
+    await em.flush();
+
+    const runner = mod.get(FilterRunner);
+    const repo = new FilterableEntityRepository(em as SqlEntityManager, User, UserFilter, runner);
+    const qb = await repo.filter({ name: 'Al', minAge: 25 });
+    const rows = await qb.getResultList();
+
+    expect(rows.map((r) => r.name)).toEqual(['Alice']);
+
+    await orm.close();
+  });
+
+  it('FilterableEntityRepository.filter() throws when no runner available', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        MikroOrmModule.forRoot({
+          driver: SqliteDriver,
+          dbName: ':memory:',
+          entities: [User],
+          allowGlobalContext: true,
+          metadataProvider: ReflectMetadataProvider,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        MikroOrmFilterModule.forRoot(),
+        FilterModule.forFeature([UserFilter]),
+      ],
+    }).compile();
+
+    const orm = mod.get(MikroORM);
+    await orm.schema.create();
+
+    const em = orm.em.fork();
+    const repo = new FilterableEntityRepository(em as SqlEntityManager, User, UserFilter);
+    await expect(repo.filter({ name: 'Al' })).rejects.toThrow('FilterRunner not available');
+
+    await orm.close();
+  });
 });

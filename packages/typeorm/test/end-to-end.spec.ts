@@ -106,4 +106,62 @@ describe('TypeORM end-to-end filter', () => {
 
     await mod.close();
   });
+
+  it('FilterableRepository.filter(input) works without runner when pre-bound', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        TypeOrmModule.forRoot({
+          type: 'better-sqlite3',
+          database: ':memory:',
+          entities: [User],
+          synchronize: true,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        TypeOrmFilterModule.forRoot(),
+        FilterModule.forFeature([UserFilter]),
+      ],
+    }).compile();
+
+    const ds = mod.get(DataSource);
+    const repo = ds.getRepository(User);
+    await repo.save([
+      { name: 'Alice', age: 30 },
+      { name: 'Albert', age: 20 },
+      { name: 'Bob', age: 25 },
+    ]);
+
+    const runner = mod.get(FilterRunner);
+    const filterableRepo = new FilterableRepository(repo, UserFilter, runner);
+    const qb = await filterableRepo.filter({ name: 'Al', minAge: 25 });
+    const rows = await qb.getMany();
+
+    expect(rows.map((r) => r.name)).toEqual(['Alice']);
+
+    await mod.close();
+  });
+
+  it('FilterableRepository.filter() throws when no runner available', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        TypeOrmModule.forRoot({
+          type: 'better-sqlite3',
+          database: ':memory:',
+          entities: [User],
+          synchronize: true,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        TypeOrmFilterModule.forRoot(),
+        FilterModule.forFeature([UserFilter]),
+      ],
+    }).compile();
+
+    const ds = mod.get(DataSource);
+    const repo = ds.getRepository(User);
+    const filterableRepo = new FilterableRepository(repo, UserFilter);
+    await expect(filterableRepo.filter({ name: 'Al' })).rejects.toThrow(
+      'FilterRunner not available',
+    );
+
+    await mod.close();
+  });
 });

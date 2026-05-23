@@ -7,28 +7,46 @@ import type { ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
  *
  * Usage in a service:
  * ```ts
+ * // With pre-bound runner (no runner argument needed):
+ * const repo = new FilterableRepository(dataSource.getRepository(User), UserFilter, runner);
+ * const qb = await repo.filter({ name: 'Al' });
+ *
+ * // Or pass runner explicitly:
  * const repo = new FilterableRepository(dataSource.getRepository(User), UserFilter);
  * const qb = await repo.filter({ name: 'Al' }, runner);
- * const users = await qb.getMany();
  * ```
  */
 export class FilterableRepository<E extends ObjectLiteral> {
+  private readonly boundRunner: FilterRunner | null;
+
   constructor(
     private readonly repository: Repository<E>,
     private readonly filterClass: Type<object>,
-  ) {}
+    runner?: FilterRunner,
+  ) {
+    this.boundRunner = runner ?? null;
+  }
 
   /**
    * Creates a SelectQueryBuilder for the entity, applies the given filter input
    * via the FilterRunner, and returns the QueryBuilder for further chaining.
+   *
+   * If a runner was provided in the constructor, it is used automatically.
+   * Otherwise, a runner must be passed as the second argument.
    */
   async filter(
     input: Record<string, unknown>,
-    runner: FilterRunner,
+    runner?: FilterRunner,
   ): Promise<SelectQueryBuilder<E>> {
+    const resolvedRunner = runner ?? this.boundRunner;
+    if (!resolvedRunner) {
+      throw new Error(
+        'FilterRunner not available. Either pass it to .filter(input, runner) or provide it in the constructor.',
+      );
+    }
     const alias = this.repository.metadata.targetName.toLowerCase();
     const qb = this.repository.createQueryBuilder(alias);
-    await runner.apply(this.filterClass, input, qb);
+    await resolvedRunner.apply(this.filterClass, input, qb);
     return qb;
   }
 }
