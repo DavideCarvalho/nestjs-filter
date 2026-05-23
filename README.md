@@ -6,6 +6,10 @@ Declarative, ORM-agnostic filter classes for NestJS -- inspired by `adonis-lucid
 
 > **Alpha status:** This is an alpha -- the API is stabilising and breaking changes may occur before `1.0`. Not recommended for production use yet.
 
+## Docs
+
+Full documentation: **https://davidecarvalho.github.io/nestjs-filter/**
+
 ## Packages
 
 | Package | Description |
