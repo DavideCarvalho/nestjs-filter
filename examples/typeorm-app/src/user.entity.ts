@@ -1,4 +1,5 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Post } from './post.entity.js';
 
 @Entity('users')
 export class User {
@@ -10,4 +11,16 @@ export class User {
 
   @Column()
   age!: number;
+
+  @Column()
+  role!: string;
+
+  @Column()
+  active!: boolean;
+
+  @OneToMany(
+    () => Post,
+    (post) => post.author,
+  )
+  posts!: Post[];
 }

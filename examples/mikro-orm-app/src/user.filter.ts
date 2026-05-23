@@ -2,7 +2,7 @@ import { FilterFor, Filterable, escapeLike } from '@dudousxd/nestjs-filter';
 import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
 import { Injectable } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 import { User } from './user.entity.js';
 
 @Injectable()
@@ -17,6 +17,19 @@ export class UserFilter extends MikroOrmFilter<User> {
   @Type(() => Number)
   minAge?: number;
 
+  @IsOptional()
+  @IsString()
+  role?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  active?: boolean;
+
+  @IsOptional()
+  @IsString()
+  postStatus?: string;
+
   @FilterFor('name')
   applyName(value: string) {
     this.$query.andWhere({ name: { $like: `%${escapeLike(value)}%` } });
@@ -25,5 +38,21 @@ export class UserFilter extends MikroOrmFilter<User> {
   @FilterFor('minAge')
   applyMinAge(value: number) {
     this.$query.andWhere({ age: { $gte: value } });
+  }
+
+  @FilterFor('role')
+  applyRole(value: string) {
+    this.$query.andWhere({ role: value });
+  }
+
+  @FilterFor('active')
+  applyActive(value: boolean) {
+    this.$query.andWhere({ active: value });
+  }
+
+  @FilterFor('postStatus')
+  applyPostStatus(value: string) {
+    this.$query.joinAndSelect('posts', 'posts');
+    this.$query.andWhere({ posts: { status: value } });
   }
 }

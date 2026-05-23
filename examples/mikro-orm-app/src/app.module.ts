@@ -4,6 +4,7 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Module } from '@nestjs/common';
+import { Post } from './post.entity.js';
 import { User } from './user.entity.js';
 import { UserFilter } from './user.filter.js';
 import { UsersController } from './users.controller.js';
@@ -13,7 +14,7 @@ import { UsersController } from './users.controller.js';
     MikroOrmModule.forRoot({
       driver: SqliteDriver,
       dbName: ':memory:',
-      entities: [User],
+      entities: [User, Post],
       metadataProvider: ReflectMetadataProvider,
       allowGlobalContext: true,
     }),

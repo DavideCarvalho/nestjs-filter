@@ -1,4 +1,6 @@
-import { Entity, PrimaryKey, Property } from '@mikro-orm/decorators/legacy';
+import { Collection } from '@mikro-orm/core';
+import { Entity, OneToMany, PrimaryKey, Property } from '@mikro-orm/decorators/legacy';
+import { Post } from './post.entity.js';
 
 @Entity({ tableName: 'users' })
 export class User {
@@ -10,4 +12,16 @@ export class User {
 
   @Property()
   age!: number;
+
+  @Property()
+  role!: string;
+
+  @Property()
+  active!: boolean;
+
+  @OneToMany(
+    () => Post,
+    (post) => post.author,
+  )
+  posts = new Collection<Post>(this);
 }

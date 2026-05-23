@@ -15,4 +15,10 @@ export class UsersController {
   search(@ApplyFilter(UserFilter) qb: QueryBuilder<User>, @Body() _body: unknown) {
     return qb.getResultList();
   }
+
+  @Get('count')
+  async count(@ApplyFilter(UserFilter) qb: QueryBuilder<User>) {
+    const results = await qb.getResultList();
+    return { count: results.length };
+  }
 }
