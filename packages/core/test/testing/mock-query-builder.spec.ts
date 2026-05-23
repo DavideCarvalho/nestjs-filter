@@ -17,4 +17,10 @@ describe('makeMockQueryBuilder', () => {
     expect(qb.andWhere(1)).toBe(qb);
     expect(qb.foo(1, 2, 3)).toBe(qb);
   });
+
+  it('does not act as a thenable (safe to await accidentally)', async () => {
+    const qb = makeMockQueryBuilder<unknown>();
+    // Should not hang or resolve as a promise
+    expect(qb.then).toBeUndefined();
+  });
 });
