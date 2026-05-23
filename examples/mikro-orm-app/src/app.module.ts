@@ -1,9 +1,9 @@
-import { Module } from '@nestjs/common';
-import { MikroOrmModule } from '@mikro-orm/nestjs';
-import { SqliteDriver } from '@mikro-orm/sqlite';
-import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { FilterModule } from '@dudousxd/nestjs-filter';
 import { MikroOrmFilterModule } from '@dudousxd/nestjs-filter-mikro-orm';
+import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
+import { MikroOrmModule } from '@mikro-orm/nestjs';
+import { SqliteDriver } from '@mikro-orm/sqlite';
+import { Module } from '@nestjs/common';
 import { User } from './user.entity.js';
 import { UserFilter } from './user.filter.js';
 import { UsersController } from './users.controller.js';

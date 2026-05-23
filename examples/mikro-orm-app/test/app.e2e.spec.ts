@@ -1,7 +1,7 @@
 import 'reflect-metadata';
-import { Test } from '@nestjs/testing';
-import { NestExpressApplication } from '@nestjs/platform-express';
 import { MikroORM } from '@mikro-orm/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';

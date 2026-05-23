@@ -1,7 +1,7 @@
-import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { FilterModule } from '@dudousxd/nestjs-filter';
 import { TypeOrmFilterModule } from '@dudousxd/nestjs-filter-typeorm';
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from './user.entity.js';
 import { UserFilter } from './user.filter.js';
 import { UsersController } from './users.controller.js';

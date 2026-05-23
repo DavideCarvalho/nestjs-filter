@@ -41,6 +41,8 @@ export class FilterMethodException extends FilterException {
     public readonly value: unknown,
     public override readonly cause: unknown,
   ) {
-    super(`Filter method for key "${key}" threw: ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(
+      `Filter method for key "${key}" threw: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
   }
 }

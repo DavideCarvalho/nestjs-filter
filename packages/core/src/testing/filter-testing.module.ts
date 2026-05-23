@@ -8,11 +8,18 @@ import type { FilterModuleOptions } from '../types.js';
 export class FilterTestingModule {
   static forRoot(options: FilterModuleOptions = {}): DynamicModule {
     const providers: Provider[] = [
-      { provide: FILTER_MODULE_OPTIONS, useValue: { validation: 'off', inputNormalizer: 'camelCase', ...options } },
+      {
+        provide: FILTER_MODULE_OPTIONS,
+        useValue: { validation: 'off', inputNormalizer: 'camelCase', ...options },
+      },
       { provide: FILTER_ADAPTER, useValue: null },
       FilterRunner,
     ];
-    return { module: FilterTestingModule, providers, exports: [FilterRunner, FILTER_MODULE_OPTIONS, FILTER_ADAPTER] };
+    return {
+      module: FilterTestingModule,
+      providers,
+      exports: [FilterRunner, FILTER_MODULE_OPTIONS, FILTER_ADAPTER],
+    };
   }
 
   static forFeature(filters: Array<Type<unknown>>): DynamicModule {

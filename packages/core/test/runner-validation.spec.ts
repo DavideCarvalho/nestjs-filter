@@ -4,8 +4,8 @@ import { Test } from '@nestjs/testing';
 import { IsNumber, IsOptional, IsString } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import { BaseFilter } from '../src/base-filter.js';
-import { Filterable } from '../src/decorator/filterable.decorator.js';
 import { FilterFor } from '../src/decorator/filter-for.decorator.js';
+import { Filterable } from '../src/decorator/filterable.decorator.js';
 import { FilterValidationException } from '../src/errors/exceptions.js';
 import { FilterRunner } from '../src/runner.js';
 import { FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from '../src/tokens.js';
@@ -30,10 +30,12 @@ function makeMockQB(): MockQB {
 @Injectable()
 @Filterable({ entity: FakeEntity })
 class ValidatedFilter extends BaseFilter<MockQB> {
-  @IsOptional() @IsNumber()
+  @IsOptional()
+  @IsNumber()
   companyId?: number;
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   name?: string;
 
   @FilterFor('companyId')
@@ -52,7 +54,10 @@ async function makeModule(opts = {}) {
     providers: [
       ValidatedFilter,
       FilterRunner,
-      { provide: FILTER_MODULE_OPTIONS, useValue: { inputNormalizer: 'camelCase', validation: 'auto', ...opts } },
+      {
+        provide: FILTER_MODULE_OPTIONS,
+        useValue: { inputNormalizer: 'camelCase', validation: 'auto', ...opts },
+      },
       { provide: FILTER_ADAPTER, useValue: null },
     ],
   }).compile();

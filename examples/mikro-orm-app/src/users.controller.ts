@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Body } from '@nestjs/common';
 import { ApplyFilter } from '@dudousxd/nestjs-filter';
 import type { QueryBuilder } from '@mikro-orm/sql';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import { User } from './user.entity.js';
 import { UserFilter } from './user.filter.js';
 

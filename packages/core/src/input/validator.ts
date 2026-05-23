@@ -22,7 +22,10 @@ export async function validateInput<F>(
   const mod = await loadValidator();
   if (!mod) return input;
   const instance = mod.plainToInstance(FilterClass, input);
-  const errors = (await mod.validate(instance, { whitelist: false, forbidNonWhitelisted: false })) as unknown[];
+  const errors = (await mod.validate(instance, {
+    whitelist: false,
+    forbidNonWhitelisted: false,
+  })) as unknown[];
   if (errors.length > 0) throw new FilterValidationException(errors);
   return instance as Record<string, unknown>;
 }

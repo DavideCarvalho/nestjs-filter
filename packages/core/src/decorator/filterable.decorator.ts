@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { FilterMissingEntityException } from '../errors/exceptions.js';
 import { FILTERABLE_METADATA } from '../tokens.js';
-import type { FilterableOptions, FilterMetadata } from '../types.js';
+import type { FilterMetadata, FilterableOptions } from '../types.js';
 
 export function Filterable(options: FilterableOptions): ClassDecorator {
   return (target) => {

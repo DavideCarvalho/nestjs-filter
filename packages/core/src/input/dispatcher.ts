@@ -1,5 +1,5 @@
-import { getFilterableMetadata } from '../decorator/filterable.decorator.js';
 import { getFilterForMap } from '../decorator/filter-for.decorator.js';
+import { getFilterableMetadata } from '../decorator/filterable.decorator.js';
 
 const cache = new WeakMap<Function, Map<string, string>>();
 
@@ -18,7 +18,7 @@ function computeAllowed(ctor: Function): Map<string, string> {
   const allowed = new Map<string, string>();
   for (const [inputKey, methodName] of filterForMap) {
     if (meta?.allowed && !meta.allowed.includes(inputKey)) continue;
-    if (meta?.blocked && meta.blocked.includes(inputKey)) continue;
+    if (meta?.blocked?.includes(inputKey)) continue;
     allowed.set(inputKey, methodName);
   }
 

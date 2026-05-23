@@ -5,10 +5,7 @@ export interface NormalizeOptions {
   dropId?: boolean;
 }
 
-export function normalizeInput(
-  input: unknown,
-  options: NormalizeOptions,
-): Record<string, unknown> {
+export function normalizeInput(input: unknown, options: NormalizeOptions): Record<string, unknown> {
   if (input == null || typeof input !== 'object') return {};
   const norm = pickNormalizer(options.normalizer);
   const drop = options.dropId === true;

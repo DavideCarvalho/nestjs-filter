@@ -9,7 +9,10 @@ interface ReqLike {
   body?: Record<string, unknown>;
 }
 
-export function resolveInputFromRequest(req: unknown, source: InputSource): Record<string, unknown> {
+export function resolveInputFromRequest(
+  req: unknown,
+  source: InputSource,
+): Record<string, unknown> {
   if (typeof source === 'function') {
     const r = source(req);
     return (r ?? {}) as Record<string, unknown>;
@@ -23,7 +26,6 @@ export function resolveInputFromRequest(req: unknown, source: InputSource): Reco
       return { ...query };
     case 'body':
       return { ...body };
-    case 'auto':
     default: {
       const method = (r.method ?? 'GET').toUpperCase();
       if (READ_METHODS.has(method)) return { ...query };

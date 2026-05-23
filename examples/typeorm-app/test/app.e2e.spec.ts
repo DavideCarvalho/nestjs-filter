@@ -1,8 +1,8 @@
 import 'reflect-metadata';
-import { Test } from '@nestjs/testing';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { DataSource } from 'typeorm';
+import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { DataSource } from 'typeorm';
 import { describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { User } from '../src/user.entity.js';

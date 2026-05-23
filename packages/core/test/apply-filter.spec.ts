@@ -1,17 +1,17 @@
 import 'reflect-metadata';
 import { Body, Controller, Get, Module, Post } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import { Injectable } from '@nestjs/common';
-import { describe, expect, it } from 'vitest';
-import request from 'supertest';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import { describe, expect, it } from 'vitest';
+import type { FilterAdapter } from '../src/adapter/adapter.js';
 import { BaseFilter } from '../src/base-filter.js';
 import { ApplyFilter } from '../src/decorator/apply-filter.decorator.js';
-import { Filterable } from '../src/decorator/filterable.decorator.js';
 import { FilterFor } from '../src/decorator/filter-for.decorator.js';
+import { Filterable } from '../src/decorator/filterable.decorator.js';
 import { FilterModule } from '../src/module.js';
 import { FILTER_ADAPTER } from '../src/tokens.js';
-import type { FilterAdapter } from '../src/adapter/adapter.js';
 
 class FakeEntity {}
 

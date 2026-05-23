@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Body } from '@nestjs/common';
 import { ApplyFilter } from '@dudousxd/nestjs-filter';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import type { SelectQueryBuilder } from 'typeorm';
 import { User } from './user.entity.js';
 import { UserFilter } from './user.filter.js';

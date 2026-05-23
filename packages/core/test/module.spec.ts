@@ -29,10 +29,7 @@ describe('FilterModule', () => {
 
   it('forFeature registers filters as providers', async () => {
     const mod = await Test.createTestingModule({
-      imports: [
-        FilterModule.forRoot({ validation: 'off' }),
-        FilterModule.forFeature([UserFilter]),
-      ],
+      imports: [FilterModule.forRoot({ validation: 'off' }), FilterModule.forFeature([UserFilter])],
     }).compile();
 
     expect(mod.get(UserFilter)).toBeInstanceOf(UserFilter);

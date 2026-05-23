@@ -1,7 +1,7 @@
+import { FILTER_ADAPTER } from '@dudousxd/nestjs-filter';
 import { type DynamicModule, Global, Module, type Provider } from '@nestjs/common';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import type { DataSource } from 'typeorm';
-import { FILTER_ADAPTER } from '@dudousxd/nestjs-filter';
 import { TypeOrmAdapter } from './typeorm.adapter.js';
 
 @Global()

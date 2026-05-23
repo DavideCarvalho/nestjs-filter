@@ -1,11 +1,16 @@
 import 'reflect-metadata';
+import { FILTER_ADAPTER, FilterModule } from '@dudousxd/nestjs-filter';
 import { MikroORM } from '@mikro-orm/core';
-import { Entity, PrimaryKey, Property, ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
+import {
+  Entity,
+  PrimaryKey,
+  Property,
+  ReflectMetadataProvider,
+} from '@mikro-orm/decorators/legacy';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Test } from '@nestjs/testing';
-import { describe, expect, it, afterEach } from 'vitest';
-import { FILTER_ADAPTER, FilterModule } from '@dudousxd/nestjs-filter';
+import { afterEach, describe, expect, it } from 'vitest';
 import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
 import { MikroOrmFilterModule } from '../src/module.js';
 

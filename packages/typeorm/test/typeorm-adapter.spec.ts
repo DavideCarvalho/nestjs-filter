@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { Column, DataSource, Entity, PrimaryGeneratedColumn } from 'typeorm';
-import { describe, expect, it, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { TypeOrmAdapter } from '../src/typeorm.adapter.js';
 
 @Entity('items')

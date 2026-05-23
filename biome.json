@@ -19,7 +19,8 @@
     "enabled": true,
     "rules": {
       "recommended": true,
-      "style": { "noNonNullAssertion": "off" },
+      "complexity": { "noBannedTypes": "off", "noStaticOnlyClass": "off" },
+      "style": { "noNonNullAssertion": "off", "useImportType": "off" },
       "suspicious": {
         "noExplicitAny": "error",
         "noEmptyInterface": "off"

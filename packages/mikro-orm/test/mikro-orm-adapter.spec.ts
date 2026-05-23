@@ -1,8 +1,13 @@
 import 'reflect-metadata';
 import { MikroORM } from '@mikro-orm/core';
-import { Entity, PrimaryKey, Property, ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
+import {
+  Entity,
+  PrimaryKey,
+  Property,
+  ReflectMetadataProvider,
+} from '@mikro-orm/decorators/legacy';
 import { SqliteDriver } from '@mikro-orm/sqlite';
-import { describe, expect, it, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
 
 @Entity({ tableName: 'items' })

@@ -10,7 +10,10 @@ import type { Observable } from 'rxjs';
 import { from } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import type { FilterAdapter } from '../adapter/adapter.js';
-import { type ApplyFilterMetadataEntry, getApplyFilterMetadata } from '../decorator/apply-filter.decorator.js';
+import {
+  type ApplyFilterMetadataEntry,
+  getApplyFilterMetadata,
+} from '../decorator/apply-filter.decorator.js';
 import { getFilterableMetadata } from '../decorator/filterable.decorator.js';
 import { resolveInputFromRequest } from '../input/source-resolver.js';
 import { FilterRunner } from '../runner.js';
@@ -26,7 +29,9 @@ export class ApplyFilterInterceptor implements NestInterceptor {
     const entries = getApplyFilterMetadata(controller, handler.name);
     if (entries.length === 0) return next.handle();
 
-    const req = ctx.switchToHttp().getRequest<Record<symbol, unknown[]> & Record<string, unknown>>();
+    const req = ctx
+      .switchToHttp()
+      .getRequest<Record<symbol, unknown[]> & Record<string, unknown>>();
     if (!req[APPLY_FILTER_REQ_KEY]) {
       (req as Record<symbol, unknown[]>)[APPLY_FILTER_REQ_KEY] = [];
     }
@@ -37,7 +42,10 @@ export class ApplyFilterInterceptor implements NestInterceptor {
     // Resolve adapter: try each:true to find all providers, pick the non-null one
     let adapter: FilterAdapter | null = null;
     try {
-      const adapters = this.moduleRef.get<FilterAdapter | null>(FILTER_ADAPTER, { strict: false, each: true });
+      const adapters = this.moduleRef.get<FilterAdapter | null>(FILTER_ADAPTER, {
+        strict: false,
+        each: true,
+      });
       if (Array.isArray(adapters)) {
         adapter = adapters.find((a) => a !== null) ?? null;
       } else {
@@ -47,7 +55,9 @@ export class ApplyFilterInterceptor implements NestInterceptor {
       adapter = null;
     }
 
-    return from(this.runAll(entries, slot, req, runner, adapter)).pipe(switchMap(() => next.handle()));
+    return from(this.runAll(entries, slot, req, runner, adapter)).pipe(
+      switchMap(() => next.handle()),
+    );
   }
 
   private async runAll(
@@ -58,7 +68,9 @@ export class ApplyFilterInterceptor implements NestInterceptor {
     adapter: FilterAdapter | null,
   ): Promise<void> {
     if (!adapter) {
-      throw new Error('No FilterAdapter registered. Import an adapter module (e.g. MikroOrmFilterModule.forRoot()).');
+      throw new Error(
+        'No FilterAdapter registered. Import an adapter module (e.g. MikroOrmFilterModule.forRoot()).',
+      );
     }
 
     for (const entry of entries) {

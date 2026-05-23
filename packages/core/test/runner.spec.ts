@@ -3,8 +3,8 @@ import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import { BaseFilter } from '../src/base-filter.js';
-import { Filterable } from '../src/decorator/filterable.decorator.js';
 import { FilterFor } from '../src/decorator/filter-for.decorator.js';
+import { Filterable } from '../src/decorator/filterable.decorator.js';
 import {
   FilterMethodException,
   FilterNotRegisteredException,
@@ -61,7 +61,10 @@ async function makeModule(options = {}) {
     providers: [
       UserFilter,
       FilterRunner,
-      { provide: FILTER_MODULE_OPTIONS, useValue: { inputNormalizer: 'camelCase', validation: 'off', ...options } },
+      {
+        provide: FILTER_MODULE_OPTIONS,
+        useValue: { inputNormalizer: 'camelCase', validation: 'off', ...options },
+      },
       { provide: FILTER_ADAPTER, useValue: null },
     ],
   }).compile();
@@ -104,19 +107,25 @@ describe('FilterRunner.apply', () => {
     @Injectable()
     @Filterable({ entity: FakeEntity })
     class NotRegistered extends BaseFilter<MockQB> {}
-    await expect(runner.apply(NotRegistered, {}, makeMockQB())).rejects.toThrow(FilterNotRegisteredException);
+    await expect(runner.apply(NotRegistered, {}, makeMockQB())).rejects.toThrow(
+      FilterNotRegisteredException,
+    );
   });
 
   it('throws UnknownFilterKeyException when onUnknownKey is throw', async () => {
     const mod = await makeModule({ onUnknownKey: 'throw' });
     const runner = mod.get(FilterRunner);
-    await expect(runner.apply(UserFilter, { unknown: 1 }, makeMockQB())).rejects.toThrow(UnknownFilterKeyException);
+    await expect(runner.apply(UserFilter, { unknown: 1 }, makeMockQB())).rejects.toThrow(
+      UnknownFilterKeyException,
+    );
   });
 
   it('wraps user method errors in FilterMethodException', async () => {
     const mod = await makeModule();
     const runner = mod.get(FilterRunner);
-    await expect(runner.apply(UserFilter, { bad: 'x' }, makeMockQB())).rejects.toThrow(FilterMethodException);
+    await expect(runner.apply(UserFilter, { bad: 'x' }, makeMockQB())).rejects.toThrow(
+      FilterMethodException,
+    );
   });
 
   it('treats null/undefined input as empty (only setup runs)', async () => {

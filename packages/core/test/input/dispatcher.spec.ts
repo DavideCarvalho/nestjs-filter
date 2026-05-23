@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { resolveDispatchTarget } from '../../src/input/dispatcher.js';
 import { FilterFor } from '../../src/decorator/filter-for.decorator.js';
 import { Filterable } from '../../src/decorator/filterable.decorator.js';
+import { resolveDispatchTarget } from '../../src/input/dispatcher.js';
 
 class FakeEntity {}
 

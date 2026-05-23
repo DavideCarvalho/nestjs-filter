@@ -33,9 +33,8 @@ export class FilterRunner {
       dropId: this.options.dropId ?? false,
     });
 
-    const finalInput = this.options.validation === 'off'
-      ? normalized
-      : await validateInput(FilterClass, normalized);
+    const finalInput =
+      this.options.validation === 'off' ? normalized : await validateInput(FilterClass, normalized);
 
     return runWithFilterState(
       {
@@ -54,7 +53,9 @@ export class FilterRunner {
             continue;
           }
           try {
-            const method = (filter as unknown as Record<string, (v: unknown, k: string) => unknown>)[methodName]!;
+            const method = (
+              filter as unknown as Record<string, (v: unknown, k: string) => unknown>
+            )[methodName]!;
             await method.call(filter, value, key);
           } catch (cause) {
             throw new FilterMethodException(key, value, cause);
