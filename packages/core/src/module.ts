@@ -59,6 +59,25 @@ export class FilterModule {
     };
   }
 
+  static forFeatureAsync(options: {
+    imports?: DynamicModule[];
+    useFactory: (...args: unknown[]) => Promise<Array<Type<unknown>>> | Array<Type<unknown>>;
+    inject?: unknown[];
+  }): DynamicModule {
+    const FILTER_FEATURE_CLASSES = 'FILTER_FEATURE_CLASSES';
+    const filtersProvider: Provider = {
+      provide: FILTER_FEATURE_CLASSES,
+      useFactory: options.useFactory,
+      inject: (options.inject ?? []) as Array<Type<unknown>>,
+    };
+    return {
+      module: FilterFeatureModule,
+      imports: options.imports ?? [],
+      providers: [filtersProvider],
+      exports: [FILTER_FEATURE_CLASSES],
+    };
+  }
+
   private static buildAsyncOptionsProvider(options: FilterModuleAsyncOptions): Provider {
     if (options.useFactory) {
       return {

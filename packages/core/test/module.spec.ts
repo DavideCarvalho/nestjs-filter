@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Injectable } from '@nestjs/common';
+import { type DynamicModule, Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import { BaseFilter } from '../src/base-filter.js';
@@ -53,5 +53,65 @@ describe('FilterModule', () => {
       imports: [FilterModule.forRoot({ validation: 'off' })],
     }).compile();
     expect(mod.get(FILTER_ADAPTER)).toBeNull();
+  });
+
+  it('forFeatureAsync registers filters resolved by async factory', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        FilterModule.forRoot({ validation: 'off' }),
+        FilterModule.forFeatureAsync({
+          useFactory: async () => [UserFilter],
+        }),
+      ],
+    }).compile();
+
+    const classes = mod.get('FILTER_FEATURE_CLASSES');
+    expect(classes).toEqual([UserFilter]);
+  });
+
+  it('forFeatureAsync supports synchronous factory', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        FilterModule.forRoot({ validation: 'off' }),
+        FilterModule.forFeatureAsync({
+          useFactory: () => [UserFilter],
+        }),
+      ],
+    }).compile();
+
+    const classes = mod.get('FILTER_FEATURE_CLASSES');
+    expect(classes).toEqual([UserFilter]);
+  });
+
+  it('forFeatureAsync accepts imports and inject options', async () => {
+    const CONFIG_TOKEN = 'CONFIG_TOKEN';
+
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class DynamicFilter extends BaseFilter<unknown> {}
+
+    const configModule = {
+      module: class ConfigModule {},
+      global: true,
+      providers: [{ provide: CONFIG_TOKEN, useValue: 'test-config' }],
+      exports: [CONFIG_TOKEN],
+    } as DynamicModule;
+
+    const mod = await Test.createTestingModule({
+      imports: [
+        configModule,
+        FilterModule.forRoot({ validation: 'off' }),
+        FilterModule.forFeatureAsync({
+          useFactory: (config: string) => {
+            expect(config).toBe('test-config');
+            return [DynamicFilter];
+          },
+          inject: [CONFIG_TOKEN],
+        }),
+      ],
+    }).compile();
+
+    const classes = mod.get('FILTER_FEATURE_CLASSES');
+    expect(classes).toEqual([DynamicFilter]);
   });
 });
