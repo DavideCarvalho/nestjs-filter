@@ -1,4 +1,6 @@
-import { type DynamicModule, Global, Module, type Provider, type Type } from '@nestjs/common';
+import { type DynamicModule, Module, type Provider, type Type } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ApplyFilterInterceptor } from './interceptor/apply-filter.interceptor.js';
 import { FilterRunner } from './runner.js';
 import { FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
 import type {
@@ -7,7 +9,12 @@ import type {
   FilterModuleOptionsFactory,
 } from './types.js';
 
-@Global()
+@Module({})
+class FilterCoreModule {}
+
+@Module({})
+class FilterFeatureModule {}
+
 @Module({})
 export class FilterModule {
   static forRoot(options: FilterModuleOptions = {}): DynamicModule {
@@ -17,7 +24,8 @@ export class FilterModule {
       FilterRunner,
     ];
     return {
-      module: FilterModule,
+      module: FilterCoreModule,
+      global: true,
       providers,
       exports: [FilterRunner, FILTER_MODULE_OPTIONS, FILTER_ADAPTER],
     };
@@ -31,7 +39,8 @@ export class FilterModule {
       FilterRunner,
     ];
     return {
-      module: FilterModule,
+      module: FilterCoreModule,
+      global: true,
       imports: (options.imports ?? []) as DynamicModule[],
       providers,
       exports: [FilterRunner, FILTER_MODULE_OPTIONS, FILTER_ADAPTER],
@@ -40,8 +49,12 @@ export class FilterModule {
 
   static forFeature(filters: Array<Type<unknown>>): DynamicModule {
     return {
-      module: FilterModule,
-      providers: filters.map((F) => F as Provider),
+      module: FilterFeatureModule,
+      providers: [
+        ...filters.map((F) => F as Provider),
+        ApplyFilterInterceptor,
+        { provide: APP_INTERCEPTOR, useExisting: ApplyFilterInterceptor },
+      ],
       exports: filters,
     };
   }
