@@ -103,7 +103,18 @@ export class FilterRunner {
           );
         }
         // Process pushed entries (BFS: pushed handlers may push more entries)
+        const MAX_PUSH_ITERATIONS = 100;
+        let pushIterations = 0;
         while ($pushed.length > 0) {
+          if (++pushIterations > MAX_PUSH_ITERATIONS) {
+            throw new FilterMethodException(
+              '$push',
+              undefined,
+              new Error(
+                `Push loop exceeded ${MAX_PUSH_ITERATIONS} iterations — possible infinite cycle.`,
+              ),
+            );
+          }
           const [key, value] = $pushed.shift()!;
           if (value === undefined) continue;
           const methodName =

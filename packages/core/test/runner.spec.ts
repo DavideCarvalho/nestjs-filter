@@ -445,6 +445,40 @@ describe('FilterRunner.apply', () => {
     ]);
   });
 
+  it('throws after MAX_PUSH_ITERATIONS to prevent infinite loops', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class InfiniteLoopFilter extends BaseFilter<MockQB> {
+      @FilterFor()
+      looper(v: string) {
+        this.$query.andWhere({ looper: v });
+        // Self-referencing push creates an infinite cycle
+        this.push('looper', v);
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        InfiniteLoopFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await expect(runner.apply(InfiniteLoopFilter, { looper: 'x' }, qb)).rejects.toThrow(
+      FilterMethodException,
+    );
+    await expect(runner.apply(InfiniteLoopFilter, { looper: 'x' }, makeMockQB())).rejects.toThrow(
+      /Push loop exceeded 100 iterations/,
+    );
+  });
+
   it('@Relations delegates keys to related filter via adapter', async () => {
     class PostEntity {}
 
