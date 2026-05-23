@@ -17,11 +17,11 @@ export class PostFilter extends MikroOrmFilter<Post> {
 
   @FilterFor('postTitle')
   applyPostTitle(value: string) {
-    this.$query.andWhere({ title: { $like: `%${escapeLike(value)}%` } });
+    this.$query.andWhere({ posts: { title: { $like: `%${escapeLike(value)}%` } } });
   }
 
   @FilterFor('postStatus')
   applyPostStatus(value: string) {
-    this.$query.andWhere({ status: value });
+    this.$query.andWhere({ posts: { status: value } });
   }
 }
