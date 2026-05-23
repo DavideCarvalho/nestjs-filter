@@ -1,0 +1,18 @@
+import swc from 'unplugin-swc';
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  plugins: [
+    swc.vite({
+      module: { type: 'es6' },
+    }),
+  ],
+  test: {
+    environment: 'node',
+    globals: false,
+    include: ['test/**/*.{spec,test}.ts'],
+    setupFiles: ['reflect-metadata'],
+    pool: 'forks',
+    testTimeout: 30_000,
+  },
+});
