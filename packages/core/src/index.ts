@@ -24,7 +24,6 @@ export {
 export {
   FILTER_MODULE_OPTIONS,
   FILTER_ADAPTER,
-  FILTER_REGISTRY,
   FILTERABLE_METADATA,
   FILTER_FOR_METADATA,
   FILTER_RELATIONS_METADATA,
@@ -50,4 +49,3 @@ export type {
 export { resolveInputFromRequest } from './input/source-resolver.js';
 export { normalizeInput } from './input/normalizer.js';
 export { escapeLike } from './utils/escape-like.js';
-export { FilterRegistry } from './filter-registry.js';
