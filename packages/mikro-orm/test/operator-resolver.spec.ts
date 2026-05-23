@@ -132,6 +132,47 @@ describe('MikroORM resolveOperator', () => {
     });
   });
 
+  it('notEquals', () => {
+    expect(resolveOperator({ field: 'name', operator: 'notEquals', value: 'Alice' })).toEqual({
+      name: { $ne: 'Alice' },
+    });
+  });
+
+  it('notIn', () => {
+    expect(resolveOperator({ field: 'age', operator: 'notIn', value: [25, 30] })).toEqual({
+      age: { $nin: [25, 30] },
+    });
+  });
+
+  it('notBetween', () => {
+    expect(resolveOperator({ field: 'age', operator: 'notBetween', value: [25, 30] })).toEqual({
+      $or: [{ age: { $lt: 25 } }, { age: { $gt: 30 } }],
+    });
+  });
+
+  it('isNull', () => {
+    expect(resolveOperator({ field: 'bio', operator: 'isNull' })).toEqual({
+      bio: null,
+    });
+  });
+
+  it('notContains', () => {
+    expect(resolveOperator({ field: 'name', operator: 'notContains', value: 'li' })).toEqual({
+      $not: { name: { $like: '%li%' } },
+    });
+  });
+
+  it('notContains escapes special LIKE characters', () => {
+    const result = resolveOperator({ field: 'name', operator: 'notContains', value: '100%' });
+    expect(result).toEqual({ $not: { name: { $like: '%100\\%%' } } });
+  });
+
+  it('iContains', () => {
+    expect(resolveOperator({ field: 'name', operator: 'iContains', value: 'alice' })).toEqual({
+      name: { $like: '%alice%' },
+    });
+  });
+
   it('throws on unsupported operator', () => {
     expect(() =>
       resolveOperator({ field: 'x', operator: 'badOp' as any, value: 1 }),
@@ -369,6 +410,63 @@ describe('MikroOrmAdapter.applyColumnFilters (with SQLite)', () => {
     adapter.applyColumnFilters(qb, []);
     const results = await qb.getResultList();
     expect(results).toHaveLength(4); // All records
+  });
+
+  it('filters with notEquals operator', async () => {
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = orm.em.createQueryBuilder(User);
+    adapter.applyColumnFilters(qb, [{ field: 'name', operator: 'notEquals', value: 'Alice' }]);
+    const results = await qb.getResultList();
+    expect(results).toHaveLength(3); // Bob, Charlie, Alice Jr
+    expect(results.every((u) => u.name !== 'Alice')).toBe(true);
+  });
+
+  it('filters with notIn operator', async () => {
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = orm.em.createQueryBuilder(User);
+    adapter.applyColumnFilters(qb, [{ field: 'age', operator: 'notIn', value: [30, 40] }]);
+    const results = await qb.getResultList();
+    expect(results).toHaveLength(2); // Bob (25), Alice Jr (15)
+    expect(results.every((u) => u.age !== 30 && u.age !== 40)).toBe(true);
+  });
+
+  it('filters with notBetween operator', async () => {
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = orm.em.createQueryBuilder(User);
+    adapter.applyColumnFilters(qb, [{ field: 'age', operator: 'notBetween', value: [25, 30] }]);
+    const results = await qb.getResultList();
+    expect(results).toHaveLength(2); // Charlie (40), Alice Jr (15)
+    expect(results.every((u) => u.age < 25 || u.age > 30)).toBe(true);
+  });
+
+  it('filters with isNull operator', async () => {
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = orm.em.createQueryBuilder(User);
+    adapter.applyColumnFilters(qb, [{ field: 'bio', operator: 'isNull' }]);
+    const results = await qb.getResultList();
+    // Charlie (bio=undefined/null) and Alice Jr (bio=undefined/null)
+    expect(results).toHaveLength(2);
+    expect(results.every((u) => u.bio === undefined || u.bio === null)).toBe(true);
+  });
+
+  it('filters with notContains operator', async () => {
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = orm.em.createQueryBuilder(User);
+    adapter.applyColumnFilters(qb, [{ field: 'name', operator: 'notContains', value: 'ob' }]);
+    const results = await qb.getResultList();
+    // Only Bob contains 'ob'; Alice, Charlie, and Alice Jr do not
+    expect(results).toHaveLength(3);
+    expect(results.every((u) => !u.name.toLowerCase().includes('ob'))).toBe(true);
+  });
+
+  it('filters with iContains operator (case-insensitive)', async () => {
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = orm.em.createQueryBuilder(User);
+    adapter.applyColumnFilters(qb, [{ field: 'name', operator: 'iContains', value: 'ALICE' }]);
+    const results = await qb.getResultList();
+    // SQLite LIKE is case-insensitive for ASCII, so should find Alice and Alice Jr
+    expect(results).toHaveLength(2);
+    expect(results.every((u) => u.name.toLowerCase().includes('alice'))).toBe(true);
   });
 
   it('filters with nested AND composition', async () => {

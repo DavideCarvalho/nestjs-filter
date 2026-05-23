@@ -16,7 +16,10 @@ describe('validateColumnFilter', () => {
   it('accepts all valid operators', () => {
     const operators = [
       { operator: 'equals', value: 'x' },
+      { operator: 'notEquals', value: 'x' },
       { operator: 'contains', value: 'x' },
+      { operator: 'notContains', value: 'x' },
+      { operator: 'iContains', value: 'x' },
       { operator: 'startsWith', value: 'x' },
       { operator: 'endsWith', value: 'x' },
       { operator: 'gt', value: 10 },
@@ -24,10 +27,13 @@ describe('validateColumnFilter', () => {
       { operator: 'lt', value: 10 },
       { operator: 'lte', value: 10 },
       { operator: 'between', value: [1, 10] },
+      { operator: 'notBetween', value: [1, 10] },
       { operator: 'in', value: [1, 2, 3] },
+      { operator: 'notIn', value: [1, 2, 3] },
       { operator: 'isAnyOf', value: ['a', 'b'] },
       { operator: 'isEmpty' },
       { operator: 'isNotEmpty' },
+      { operator: 'isNull' },
       { operator: 'isNotNull' },
       { operator: 'exists' },
       { operator: 'notExists' },
@@ -86,7 +92,7 @@ describe('validateColumnFilter', () => {
   });
 
   it('allows missing value for unary operators', () => {
-    for (const op of ['isEmpty', 'isNotEmpty', 'isNotNull', 'exists', 'notExists'] as const) {
+    for (const op of ['isEmpty', 'isNotEmpty', 'isNull', 'isNotNull', 'exists', 'notExists'] as const) {
       expect(() =>
         validateColumnFilter({ field: 'x', operator: op }),
       ).not.toThrow();
@@ -114,10 +120,31 @@ describe('validateColumnFilter', () => {
     ).toThrow(/requires an array value/);
   });
 
+  it('rejects "notIn" with non-array value', () => {
+    expect(() =>
+      validateColumnFilter({ field: 'x', operator: 'notIn', value: 'not-array' }),
+    ).toThrow(/requires an array value/);
+  });
+
   it('rejects "isAnyOf" with non-array value', () => {
     expect(() =>
       validateColumnFilter({ field: 'x', operator: 'isAnyOf', value: 42 }),
     ).toThrow(/requires an array value/);
+  });
+
+  it('rejects "notBetween" with non-array value', () => {
+    expect(() =>
+      validateColumnFilter({ field: 'x', operator: 'notBetween', value: 5 }),
+    ).toThrow(/2-element array/);
+  });
+
+  it('rejects "notBetween" with wrong-length array', () => {
+    expect(() =>
+      validateColumnFilter({ field: 'x', operator: 'notBetween', value: [1] }),
+    ).toThrow(/2-element array/);
+    expect(() =>
+      validateColumnFilter({ field: 'x', operator: 'notBetween', value: [1, 2, 3] }),
+    ).toThrow(/2-element array/);
   });
 
   it('validates nested AND filters recursively', () => {

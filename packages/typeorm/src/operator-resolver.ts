@@ -29,9 +29,27 @@ export function applyOperator<E extends ObjectLiteral>(
       break;
     }
 
+    case 'notEquals': {
+      const p = uniqueParam(field, 'neq');
+      qb[method](`${col} != :${p}`, { [p]: value });
+      break;
+    }
+
     case 'contains': {
       const p = uniqueParam(field, 'contains');
       qb[method](`${col} LIKE :${p}`, { [p]: `%${escapeLike(String(value))}%` });
+      break;
+    }
+
+    case 'notContains': {
+      const p = uniqueParam(field, 'ncontains');
+      qb[method](`${col} NOT LIKE :${p}`, { [p]: `%${escapeLike(String(value))}%` });
+      break;
+    }
+
+    case 'iContains': {
+      const p = uniqueParam(field, 'icontains');
+      qb[method](`LOWER(${col}) LIKE LOWER(:${p})`, { [p]: `%${escapeLike(String(value))}%` });
       break;
     }
 
@@ -79,10 +97,24 @@ export function applyOperator<E extends ObjectLiteral>(
       break;
     }
 
+    case 'notBetween': {
+      const [low, high] = value as [unknown, unknown];
+      const pLow = uniqueParam(field, 'nbtwLow');
+      const pHigh = uniqueParam(field, 'nbtwHigh');
+      qb[method](`${col} NOT BETWEEN :${pLow} AND :${pHigh}`, { [pLow]: low, [pHigh]: high });
+      break;
+    }
+
     case 'in':
     case 'isAnyOf': {
       const p = uniqueParam(field, 'in');
       qb[method](`${col} IN (:...${p})`, { [p]: value });
+      break;
+    }
+
+    case 'notIn': {
+      const p = uniqueParam(field, 'nin');
+      qb[method](`${col} NOT IN (:...${p})`, { [p]: value });
       break;
     }
 
@@ -101,6 +133,11 @@ export function applyOperator<E extends ObjectLiteral>(
           sub.where(`${col} IS NOT NULL`).andWhere(`${col} != ''`);
         }),
       );
+      break;
+    }
+
+    case 'isNull': {
+      qb[method](`${col} IS NULL`);
       break;
     }
 

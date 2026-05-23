@@ -8,6 +8,7 @@ const operatorSet = new Set<string>(FILTER_OPERATORS);
 const UNARY_OPERATORS = new Set<FilterOperator>([
   'isEmpty',
   'isNotEmpty',
+  'isNull',
   'isNotNull',
   'exists',
   'notExists',
@@ -16,7 +17,13 @@ const UNARY_OPERATORS = new Set<FilterOperator>([
 /**
  * Operators that require an array value.
  */
-const ARRAY_OPERATORS = new Set<FilterOperator>(['in', 'isAnyOf', 'between']);
+const ARRAY_OPERATORS = new Set<FilterOperator>([
+  'in',
+  'notIn',
+  'isAnyOf',
+  'between',
+  'notBetween',
+]);
 
 export class InvalidColumnFilterError extends Error {
   constructor(message: string) {
@@ -64,10 +71,10 @@ export function validateColumnFilter(filter: ColumnFilter): void {
   // Validate value
   if (UNARY_OPERATORS.has(op)) {
     // Unary operators don't need a value — ignore any provided value
-  } else if (op === 'between') {
+  } else if (op === 'between' || op === 'notBetween') {
     if (!Array.isArray(filter.value) || filter.value.length !== 2) {
       throw new InvalidColumnFilterError(
-        `Operator "between" requires a value that is a 2-element array, got: ${JSON.stringify(filter.value)}.`,
+        `Operator "${op}" requires a value that is a 2-element array, got: ${JSON.stringify(filter.value)}.`,
       );
     }
   } else if (ARRAY_OPERATORS.has(op)) {

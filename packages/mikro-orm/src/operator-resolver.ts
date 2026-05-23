@@ -11,7 +11,16 @@ export function resolveOperator(filter: ColumnFilter): Record<string, unknown> {
     case 'equals':
       return { [field]: value };
 
+    case 'notEquals':
+      return { [field]: { $ne: value } };
+
     case 'contains':
+      return { [field]: { $like: `%${escapeLike(String(value))}%` } };
+
+    case 'notContains':
+      return { $not: { [field]: { $like: `%${escapeLike(String(value))}%` } } };
+
+    case 'iContains':
       return { [field]: { $like: `%${escapeLike(String(value))}%` } };
 
     case 'startsWith':
@@ -37,9 +46,17 @@ export function resolveOperator(filter: ColumnFilter): Record<string, unknown> {
       return { [field]: { $gte: low, $lte: high } };
     }
 
+    case 'notBetween': {
+      const [low, high] = value as [unknown, unknown];
+      return { $or: [{ [field]: { $lt: low } }, { [field]: { $gt: high } }] };
+    }
+
     case 'in':
     case 'isAnyOf':
       return { [field]: { $in: value } };
+
+    case 'notIn':
+      return { [field]: { $nin: value } };
 
     case 'isEmpty':
       return {
@@ -50,6 +67,9 @@ export function resolveOperator(filter: ColumnFilter): Record<string, unknown> {
       return {
         $and: [{ [field]: { $ne: null } }, { [field]: { $ne: '' } }],
       };
+
+    case 'isNull':
+      return { [field]: null };
 
     case 'isNotNull':
       return { [field]: { $ne: null } };

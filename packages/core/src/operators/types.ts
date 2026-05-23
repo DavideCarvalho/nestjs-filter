@@ -5,7 +5,10 @@
  */
 export type FilterOperator =
   | 'equals'
+  | 'notEquals'
   | 'contains'
+  | 'notContains'
+  | 'iContains'
   | 'startsWith'
   | 'endsWith'
   | 'gt'
@@ -13,10 +16,13 @@ export type FilterOperator =
   | 'lt'
   | 'lte'
   | 'between'
+  | 'notBetween'
   | 'in'
+  | 'notIn'
   | 'isAnyOf'
   | 'isEmpty'
   | 'isNotEmpty'
+  | 'isNull'
   | 'isNotNull'
   | 'exists'
   | 'notExists';
@@ -26,7 +32,10 @@ export type FilterOperator =
  */
 export const FILTER_OPERATORS: readonly FilterOperator[] = [
   'equals',
+  'notEquals',
   'contains',
+  'notContains',
+  'iContains',
   'startsWith',
   'endsWith',
   'gt',
@@ -34,10 +43,13 @@ export const FILTER_OPERATORS: readonly FilterOperator[] = [
   'lt',
   'lte',
   'between',
+  'notBetween',
   'in',
+  'notIn',
   'isAnyOf',
   'isEmpty',
   'isNotEmpty',
+  'isNull',
   'isNotNull',
   'exists',
   'notExists',

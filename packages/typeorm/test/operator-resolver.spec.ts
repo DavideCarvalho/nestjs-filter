@@ -212,6 +212,63 @@ describe('TypeORM operator resolver (with better-sqlite3)', () => {
     expect(results).toHaveLength(4); // All records
   });
 
+  it('filters with notEquals operator', async () => {
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(User as any) as any;
+    adapter.applyColumnFilters(qb, [{ field: 'name', operator: 'notEquals', value: 'Alice' }]);
+    const results = await qb.getMany();
+    expect(results).toHaveLength(3); // Bob, Charlie, Alice Jr
+    expect(results.every((u: any) => u.name !== 'Alice')).toBe(true);
+  });
+
+  it('filters with notIn operator', async () => {
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(User as any) as any;
+    adapter.applyColumnFilters(qb, [{ field: 'age', operator: 'notIn', value: [30, 40] }]);
+    const results = await qb.getMany();
+    expect(results).toHaveLength(2); // Bob (25), Alice Jr (15)
+    expect(results.every((u: any) => u.age !== 30 && u.age !== 40)).toBe(true);
+  });
+
+  it('filters with notBetween operator', async () => {
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(User as any) as any;
+    adapter.applyColumnFilters(qb, [{ field: 'age', operator: 'notBetween', value: [25, 30] }]);
+    const results = await qb.getMany();
+    expect(results).toHaveLength(2); // Charlie (40), Alice Jr (15)
+    expect(results.every((u: any) => u.age < 25 || u.age > 30)).toBe(true);
+  });
+
+  it('filters with isNull operator', async () => {
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(User as any) as any;
+    adapter.applyColumnFilters(qb, [{ field: 'bio', operator: 'isNull' }]);
+    const results = await qb.getMany();
+    // Charlie (null), Alice Jr (null)
+    expect(results).toHaveLength(2);
+    expect(results.every((u: any) => u.bio === null)).toBe(true);
+  });
+
+  it('filters with notContains operator', async () => {
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(User as any) as any;
+    adapter.applyColumnFilters(qb, [{ field: 'name', operator: 'notContains', value: 'ob' }]);
+    const results = await qb.getMany();
+    // Only Bob contains 'ob'; Alice, Charlie, Alice Jr do not
+    expect(results).toHaveLength(3);
+    expect(results.every((u: any) => !u.name.toLowerCase().includes('ob'))).toBe(true);
+  });
+
+  it('filters with iContains operator (case-insensitive)', async () => {
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(User as any) as any;
+    adapter.applyColumnFilters(qb, [{ field: 'name', operator: 'iContains', value: 'ALICE' }]);
+    const results = await qb.getMany();
+    // LOWER() approach works on SQLite; finds Alice and Alice Jr
+    expect(results).toHaveLength(2);
+    expect(results.every((u: any) => u.name.toLowerCase().includes('alice'))).toBe(true);
+  });
+
   it('filters with nested AND composition', async () => {
     const adapter = new TypeOrmAdapter(ds);
     const qb = adapter.createQueryBuilder(User as any) as any;
