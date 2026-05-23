@@ -14,8 +14,16 @@ export function FilterFor(inputKey?: string): MethodDecorator {
 }
 
 export function getFilterForMap(target: object): Map<string, string> {
-  const own = Reflect.getOwnMetadata(FILTER_FOR_METADATA, target) as
-    | Map<string, string>
-    | undefined;
-  return own ?? new Map<string, string>();
+  const result = new Map<string, string>();
+  let current: object | null = target;
+  while (current && current !== Function.prototype && current !== Object) {
+    const own = Reflect.getOwnMetadata(FILTER_FOR_METADATA, current) as Map<string, string> | undefined;
+    if (own) {
+      for (const [key, method] of own) {
+        if (!result.has(key)) result.set(key, method);
+      }
+    }
+    current = Object.getPrototypeOf(current);
+  }
+  return result;
 }

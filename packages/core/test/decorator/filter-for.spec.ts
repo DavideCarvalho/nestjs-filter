@@ -38,4 +38,31 @@ describe('@FilterFor', () => {
     class C {}
     expect(getFilterForMap(C).size).toBe(0);
   });
+
+  it('inherits @FilterFor from parent class', () => {
+    class Parent {
+      @FilterFor('parentKey')
+      parentMethod(_v: string) {}
+    }
+    class Child extends Parent {
+      @FilterFor('childKey')
+      childMethod(_v: string) {}
+    }
+    const map = getFilterForMap(Child);
+    expect(map.get('parentKey')).toBe('parentMethod');
+    expect(map.get('childKey')).toBe('childMethod');
+  });
+
+  it('child @FilterFor overrides parent for same key', () => {
+    class Parent {
+      @FilterFor('name')
+      parentName(_v: string) {}
+    }
+    class Child extends Parent {
+      @FilterFor('name')
+      childName(_v: string) {}
+    }
+    const map = getFilterForMap(Child);
+    expect(map.get('name')).toBe('childName');
+  });
 });
