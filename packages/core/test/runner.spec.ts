@@ -445,6 +445,87 @@ describe('FilterRunner.apply', () => {
     ]);
   });
 
+  it('push() respects blacklisted keys', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class PushBlacklistFilter extends BaseFilter<MockQB> {
+      override setup() {
+        this.blacklistMethod('blocked');
+      }
+
+      @FilterFor()
+      trigger(v: string) {
+        this.$query.andWhere({ trigger: v });
+        this.push('blocked', 'should-not-appear');
+      }
+
+      @FilterFor()
+      blocked(v: string) {
+        this.$query.andWhere({ blocked: v });
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        PushBlacklistFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(PushBlacklistFilter, { trigger: 'go' }, qb);
+    // 'blocked' was pushed but is blacklisted, so it should NOT be dispatched
+    expect(qb.calls).toEqual([['andWhere', { trigger: 'go' }]]);
+  });
+
+  it('push() uses consistent whitelist resolution', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity, blocked: ['secret'] })
+    class PushWhitelistFilter extends BaseFilter<MockQB> {
+      override setup() {
+        this.whitelistMethod('secret');
+      }
+
+      @FilterFor()
+      trigger(v: string) {
+        this.$query.andWhere({ trigger: v });
+        this.push('secret', 'whitelisted-value');
+      }
+
+      @FilterFor()
+      secret(v: string) {
+        this.$query.andWhere({ secret: v });
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        PushWhitelistFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(PushWhitelistFilter, { trigger: 'go' }, qb);
+    // 'secret' is statically blocked but dynamically whitelisted, so it should be dispatched
+    expect(qb.calls).toEqual([
+      ['andWhere', { trigger: 'go' }],
+      ['andWhere', { secret: 'whitelisted-value' }],
+    ]);
+  });
+
   it('throws after MAX_PUSH_ITERATIONS to prevent infinite loops', async () => {
     @Injectable()
     @Filterable({ entity: FakeEntity })

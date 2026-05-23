@@ -117,9 +117,10 @@ export class FilterRunner {
           }
           const [key, value] = $pushed.shift()!;
           if (value === undefined) continue;
-          const methodName =
-            resolveDispatchTarget(FilterClass, key) ??
-            this.resolveWhitelistedMethod(FilterClass, key);
+          if ($blacklisted.has(key)) continue;
+          const methodName = $whitelisted.has(key)
+            ? this.resolveWhitelistedMethod(FilterClass, key)
+            : resolveDispatchTarget(FilterClass, key);
           if (!methodName) {
             this.handleUnknownKey(key);
             continue;
