@@ -33,7 +33,7 @@ export class FilterRunner {
     const filter = await this.resolveFilter(FilterClass);
     const normalized = normalizeInput(input, {
       normalizer: this.options.inputNormalizer ?? 'camelCase',
-      dropId: this.options.dropId ?? false,
+      dropId: this.options.dropId ?? true,
       ...(this.options.stripEmpty !== undefined && { stripEmpty: this.options.stripEmpty }),
     });
 

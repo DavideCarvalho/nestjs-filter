@@ -80,7 +80,7 @@ async function makeModule(opts = {}, extraProviders: any[] = []) {
       FilterRunner,
       {
         provide: FILTER_MODULE_OPTIONS,
-        useValue: { inputNormalizer: 'camelCase', validation: 'auto', ...opts },
+        useValue: { inputNormalizer: 'camelCase', validation: 'auto', dropId: false, ...opts },
       },
       { provide: FILTER_ADAPTER, useValue: null },
     ],

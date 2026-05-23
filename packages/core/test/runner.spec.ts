@@ -63,7 +63,7 @@ async function makeModule(options = {}) {
       FilterRunner,
       {
         provide: FILTER_MODULE_OPTIONS,
-        useValue: { inputNormalizer: 'camelCase', validation: 'off', ...options },
+        useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false, ...options },
       },
       { provide: FILTER_ADAPTER, useValue: null },
     ],
@@ -154,7 +154,7 @@ describe('FilterRunner.apply', () => {
         FilterRunner,
         {
           provide: FILTER_MODULE_OPTIONS,
-          useValue: { inputNormalizer: 'camelCase', validation: 'off' },
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
         },
         { provide: FILTER_ADAPTER, useValue: null },
       ],
@@ -230,7 +230,7 @@ describe('FilterRunner.apply', () => {
         FilterRunner,
         {
           provide: FILTER_MODULE_OPTIONS,
-          useValue: { inputNormalizer: 'camelCase', validation: 'off' },
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
         },
         { provide: FILTER_ADAPTER, useValue: null },
       ],
@@ -271,7 +271,7 @@ describe('FilterRunner.apply', () => {
         FilterRunner,
         {
           provide: FILTER_MODULE_OPTIONS,
-          useValue: { inputNormalizer: 'camelCase', validation: 'off' },
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
         },
         { provide: FILTER_ADAPTER, useValue: null },
       ],
