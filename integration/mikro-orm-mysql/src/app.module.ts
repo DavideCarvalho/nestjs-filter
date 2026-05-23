@@ -1,0 +1,32 @@
+import { FilterModule } from '@dudousxd/nestjs-filter';
+import { MikroOrmFilterModule } from '@dudousxd/nestjs-filter-mikro-orm';
+import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
+import { MySqlDriver } from '@mikro-orm/mysql';
+import { MikroOrmModule } from '@mikro-orm/nestjs';
+import { Module } from '@nestjs/common';
+import { Post } from './post.entity.js';
+import { PostFilter } from './post.filter.js';
+import { User } from './user.entity.js';
+import { UserFilter } from './user.filter.js';
+import { UsersController } from './users.controller.js';
+
+@Module({
+  imports: [
+    MikroOrmModule.forRoot({
+      driver: MySqlDriver,
+      host: process.env.DB_HOST ?? 'localhost',
+      port: Number(process.env.DB_PORT ?? '3306'),
+      user: process.env.DB_USER ?? 'test',
+      password: process.env.DB_PASSWORD ?? 'test',
+      dbName: process.env.DB_NAME ?? 'nestjs_filter_test',
+      entities: [User, Post],
+      metadataProvider: ReflectMetadataProvider,
+      allowGlobalContext: true,
+    }),
+    FilterModule.forRoot({ inputNormalizer: 'camelCase' }),
+    MikroOrmFilterModule.forRoot(),
+    FilterModule.forFeature([UserFilter, PostFilter]),
+  ],
+  controllers: [UsersController],
+})
+export class AppModule {}
