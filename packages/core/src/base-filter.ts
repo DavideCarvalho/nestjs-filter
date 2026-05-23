@@ -28,5 +28,25 @@ export abstract class BaseFilter<TQuery = unknown> {
     return s.$adapter;
   }
 
+  /**
+   * Dynamically whitelist a filter key at runtime (typically called in setup()).
+   * Whitelisted keys bypass static allowed/blocked checks in the dispatcher.
+   */
+  protected whitelistMethod(key: string): void {
+    const s = filterAls.getStore();
+    if (!s) throw new FilterStateUnavailableException();
+    s.$whitelisted.add(key);
+  }
+
+  /**
+   * Dynamically blacklist a filter key at runtime (typically called in setup()).
+   * Blacklisted keys are skipped during dispatch regardless of static configuration.
+   */
+  protected blacklistMethod(key: string): void {
+    const s = filterAls.getStore();
+    if (!s) throw new FilterStateUnavailableException();
+    s.$blacklisted.add(key);
+  }
+
   setup?(): void | Promise<void>;
 }

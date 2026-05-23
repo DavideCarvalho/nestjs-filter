@@ -7,6 +7,8 @@ export interface FilterState {
   $input: Readonly<Record<string, unknown>>;
   $context: FilterContext;
   $adapter: FilterAdapter | null;
+  $whitelisted: Set<string>;
+  $blacklisted: Set<string>;
 }
 
 export const filterAls = new AsyncLocalStorage<FilterState>();

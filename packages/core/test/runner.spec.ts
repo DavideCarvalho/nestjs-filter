@@ -203,4 +203,84 @@ describe('FilterRunner.apply', () => {
       ['andWhere', { company: 5 }],
     ]);
   });
+
+  it('setup() can whitelist a normally-blocked method via whitelistMethod', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity, blocked: ['secret'] })
+    class WhitelistFilter extends BaseFilter<MockQB> {
+      override setup() {
+        // Dynamically whitelist 'secret' which is statically blocked
+        this.whitelistMethod('secret');
+      }
+
+      @FilterFor()
+      secret(v: string) {
+        this.$query.andWhere({ secret: v });
+      }
+
+      @FilterFor()
+      name(v: string) {
+        this.$query.andWhere({ name: v });
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        WhitelistFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off' },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(WhitelistFilter, { secret: 'x', name: 'foo' }, qb);
+    expect(qb.calls).toEqual([
+      ['andWhere', { secret: 'x' }],
+      ['andWhere', { name: 'foo' }],
+    ]);
+  });
+
+  it('setup() can blacklist a normally-allowed method via blacklistMethod', async () => {
+    @Injectable()
+    @Filterable({ entity: FakeEntity })
+    class BlacklistFilter extends BaseFilter<MockQB> {
+      override setup() {
+        // Dynamically blacklist 'name'
+        this.blacklistMethod('name');
+      }
+
+      @FilterFor()
+      name(v: string) {
+        this.$query.andWhere({ name: v });
+      }
+
+      @FilterFor('companyId')
+      applyCompany(v: number) {
+        this.$query.andWhere({ company: v });
+      }
+    }
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        BlacklistFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: { inputNormalizer: 'camelCase', validation: 'off' },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(BlacklistFilter, { name: 'foo', companyId: 5 }, qb);
+    // name is blacklisted, only companyId dispatched
+    expect(qb.calls).toEqual([['andWhere', { company: 5 }]]);
+  });
 });

@@ -7,6 +7,7 @@ import {
   FilterNotRegisteredException,
   UnknownFilterKeyException,
 } from './errors/exceptions.js';
+import { getFilterForMap } from './decorator/filter-for.decorator.js';
 import { resolveDispatchTarget } from './input/dispatcher.js';
 import { normalizeInput } from './input/normalizer.js';
 import { validateInput } from './input/validator.js';
@@ -33,11 +34,14 @@ export class FilterRunner {
     const normalized = normalizeInput(input, {
       normalizer: this.options.inputNormalizer ?? 'camelCase',
       dropId: this.options.dropId ?? false,
-      stripEmpty: this.options.stripEmpty,
+      ...(this.options.stripEmpty !== undefined && { stripEmpty: this.options.stripEmpty }),
     });
 
     const finalInput =
       this.options.validation === 'off' ? normalized : await validateInput(FilterClass, normalized);
+
+    const $whitelisted = new Set<string>();
+    const $blacklisted = new Set<string>();
 
     return runWithFilterState(
       {
@@ -45,12 +49,17 @@ export class FilterRunner {
         $input: Object.freeze({ ...finalInput }),
         $context: context,
         $adapter: this.adapter,
+        $whitelisted,
+        $blacklisted,
       },
       async () => {
         await this.runSetup(filter);
         for (const [key, value] of Object.entries(finalInput)) {
           if (value === undefined) continue;
-          const methodName = resolveDispatchTarget(FilterClass, key);
+          if ($blacklisted.has(key)) continue;
+          const methodName = $whitelisted.has(key)
+            ? this.resolveWhitelistedMethod(FilterClass, key)
+            : resolveDispatchTarget(FilterClass, key);
           if (!methodName) {
             this.handleUnknownKey(key);
             continue;
@@ -72,10 +81,17 @@ export class FilterRunner {
   private async resolveFilter<F>(FilterClass: Type<F>): Promise<F> {
     try {
       return await this.moduleRef.resolve(FilterClass, undefined, { strict: false });
-    } catch {
+    } catch (resolveErr) {
       try {
         return this.moduleRef.get(FilterClass, { strict: false });
       } catch {
+        if (
+          resolveErr instanceof Error &&
+          !resolveErr.message.includes('could not find') &&
+          !resolveErr.message.includes('Could not find')
+        ) {
+          throw resolveErr;
+        }
         throw new FilterNotRegisteredException(FilterClass.name);
       }
     }
@@ -89,6 +105,15 @@ export class FilterRunner {
     } catch (cause) {
       throw new FilterMethodException('setup', undefined, cause);
     }
+  }
+
+  /**
+   * Resolves a method for a whitelisted key, bypassing static allowed/blocked checks.
+   * Only checks the @FilterFor map directly.
+   */
+  private resolveWhitelistedMethod(FilterClass: Function, key: string): string | null {
+    const map = getFilterForMap(FilterClass);
+    return map.get(key) ?? null;
   }
 
   private handleUnknownKey(key: string): void {

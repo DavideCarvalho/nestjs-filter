@@ -19,7 +19,7 @@ describe('BaseFilter', () => {
     const input = { name: 'foo' };
     const ctx = { user: { id: 1 } };
 
-    runWithFilterState({ $query: qb, $input: input, $context: ctx, $adapter: null }, () => {
+    runWithFilterState({ $query: qb, $input: input, $context: ctx, $adapter: null, $whitelisted: new Set(), $blacklisted: new Set() }, () => {
       expect(f.$query).toBe(qb);
       expect(f.$input).toEqual(input);
       expect(f.$context).toEqual(ctx);
@@ -30,7 +30,7 @@ describe('BaseFilter', () => {
   it('$input is frozen', () => {
     const f = new StubFilter();
     runWithFilterState(
-      { $query: {}, $input: Object.freeze({ a: 1 }), $context: {}, $adapter: null },
+      { $query: {}, $input: Object.freeze({ a: 1 }), $context: {}, $adapter: null, $whitelisted: new Set(), $blacklisted: new Set() },
       () => {
         expect(Object.isFrozen(f.$input)).toBe(true);
       },

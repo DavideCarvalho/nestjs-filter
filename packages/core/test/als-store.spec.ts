@@ -7,15 +7,15 @@ describe('filterAls', () => {
   });
 
   it('exposes the provided state inside run()', () => {
-    const state = { $query: { tag: 'qb' }, $input: { x: 1 }, $context: {}, $adapter: null };
+    const state = { $query: { tag: 'qb' }, $input: { x: 1 }, $context: {}, $adapter: null, $whitelisted: new Set<string>(), $blacklisted: new Set<string>() };
     runWithFilterState(state, () => {
       expect(filterAls.getStore()).toBe(state);
     });
   });
 
   it('isolates state across concurrent runs', async () => {
-    const a = { $query: { tag: 'a' }, $input: {}, $context: {}, $adapter: null };
-    const b = { $query: { tag: 'b' }, $input: {}, $context: {}, $adapter: null };
+    const a = { $query: { tag: 'a' }, $input: {}, $context: {}, $adapter: null, $whitelisted: new Set<string>(), $blacklisted: new Set<string>() };
+    const b = { $query: { tag: 'b' }, $input: {}, $context: {}, $adapter: null, $whitelisted: new Set<string>(), $blacklisted: new Set<string>() };
 
     const results: string[] = [];
     await Promise.all([
