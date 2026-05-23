@@ -94,6 +94,11 @@ describe('FilterExceptionFilter', () => {
     expect(res.body.message).toBe('Filter input validation failed.');
     expect(Array.isArray(res.body.errors)).toBe(true);
     expect(res.body.errors.length).toBeGreaterThan(0);
+    // Verify sensitive fields are stripped (info leakage prevention)
+    for (const err of res.body.errors) {
+      expect(err).not.toHaveProperty('target');
+      expect(err).not.toHaveProperty('value');
+    }
 
     await app.close();
   });
