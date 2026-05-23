@@ -15,7 +15,7 @@ export function resolveInputFromRequest(
 ): Record<string, unknown> {
   if (typeof source === 'function') {
     const r = source(req);
-    return (r ?? {}) as Record<string, unknown>;
+    return { ...(r ?? {}) } as Record<string, unknown>;
   }
   const r = (req ?? {}) as ReqLike;
   const query = (r.query ?? {}) as Record<string, unknown>;

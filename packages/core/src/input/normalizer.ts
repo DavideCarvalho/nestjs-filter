@@ -34,7 +34,8 @@ function pickNormalizer(spec: InputNormalizer): (key: string) => string {
 }
 
 function toCamelCase(key: string): string {
-  return key.replace(/[_-](\w)/g, (_, c) => (c as string).toUpperCase());
+  const result = key.replace(/[_-](\w)/g, (_, c) => (c as string).toUpperCase());
+  return result.charAt(0).toLowerCase() + result.slice(1);
 }
 
 function toSnakeCase(key: string): string {

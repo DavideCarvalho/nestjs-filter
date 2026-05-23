@@ -81,6 +81,10 @@ describe('normalizeInput', () => {
     expect(out).toEqual({ name: '', age: null, role: 'admin' });
   });
 
+  it('handles leading underscore in camelCase mode', () => {
+    expect(normalizeInput({ _name: 'x' }, { normalizer: 'camelCase' })).toEqual({ name: 'x' });
+  });
+
   it('preserves zero and false values when stripping', () => {
     const out = normalizeInput(
       { count: 0, active: false, name: '' },

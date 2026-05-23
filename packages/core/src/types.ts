@@ -57,11 +57,6 @@ export interface FilterMetadata {
   blocked?: readonly string[];
 }
 
-export interface FilterForMetadataEntry {
-  methodName: string;
-  inputKey: string | undefined;
-}
-
 /**
  * Extracts the input shape from a filter class.
  * Picks all non-function, non-$-prefixed, non-setup properties.
