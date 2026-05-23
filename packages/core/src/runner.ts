@@ -9,6 +9,7 @@ import {
 } from './errors/exceptions.js';
 import { resolveDispatchTarget } from './input/dispatcher.js';
 import { normalizeInput } from './input/normalizer.js';
+import { validateInput } from './input/validator.js';
 import { FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
 import type { FilterContext, FilterModuleOptions } from './types.js';
 
@@ -32,16 +33,20 @@ export class FilterRunner {
       dropId: this.options.dropId ?? false,
     });
 
+    const finalInput = this.options.validation === 'off'
+      ? normalized
+      : await validateInput(FilterClass, normalized);
+
     return runWithFilterState(
       {
         $query: qb,
-        $input: Object.freeze({ ...normalized }),
+        $input: Object.freeze({ ...finalInput }),
         $context: context,
         $adapter: this.adapter,
       },
       async () => {
         await this.runSetup(filter);
-        for (const [key, value] of Object.entries(normalized)) {
+        for (const [key, value] of Object.entries(finalInput)) {
           if (value === undefined) continue;
           const methodName = resolveDispatchTarget(FilterClass, key);
           if (!methodName) {
@@ -49,7 +54,7 @@ export class FilterRunner {
             continue;
           }
           try {
-            const method = (filter as unknown as Record<string, (v: unknown, k: string) => unknown>)[methodName];
+            const method = (filter as unknown as Record<string, (v: unknown, k: string) => unknown>)[methodName]!;
             await method.call(filter, value, key);
           } catch (cause) {
             throw new FilterMethodException(key, value, cause);
