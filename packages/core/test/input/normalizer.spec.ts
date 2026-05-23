@@ -38,4 +38,22 @@ describe('normalizeInput', () => {
     const out = normalizeInput({ nested_obj: { inner_key: 1 } }, { normalizer: 'camelCase' });
     expect(out).toEqual({ nestedObj: { inner_key: 1 } });
   });
+
+  it('drops __proto__ key to prevent prototype pollution', () => {
+    // Use JSON.parse to create an object with a literal __proto__ own-property
+    const input = JSON.parse('{"__proto__": {"malicious": true}, "name": "safe"}');
+    const out = normalizeInput(input, { normalizer: 'camelCase' });
+    expect(out).toEqual({ name: 'safe' });
+    expect(Object.prototype.hasOwnProperty.call(out, '__proto__')).toBe(false);
+  });
+
+  it('drops constructor key to prevent prototype pollution', () => {
+    const out = normalizeInput({ constructor: 'evil', name: 'safe' }, { normalizer: 'camelCase' });
+    expect(out).toEqual({ name: 'safe' });
+  });
+
+  it('drops prototype key to prevent prototype pollution', () => {
+    const out = normalizeInput({ prototype: 'evil', name: 'safe' }, { normalizer: 'camelCase' });
+    expect(out).toEqual({ name: 'safe' });
+  });
 });

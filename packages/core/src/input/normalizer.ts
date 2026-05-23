@@ -5,13 +5,17 @@ export interface NormalizeOptions {
   dropId?: boolean;
 }
 
+const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 export function normalizeInput(input: unknown, options: NormalizeOptions): Record<string, unknown> {
   if (input == null || typeof input !== 'object') return {};
   const norm = pickNormalizer(options.normalizer);
   const drop = options.dropId === true;
   const out: Record<string, unknown> = {};
   for (const [rawKey, value] of Object.entries(input as Record<string, unknown>)) {
+    if (BLOCKED_KEYS.has(rawKey)) continue;
     let key = norm(rawKey);
+    if (BLOCKED_KEYS.has(key)) continue;
     if (drop) key = stripId(key);
     if (key.length === 0) continue;
     out[key] = value;
