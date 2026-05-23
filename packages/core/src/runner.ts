@@ -1,4 +1,4 @@
-import { Inject, Injectable, type Type } from '@nestjs/common';
+import { Inject, Injectable, Logger, type Type } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import type { FilterAdapter } from './adapter/adapter.js';
 import { runWithFilterState } from './als-store.js';
@@ -15,6 +15,8 @@ import type { FilterContext, FilterModuleOptions } from './types.js';
 
 @Injectable()
 export class FilterRunner {
+  private readonly logger = new Logger(FilterRunner.name);
+
   constructor(
     private readonly moduleRef: ModuleRef,
     @Inject(FILTER_MODULE_OPTIONS) private readonly options: FilterModuleOptions,
@@ -91,5 +93,8 @@ export class FilterRunner {
   private handleUnknownKey(key: string): void {
     const policy = this.options.onUnknownKey ?? 'ignore';
     if (policy === 'throw') throw new UnknownFilterKeyException(key);
+    if (policy === 'warn') {
+      this.logger.warn(`Unknown filter key: "${key}"`);
+    }
   }
 }

@@ -135,4 +135,13 @@ describe('FilterRunner.apply', () => {
     await runner.apply(UserFilter, null, qb);
     expect(qb.calls).toEqual([]);
   });
+
+  it('onUnknownKey warn skips unknown key without throwing', async () => {
+    const mod = await makeModule({ onUnknownKey: 'warn' });
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    // Should not throw, and unknown key should not be dispatched
+    await runner.apply(UserFilter, { unknown: 1, name: 'foo' }, qb);
+    expect(qb.calls).toEqual([['andWhere', { name: 'foo' }]]);
+  });
 });
