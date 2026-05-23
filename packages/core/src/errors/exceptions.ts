@@ -39,7 +39,7 @@ export class FilterMethodException extends FilterException {
   constructor(
     public readonly key: string,
     public readonly value: unknown,
-    public readonly cause: unknown,
+    public override readonly cause: unknown,
   ) {
     super(`Filter method for key "${key}" threw: ${cause instanceof Error ? cause.message : String(cause)}`);
   }
