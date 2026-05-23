@@ -1,16 +1,12 @@
-import { FilterFor, Filterable, Relations, escapeLike } from '@dudousxd/nestjs-filter';
+import { FilterFor, Filterable, escapeLike } from '@dudousxd/nestjs-filter';
 import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
 import { Injectable } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsNumber, IsOptional, IsString } from 'class-validator';
-import { PostFilter } from './post.filter.js';
 import { User } from './user.entity.js';
 
 @Injectable()
 @Filterable({ entity: User })
-@Relations({
-  posts: { filter: PostFilter, keys: ['postTitle'] },
-})
 export class UserFilter extends MikroOrmFilter<User> {
   @IsOptional()
   @IsString()
@@ -42,5 +38,11 @@ export class UserFilter extends MikroOrmFilter<User> {
   @FilterFor('role')
   applyRole(value: string) {
     this.$query.andWhere({ role: value });
+  }
+
+  @FilterFor('postTitle')
+  applyPostTitle(value: string) {
+    this.$query.joinAndSelect('posts', 'posts');
+    this.$query.andWhere({ posts: { title: { $like: `%${escapeLike(value)}%` } } });
   }
 }

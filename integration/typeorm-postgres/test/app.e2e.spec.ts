@@ -21,10 +21,8 @@ describe('TypeORM + PostgreSQL integration', () => {
   });
 
   afterEach(async () => {
-    const postRepo = ds.getRepository(Post);
-    const userRepo = ds.getRepository(User);
-    await postRepo.delete({});
-    await userRepo.delete({});
+    await ds.query('DELETE FROM posts');
+    await ds.query('DELETE FROM users');
   });
 
   afterAll(async () => {

@@ -1,16 +1,12 @@
-import { FilterFor, Filterable, Relations, escapeLike } from '@dudousxd/nestjs-filter';
+import { FilterFor, Filterable, escapeLike } from '@dudousxd/nestjs-filter';
 import { TypeOrmFilter } from '@dudousxd/nestjs-filter-typeorm';
 import { Injectable } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsNumber, IsOptional, IsString } from 'class-validator';
-import { PostFilter } from './post.filter.js';
 import { User } from './user.entity.js';
 
 @Injectable()
 @Filterable({ entity: User })
-@Relations({
-  posts: { filter: PostFilter, keys: ['postTitle'] },
-})
 export class UserFilter extends TypeOrmFilter<User> {
   @IsOptional()
   @IsString()
@@ -44,5 +40,13 @@ export class UserFilter extends TypeOrmFilter<User> {
   @FilterFor('role')
   applyRole(v: string) {
     this.$query.andWhere(`${this.entityAlias}.role = :role`, { role: v });
+  }
+
+  @FilterFor('postTitle')
+  applyPostTitle(v: string) {
+    this.$query.leftJoinAndSelect(`${this.entityAlias}.posts`, 'posts');
+    this.$query.andWhere('posts.title LIKE :postTitle', {
+      postTitle: `%${escapeLike(v)}%`,
+    });
   }
 }

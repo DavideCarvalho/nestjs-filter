@@ -9,23 +9,23 @@ import { Post } from './post.entity.js';
 export class PostFilter extends TypeOrmFilter<Post> {
   @IsOptional()
   @IsString()
-  postTitle?: string;
+  title?: string;
 
   @IsOptional()
   @IsString()
-  postStatus?: string;
+  status?: string;
 
-  @FilterFor('postTitle')
-  applyPostTitle(value: string) {
-    this.$query.andWhere('posts.title LIKE :postTitle', {
-      postTitle: `%${escapeLike(value)}%`,
+  @FilterFor('title')
+  applyTitle(value: string) {
+    this.$query.andWhere(`${this.entityAlias}.title LIKE :title`, {
+      title: `%${escapeLike(value)}%`,
     });
   }
 
-  @FilterFor('postStatus')
-  applyPostStatus(value: string) {
-    this.$query.andWhere('posts.status = :postStatus', {
-      postStatus: value,
+  @FilterFor('status')
+  applyStatus(value: string) {
+    this.$query.andWhere(`${this.entityAlias}.status = :status`, {
+      status: value,
     });
   }
 }
