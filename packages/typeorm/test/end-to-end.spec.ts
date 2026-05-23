@@ -5,6 +5,7 @@ import { Test } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Column, DataSource, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import { describe, expect, it } from 'vitest';
+import { FilterableRepository } from '../src/filterable-repository.js';
 import { HasFilter, getHasFilter } from '../src/has-filter.decorator.js';
 import { TypeOrmFilterModule } from '../src/module.js';
 import { TypeOrmFilter } from '../src/typeorm-filter.js';
@@ -69,6 +70,39 @@ describe('TypeORM end-to-end filter', () => {
 
     expect(rows.map((r) => r.name)).toEqual(['Alice']);
     expect(getHasFilter(UserRepoMarker)).toBe(UserFilter);
+
+    await mod.close();
+  });
+
+  it('FilterableRepository.filter() applies filter and returns QB', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        TypeOrmModule.forRoot({
+          type: 'better-sqlite3',
+          database: ':memory:',
+          entities: [User],
+          synchronize: true,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        TypeOrmFilterModule.forRoot(),
+        FilterModule.forFeature([UserFilter]),
+      ],
+    }).compile();
+
+    const ds = mod.get(DataSource);
+    const repo = ds.getRepository(User);
+    await repo.save([
+      { name: 'Alice', age: 30 },
+      { name: 'Albert', age: 20 },
+      { name: 'Bob', age: 25 },
+    ]);
+
+    const runner = mod.get(FilterRunner);
+    const filterableRepo = new FilterableRepository(repo, UserFilter);
+    const qb = await filterableRepo.filter({ name: 'Al', minAge: 25 }, runner);
+    const rows = await qb.getMany();
+
+    expect(rows.map((r) => r.name)).toEqual(['Alice']);
 
     await mod.close();
   });
