@@ -1,0 +1,21 @@
+{
+  "name": "@dudousxd/nestjs-filter-docs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "nestjs-filter documentation site (Astro Starlight)",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.39.0",
+    "astro": "^6.1.10",
+    "sharp": "^0.33.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,55 @@
+---
+title: nestjs-filter
+description: Declarative, ORM-agnostic filter classes for NestJS — inspired by eloquent-filter and adonis-lucid-filter.
+template: splash
+hero:
+  tagline: Declarative filter classes for NestJS with full DI, class-validator integration, and native ORM adapters for MikroORM and TypeORM.
+  actions:
+    - text: Get Started
+      link: /nestjs-filter/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/DavideCarvalho/nestjs-filter
+      icon: external
+---
+
+## What is nestjs-filter?
+
+`nestjs-filter` is a TypeScript-first monorepo of three focused packages that bring declarative, composable filtering to NestJS applications. Inspired by PHP's [eloquent-filter](https://github.com/Tucker-Eric/EloquentFilter) and AdonisJS's [adonis-lucid-filter](https://github.com/lookinlab/adonis-lucid-filter), it redesigns the pattern for NestJS idioms with full dependency injection, AsyncLocalStorage-based state isolation, and pluggable ORM adapters.
+
+| Package | Description |
+|---------|-------------|
+| `@dudousxd/nestjs-filter` | Core: BaseFilter, FilterRunner, decorators, FilterModule |
+| `@dudousxd/nestjs-filter-mikro-orm` | MikroORM 7 adapter |
+| `@dudousxd/nestjs-filter-typeorm` | TypeORM adapter |
+
+> **Alpha status:** The API is stabilising -- breaking changes may occur before `1.0`. Not recommended for production use yet.
+
+## Key features
+
+- **Declarative filter classes** with `@FilterFor()` method decorators
+- **Full NestJS dependency injection** inside filters
+- **Optional class-validator integration** -- your filter class doubles as the DTO
+- **`@ApplyFilter()` param decorator** for controllers (method-aware: GET=query, POST=body+query)
+- **`resolve` option** on `@ApplyFilter` for dynamic filter class selection per request
+- **AsyncLocalStorage-based state isolation** -- singleton filters with zero cross-request contamination
+- **ORM-agnostic core** with native QueryBuilder access per adapter
+- **`FilterRunner.apply()`** for programmatic use in services
+- **`FilterTestingModule` + `makeMockQueryBuilder`** for isolated unit tests
+- **`FilterExceptionFilter`** maps validation errors to 400 responses
+- **`FilterableEntityRepository` / `FilterableRepository`** convenience wrappers per ORM
+- **Input normalization** (camelCase, snake_case, or custom)
+- **Unknown key policies** (ignore, warn, throw)
+
+## Quick install
+
+```bash
+# MikroORM
+pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-mikro-orm
+
+# TypeORM
+pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-typeorm
+```
+
+See [Getting Started](/nestjs-filter/getting-started/) for the full quickstart -- define a filter, register the module, and start filtering in under five minutes.

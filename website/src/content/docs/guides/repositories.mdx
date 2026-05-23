@@ -1,0 +1,186 @@
+---
+title: Repository Integration
+description: FilterableEntityRepository for MikroORM and FilterableRepository for TypeORM — convenience wrappers, @HasFilter, and FilterRegistry.
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+Both ORM adapter packages provide repository wrapper classes that combine entity repository access with filter application in a single API.
+
+---
+
+## MikroORM: FilterableEntityRepository
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { FilterRunner } from '@dudousxd/nestjs-filter';
+import { FilterableEntityRepository } from '@dudousxd/nestjs-filter-mikro-orm';
+import type { SqlEntityManager } from '@mikro-orm/sql';
+import { User } from './user.entity.js';
+import { UserFilter } from './user.filter.js';
+
+@Injectable()
+export class UsersService {
+  private readonly repo: FilterableEntityRepository<User>;
+
+  constructor(
+    private readonly em: SqlEntityManager,
+    private readonly runner: FilterRunner,
+  ) {
+    this.repo = new FilterableEntityRepository(em, User, UserFilter, runner);
+  }
+
+  async search(input: Record<string, unknown>) {
+    const qb = await this.repo.filter(input);
+    return qb.getResultList();
+  }
+}
+```
+
+### Constructor
+
+```ts
+new FilterableEntityRepository<E>(
+  em: SqlEntityManager,       // MikroORM entity manager
+  entity: Type<E>,            // Entity class
+  filterClass: Type<object>,  // Filter class
+  runner?: FilterRunner,      // Optional: pre-bind the runner
+)
+```
+
+### `.filter()` method
+
+```ts
+// With pre-bound runner (set in constructor)
+const qb = await repo.filter(input);
+
+// Or pass runner explicitly
+const qb = await repo.filter(input, runner);
+```
+
+Returns a `QueryBuilder<E>` ready for further chaining or execution.
+
+---
+
+## TypeORM: FilterableRepository
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { FilterRunner } from '@dudousxd/nestjs-filter';
+import { FilterableRepository } from '@dudousxd/nestjs-filter-typeorm';
+import { DataSource } from 'typeorm';
+import { User } from './user.entity.js';
+import { UserFilter } from './user.filter.js';
+
+@Injectable()
+export class UsersService {
+  private readonly repo: FilterableRepository<User>;
+
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly runner: FilterRunner,
+  ) {
+    this.repo = new FilterableRepository(
+      dataSource.getRepository(User),
+      UserFilter,
+      runner,
+    );
+  }
+
+  async search(input: Record<string, unknown>) {
+    const qb = await this.repo.filter(input);
+    return qb.getMany();
+  }
+}
+```
+
+### Constructor
+
+```ts
+new FilterableRepository<E>(
+  repository: Repository<E>,    // TypeORM repository
+  filterClass: Type<object>,    // Filter class
+  runner?: FilterRunner,        // Optional: pre-bind the runner
+)
+```
+
+### `.filter()` method
+
+```ts
+// With pre-bound runner (set in constructor)
+const qb = await repo.filter(input);
+
+// Or pass runner explicitly
+const qb = await repo.filter(input, runner);
+```
+
+Returns a `SelectQueryBuilder<E>` ready for further chaining or execution.
+
+---
+
+## TypeORM: `@HasFilter` decorator
+
+The `@HasFilter()` class decorator associates an entity with its filter class at the entity level:
+
+```ts
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { HasFilter } from '@dudousxd/nestjs-filter-typeorm';
+import { UserFilter } from './user.filter.js';
+
+@Entity()
+@HasFilter(UserFilter)
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  name: string;
+}
+```
+
+This metadata can be read later via `getHasFilter(User)` to automatically look up the correct filter class for an entity, without requiring the caller to know which filter class to use.
+
+---
+
+## FilterRegistry
+
+`FilterRegistry` is a global registry that maps entity classes to their filter classes. It is populated by `FilterModule.forFeature()` and can be used for auto-lookup:
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { FilterRegistry, FilterRunner } from '@dudousxd/nestjs-filter';
+import type { SqlEntityManager } from '@mikro-orm/sql';
+import type { Type } from '@nestjs/common';
+
+@Injectable()
+export class GenericFilterService {
+  constructor(
+    private readonly registry: FilterRegistry,
+    private readonly runner: FilterRunner,
+    private readonly em: SqlEntityManager,
+  ) {}
+
+  async filterEntity<E extends object>(
+    entity: Type<E>,
+    input: Record<string, unknown>,
+  ) {
+    const FilterClass = this.registry.getFilter(entity);
+    if (!FilterClass) throw new Error(`No filter registered for ${entity.name}`);
+
+    const qb = this.em.createQueryBuilder(entity as unknown as new () => E);
+    await this.runner.apply(FilterClass as Type<object>, input, qb);
+    return qb;
+  }
+}
+```
+
+### FilterRegistry API
+
+| Method | Description |
+|--------|-------------|
+| `register(entity, filterClass)` | Maps an entity to a filter class |
+| `getFilter(entity)` | Returns the filter class for an entity, or `undefined` |
+| `has(entity)` | Returns `true` if the entity has a registered filter |
+| `entries()` | Returns an immutable `ReadonlyMap` of all registered mappings |

@@ -1,0 +1,154 @@
+---
+title: Relation Filtering
+description: Cross-entity filtering with @Relations — delegate input keys to related entity filters via ORM joins.
+sidebar:
+  order: 6
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `@Relations` decorator lets you delegate input keys to a related entity's filter. When those keys appear in the input, the runner creates a join via the adapter and applies the related filter's methods on the joined query.
+
+---
+
+## Basic usage
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { Filterable, FilterFor, Relations } from '@dudousxd/nestjs-filter';
+import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
+import { User } from './user.entity.js';
+import { PostFilter } from './post.filter.js';
+
+@Injectable()
+@Filterable({ entity: User })
+@Relations({
+  posts: { filter: PostFilter, keys: ['postTitle', 'postStatus'] },
+})
+export class UserFilter extends MikroOrmFilter<User> {
+  @FilterFor('name')
+  applyName(value: string) {
+    this.whereLike('name', value);
+  }
+
+  // postTitle and postStatus are handled by PostFilter
+  // via a join on the 'posts' relation
+}
+```
+
+When the input `{ name: 'Al', postTitle: 'Hello' }` arrives:
+
+1. `name` is dispatched to `UserFilter.applyName()`
+2. `postTitle` is recognized as belonging to the `posts` relation
+3. The adapter creates a join on `posts` and delegates `{ postTitle: 'Hello' }` to `PostFilter`
+
+---
+
+## The related filter
+
+The related filter is a normal filter class. It receives the relation-bound keys as input:
+
+```ts
+@Injectable()
+@Filterable({ entity: Post })
+export class PostFilter extends MikroOrmFilter<Post> {
+  @FilterFor('postTitle')
+  applyTitle(value: string) {
+    this.whereLike('title', value);
+  }
+
+  @FilterFor('postStatus')
+  applyStatus(value: string) {
+    this.$query.andWhere({ status: value });
+  }
+}
+```
+
+<Aside type="note">
+  The keys in the related filter's `@FilterFor` decorators must match the keys listed in the `@Relations` `keys` array. In this example, `PostFilter` uses `@FilterFor('postTitle')` because that is the key listed in the relation config.
+</Aside>
+
+---
+
+## `@Relations` decorator reference
+
+```ts
+@Relations(map: RelationsMap)
+```
+
+Where `RelationsMap` is:
+
+```ts
+type RelationsMap = Record<string, RelationConfig>;
+
+interface RelationConfig {
+  filter: Type<unknown>;      // The filter class for the related entity
+  keys: readonly string[];    // Input keys that belong to this relation
+}
+```
+
+Example with multiple relations:
+
+```ts
+@Relations({
+  posts: { filter: PostFilter, keys: ['postTitle', 'postStatus'] },
+  company: { filter: CompanyFilter, keys: ['companyName', 'companySize'] },
+})
+```
+
+---
+
+## How the adapter handles relations
+
+### MikroORM
+
+The MikroORM adapter uses `joinAndSelect()` to join the relation and applies the callback filter on the same query builder:
+
+```ts
+// Internally:
+parentQb.joinAndSelect(relationName, relationName);
+await callback(qb); // PostFilter methods run on the same QB
+```
+
+### TypeORM
+
+The TypeORM adapter uses `leftJoinAndSelect()`:
+
+```ts
+// Internally:
+parentQb.leftJoinAndSelect(`${alias}.${relationName}`, relationName);
+await callback(parentQb); // PostFilter methods run on the same QB
+```
+
+---
+
+## Manual relation filtering
+
+If you need more control, you can handle relation filtering manually in your filter methods instead of using `@Relations`:
+
+```ts
+@FilterFor('postTitle')
+applyPostTitle(value: string) {
+  // MikroORM example
+  this.$query.joinAndSelect('posts', 'posts');
+  this.$query.andWhere({ 'posts.title': { $like: `%${value}%` } });
+}
+```
+
+---
+
+## Helper methods for LIKE queries
+
+Both `MikroOrmFilter` and `TypeOrmFilter` provide convenience methods:
+
+| Method | SQL equivalent |
+|--------|---------------|
+| `this.whereLike(field, value)` | `field LIKE '%value%'` |
+| `this.whereBeginsWith(field, value)` | `field LIKE 'value%'` |
+| `this.whereEndsWith(field, value)` | `field LIKE '%value'` |
+
+All values are escaped via `escapeLike()` to prevent LIKE wildcard injection.
+
+<Aside type="caution">
+  If the adapter does not support `applyRelationConstraint`, relation keys are silently skipped with a warning log. Both the MikroORM and TypeORM adapters support it.
+</Aside>

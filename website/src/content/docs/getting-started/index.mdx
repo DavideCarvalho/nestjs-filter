@@ -1,0 +1,236 @@
+---
+title: Getting Started
+description: Add declarative filtering to a NestJS project in minutes — install, define a filter, register the module, and go.
+---
+
+import { Tabs, TabItem, Aside, Steps } from '@astrojs/starlight/components';
+
+The fastest way to get `nestjs-filter` running is four steps: install the packages, define a filter class, register the module, and use the filter in a controller or service. Most projects are done in under five minutes.
+
+---
+
+## Prerequisites
+
+- **Node.js 20+**
+- **NestJS 10+** (both v10 and v11 are supported)
+- One of: **MikroORM 7** or **TypeORM 0.3+**
+- **TypeScript 5+** with `experimentalDecorators` and `emitDecoratorMetadata` enabled
+
+---
+
+## Step 1 -- Install
+
+<Tabs>
+  <TabItem label="MikroORM">
+    ```bash
+    pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-mikro-orm
+    ```
+  </TabItem>
+  <TabItem label="TypeORM">
+    ```bash
+    pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-typeorm
+    ```
+  </TabItem>
+</Tabs>
+
+For validation support (optional but recommended), also install:
+
+```bash
+pnpm add class-validator class-transformer
+```
+
+---
+
+## Step 2 -- Define a filter
+
+A filter is a regular NestJS injectable class that extends `MikroOrmFilter` or `TypeOrmFilter`. Each method decorated with `@FilterFor()` handles one input key.
+
+<Tabs>
+  <TabItem label="MikroORM">
+    ```ts
+    // src/user.filter.ts
+    import { Injectable } from '@nestjs/common';
+    import { Filterable, FilterFor, escapeLike } from '@dudousxd/nestjs-filter';
+    import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
+    import { IsOptional, IsString, IsNumber } from 'class-validator';
+    import { Type } from 'class-transformer';
+    import { User } from './user.entity.js';
+
+    @Injectable()
+    @Filterable({ entity: User })
+    export class UserFilter extends MikroOrmFilter<User> {
+      @IsOptional() @IsString()
+      name?: string;
+
+      @IsOptional() @IsNumber()
+      @Type(() => Number)
+      minAge?: number;
+
+      @FilterFor('name')
+      applyName(value: string) {
+        this.$query.andWhere({ name: { $like: `%${escapeLike(value)}%` } });
+      }
+
+      @FilterFor('minAge')
+      applyMinAge(value: number) {
+        this.$query.andWhere({ age: { $gte: value } });
+      }
+    }
+    ```
+  </TabItem>
+  <TabItem label="TypeORM">
+    ```ts
+    // src/user.filter.ts
+    import { Injectable } from '@nestjs/common';
+    import { Filterable, FilterFor, escapeLike } from '@dudousxd/nestjs-filter';
+    import { TypeOrmFilter } from '@dudousxd/nestjs-filter-typeorm';
+    import { IsOptional, IsString, IsNumber } from 'class-validator';
+    import { Type } from 'class-transformer';
+    import { User } from './user.entity.js';
+
+    @Injectable()
+    @Filterable({ entity: User })
+    export class UserFilter extends TypeOrmFilter<User> {
+      @IsOptional() @IsString()
+      name?: string;
+
+      @IsOptional() @IsNumber()
+      @Type(() => Number)
+      minAge?: number;
+
+      @FilterFor('name')
+      applyName(v: string) {
+        this.$query.andWhere('user.name LIKE :name', {
+          name: `%${escapeLike(v)}%`,
+        });
+      }
+
+      @FilterFor('minAge')
+      applyMinAge(v: number) {
+        this.$query.andWhere('user.age >= :minAge', { minAge: v });
+      }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip">
+  The class-validator decorators (`@IsOptional`, `@IsString`, etc.) are optional. If you omit them, the filter works in **lean mode** -- no validation, just dispatch. See the [Filter Classes guide](/nestjs-filter/guides/filter-classes/) for details.
+</Aside>
+
+---
+
+## Step 3 -- Register the module
+
+<Tabs>
+  <TabItem label="MikroORM">
+    ```ts
+    // src/app.module.ts
+    import { Module } from '@nestjs/common';
+    import { FilterModule } from '@dudousxd/nestjs-filter';
+    import { MikroOrmFilterModule } from '@dudousxd/nestjs-filter-mikro-orm';
+    import { UserFilter } from './user.filter.js';
+    import { UsersController } from './users.controller.js';
+
+    @Module({
+      imports: [
+        // ... your MikroOrmModule.forRoot() config ...
+        FilterModule.forRoot({ inputNormalizer: 'camelCase' }),
+        MikroOrmFilterModule.forRoot(),
+        FilterModule.forFeature([UserFilter]),
+      ],
+      controllers: [UsersController],
+    })
+    export class AppModule {}
+    ```
+  </TabItem>
+  <TabItem label="TypeORM">
+    ```ts
+    // src/app.module.ts
+    import { Module } from '@nestjs/common';
+    import { FilterModule } from '@dudousxd/nestjs-filter';
+    import { TypeOrmFilterModule } from '@dudousxd/nestjs-filter-typeorm';
+    import { UserFilter } from './user.filter.js';
+    import { UsersController } from './users.controller.js';
+
+    @Module({
+      imports: [
+        // ... your TypeOrmModule.forRoot() config ...
+        FilterModule.forRoot({ inputNormalizer: 'camelCase' }),
+        TypeOrmFilterModule.forRoot(),
+        FilterModule.forFeature([UserFilter]),
+      ],
+      controllers: [UsersController],
+    })
+    export class AppModule {}
+    ```
+  </TabItem>
+</Tabs>
+
+---
+
+## Step 4 -- Use in a controller
+
+```ts
+// src/users.controller.ts
+import { Controller, Get } from '@nestjs/common';
+import { ApplyFilter } from '@dudousxd/nestjs-filter';
+import { UserFilter } from './user.filter.js';
+
+@Controller('users')
+export class UsersController {
+  @Get()
+  list(@ApplyFilter(UserFilter) qb: any) {
+    return qb.getResultList(); // MikroORM
+    // return qb.getMany();   // TypeORM
+  }
+}
+```
+
+That's it. A request to `GET /users?name=Al&minAge=18` will:
+
+1. Extract `{ name: 'Al', minAge: '18' }` from the query string
+2. Normalize keys to camelCase
+3. Validate with class-validator (if installed)
+4. Dispatch `name` to `applyName()` and `minAge` to `applyMinAge()`
+5. Return the mutated QueryBuilder ready for execution
+
+---
+
+## Step 5 -- Use via FilterRunner (optional)
+
+For programmatic use in services (outside controllers), inject `FilterRunner`:
+
+```ts
+// src/users.service.ts
+import { Injectable } from '@nestjs/common';
+import { FilterRunner } from '@dudousxd/nestjs-filter';
+import type { SqlEntityManager } from '@mikro-orm/sql';
+import { User } from './user.entity.js';
+import { UserFilter } from './user.filter.js';
+
+@Injectable()
+export class UsersService {
+  constructor(
+    private readonly runner: FilterRunner,
+    private readonly em: SqlEntityManager,
+  ) {}
+
+  async search(input: Record<string, unknown>) {
+    const qb = this.em.createQueryBuilder(User);
+    await this.runner.apply(UserFilter, input, qb);
+    return qb.getResultList();
+  }
+}
+```
+
+---
+
+## Next steps
+
+- [Installation](/nestjs-filter/guides/installation/) -- per-ORM install commands, peer dependencies, and TypeScript config
+- [Filter Classes](/nestjs-filter/guides/filter-classes/) -- validated mode, lean mode, setup(), and advanced features
+- [Controllers](/nestjs-filter/guides/controllers/) -- `@ApplyFilter` options, dynamic filter selection, and error handling
+- [Services](/nestjs-filter/guides/services/) -- `FilterRunner.apply()` and custom context
+- [Testing](/nestjs-filter/guides/testing/) -- `FilterTestingModule`, mock query builders, and integration tests
+- [Configuration](/nestjs-filter/guides/configuration/) -- all `FilterModule.forRoot()` options
