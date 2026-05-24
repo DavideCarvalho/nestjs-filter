@@ -3,6 +3,7 @@ import { ModuleRef } from '@nestjs/core';
 import type { FilterAdapter } from './adapter/adapter.js';
 import { runWithFilterState } from './als-store.js';
 import { getFilterForMap } from './decorator/filter-for.decorator.js';
+import { getFilterableMetadata } from './decorator/filterable.decorator.js';
 import { type RelationConfig, resolveRelation } from './decorator/relations.decorator.js';
 import {
   FilterMethodException,
@@ -17,15 +18,47 @@ import { validateColumnFilters } from './operators/validate-column-filter.js';
 import { FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
 import type { FilterContext, FilterModuleOptions } from './types.js';
 
+/**
+ * A set-like interface for checking auto-field membership.
+ * When autoFields is `true` (match all), we use a special object
+ * whose `has()` always returns true.
+ */
+type AutoFieldSet = { has(key: string): boolean };
+
+const MATCH_ALL_SET: AutoFieldSet = { has: () => true };
+
 @Injectable()
 export class FilterRunner {
   private readonly logger = new Logger(FilterRunner.name);
 
+  private adapter: FilterAdapter | null;
+
   constructor(
     private readonly moduleRef: ModuleRef,
     @Inject(FILTER_MODULE_OPTIONS) private readonly options: FilterModuleOptions,
-    @Inject(FILTER_ADAPTER) private readonly adapter: FilterAdapter | null,
-  ) {}
+    @Inject(FILTER_ADAPTER) injectedAdapter: FilterAdapter | null,
+  ) {
+    this.adapter = injectedAdapter;
+  }
+
+  /**
+   * Lazily resolves the adapter from the DI container if the injected
+   * value is null. This handles the case where the adapter module
+   * (e.g. MikroOrmFilterModule) is imported after FilterModule.forRoot()
+   * and the FilterRunner's local injection gets null.
+   */
+  private resolveAdapter(): FilterAdapter | null {
+    if (this.adapter) return this.adapter;
+    try {
+      const resolved = this.moduleRef.get(FILTER_ADAPTER, { strict: false });
+      if (resolved) {
+        this.adapter = resolved;
+      }
+      return this.adapter;
+    } catch {
+      return null;
+    }
+  }
 
   async apply<F extends object, Q>(
     FilterClass: Type<F>,
@@ -34,6 +67,7 @@ export class FilterRunner {
     context: FilterContext = {},
   ): Promise<Q> {
     const filter = await this.resolveFilter(FilterClass);
+    const adapter = this.resolveAdapter();
 
     // Extract column filters from input before normalization
     const { columnFilters, remainingInput } = this.extractColumnFilters(input);
@@ -57,7 +91,7 @@ export class FilterRunner {
         $query: qb,
         $input: Object.freeze({ ...finalInput }),
         $context: context,
-        $adapter: this.adapter,
+        $adapter: adapter,
         $whitelisted,
         $blacklisted,
         $pushed,
@@ -66,14 +100,17 @@ export class FilterRunner {
         await this.runSetup(filter);
 
         // Apply column filters via adapter before @FilterFor dispatch
-        if (columnFilters.length > 0 && this.adapter?.applyColumnFilters) {
+        if (columnFilters.length > 0 && adapter?.applyColumnFilters) {
           validateColumnFilters(columnFilters);
-          this.adapter.applyColumnFilters(qb, columnFilters);
-        } else if (columnFilters.length > 0 && !this.adapter?.applyColumnFilters) {
+          adapter.applyColumnFilters(qb, columnFilters);
+        } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
           this.logger.warn(
             'Column filters (where) provided but adapter does not support applyColumnFilters. Skipping.',
           );
         }
+
+        // Resolve auto-fields configuration
+        const autoFieldSet = this.resolveAutoFields(FilterClass);
 
         // Collect relation-bound keys for batched processing
         const relationBatches = new Map<
@@ -105,6 +142,17 @@ export class FilterRunner {
               relationBatches.set(relationName, { config, entries: [] });
             }
             relationBatches.get(relationName)!.entries.push([key, value]);
+            continue;
+          }
+          // Check if this key is an auto-field
+          if (autoFieldSet !== null && autoFieldSet.has(key)) {
+            if (adapter?.applyAutoField) {
+              adapter.applyAutoField(qb, key, value);
+            } else {
+              this.logger.warn(
+                `Auto-field "${key}" provided but adapter does not support applyAutoField. Skipping.`,
+              );
+            }
             continue;
           }
           this.handleUnknownKey(key);
@@ -251,6 +299,40 @@ export class FilterRunner {
       }
     }
     return { columnFilters, remainingInput: remaining };
+  }
+
+  /**
+   * Resolves the set of auto-field names from @Filterable metadata.
+   *
+   * Returns:
+   * - null if autoFields is not configured
+   * - Set of all possible keys when autoFields is `true` (represented as a "match-all" set)
+   * - Set of explicit field names when autoFields is a string array
+   *
+   * When autoFields is `true`, the set contains all possible keys from the
+   * `allowed` list if present; otherwise it uses a special match-all set.
+   */
+  private resolveAutoFields(FilterClass: Function): AutoFieldSet | null {
+    const meta = getFilterableMetadata(FilterClass);
+    if (!meta?.autoFields) return null;
+
+    if (meta.autoFields === true) {
+      // When autoFields is true with an allowed list, only allowed keys are auto-applicable
+      if (meta.allowed) {
+        // Remove keys that already have @FilterFor mappings
+        const filterForMap = getFilterForMap(FilterClass);
+        const set = new Set<string>();
+        for (const key of meta.allowed) {
+          if (!filterForMap.has(key)) set.add(key);
+        }
+        return set;
+      }
+      // Match-all: any key without @FilterFor can be auto-applied
+      return MATCH_ALL_SET;
+    }
+
+    // Explicit list of auto-field names
+    return new Set(meta.autoFields);
   }
 
   private handleUnknownKey(key: string): void {

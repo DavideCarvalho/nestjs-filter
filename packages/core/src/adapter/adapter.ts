@@ -33,4 +33,23 @@ export interface FilterAdapter {
    * @param filters - Array of ColumnFilter conditions to apply.
    */
   applyColumnFilters?(qb: unknown, filters: ColumnFilter[]): void;
+
+  /**
+   * Applies an auto-field value to the query builder.
+   *
+   * Auto-fields are input keys that have no @FilterFor mapping but are
+   * explicitly declared in the filter class via `autoFields`.
+   *
+   * The adapter handles three value shapes:
+   * - Single value → `equals` (andWhere)
+   * - Array value → `in` ($in / IN)
+   * - Object with operator keys → apply those operators
+   *
+   * Optional — adapters that don't support auto-fields should not implement this.
+   *
+   * @param qb - The query builder instance.
+   * @param field - The field/column name.
+   * @param value - The filter value (scalar, array, or operator object).
+   */
+  applyAutoField?(qb: unknown, field: string, value: unknown): void;
 }

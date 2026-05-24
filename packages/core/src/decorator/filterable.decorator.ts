@@ -15,6 +15,7 @@ export function Filterable(options: FilterableOptions): ClassDecorator {
       entity: options.entity,
       ...(options.allowed !== undefined && { allowed: options.allowed }),
       ...(options.blocked !== undefined && { blocked: options.blocked }),
+      ...(options.autoFields !== undefined && { autoFields: options.autoFields }),
     };
     Reflect.defineMetadata(FILTERABLE_METADATA, meta, target);
   };

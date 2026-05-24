@@ -1,0 +1,191 @@
+import 'reflect-metadata';
+import {
+  FilterFor,
+  FilterModule,
+  FilterRunner,
+  Filterable,
+} from '@dudousxd/nestjs-filter';
+import { MikroORM } from '@mikro-orm/core';
+import {
+  Entity,
+  PrimaryKey,
+  Property,
+  ReflectMetadataProvider,
+} from '@mikro-orm/decorators/legacy';
+import { MikroOrmModule } from '@mikro-orm/nestjs';
+import { SqliteDriver } from '@mikro-orm/sqlite';
+import { Injectable } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { afterEach, describe, expect, it } from 'vitest';
+import { MikroOrmFilter } from '../src/mikro-orm-filter.js';
+import { MikroOrmFilterModule } from '../src/module.js';
+
+// ─── Entity ─────────────────────────────────────────────────────────────────────
+
+@Entity({ tableName: 'products' })
+class Product {
+  @PrimaryKey()
+  id!: number;
+
+  @Property()
+  name!: string;
+
+  @Property()
+  status!: string;
+
+  @Property()
+  price!: number;
+
+  @Property()
+  category!: string;
+}
+
+// ─── Filters ────────────────────────────────────────────────────────────────────
+
+@Injectable()
+@Filterable({
+  entity: Product,
+  autoFields: ['status', 'price', 'category'],
+})
+class ProductAutoFilter extends MikroOrmFilter<Product> {
+  @FilterFor('name')
+  applyName(v: string) {
+    this.whereLike('name', v);
+  }
+}
+
+@Injectable()
+@Filterable({ entity: Product, autoFields: true })
+class ProductAutoAllFilter extends MikroOrmFilter<Product> {}
+
+@Injectable()
+@Filterable({
+  entity: Product,
+  autoFields: true,
+  allowed: ['status', 'category'],
+})
+class ProductAutoAllowedFilter extends MikroOrmFilter<Product> {}
+
+// ─── Test Suite ─────────────────────────────────────────────────────────────────
+
+describe('MikroORM auto-fields', () => {
+  let orm: MikroORM;
+  let runner: FilterRunner;
+
+  async function createModule(filters: any[]) {
+    const mod = await Test.createTestingModule({
+      imports: [
+        MikroOrmModule.forRoot({
+          driver: SqliteDriver,
+          dbName: ':memory:',
+          entities: [Product],
+          allowGlobalContext: true,
+          metadataProvider: ReflectMetadataProvider,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        MikroOrmFilterModule.forRoot(),
+        FilterModule.forFeature(filters),
+      ],
+    }).compile();
+
+    orm = mod.get(MikroORM);
+    runner = mod.get(FilterRunner);
+    await orm.schema.create();
+    return mod;
+  }
+
+  async function seed() {
+    const em = orm.em.fork();
+    em.persist([
+      em.create(Product, { name: 'Widget A', status: 'active', price: 10, category: 'tools' }),
+      em.create(Product, { name: 'Widget B', status: 'inactive', price: 25, category: 'tools' }),
+      em.create(Product, { name: 'Gadget C', status: 'active', price: 50, category: 'electronics' }),
+      em.create(Product, { name: 'Gadget D', status: 'active', price: 100, category: 'electronics' }),
+    ]);
+    await em.flush();
+    return em;
+  }
+
+  afterEach(async () => {
+    if (orm) await orm.close(true);
+  });
+
+  it('auto-field with scalar value applies equals', async () => {
+    await createModule([ProductAutoFilter]);
+    const em = await seed();
+    const qb = em.createQueryBuilder(Product);
+    await runner.apply(ProductAutoFilter, { status: 'active' }, qb);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Gadget D', 'Widget A']);
+  });
+
+  it('auto-field with array applies $in', async () => {
+    await createModule([ProductAutoFilter]);
+    const em = await seed();
+    const qb = em.createQueryBuilder(Product);
+    await runner.apply(ProductAutoFilter, { status: ['active', 'inactive'] }, qb);
+    const rows = await qb.getResultList();
+    expect(rows).toHaveLength(4);
+  });
+
+  it('auto-field with operator object { gte: X }', async () => {
+    await createModule([ProductAutoFilter]);
+    const em = await seed();
+    const qb = em.createQueryBuilder(Product);
+    await runner.apply(ProductAutoFilter, { price: { gte: 50 } }, qb);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Gadget D']);
+  });
+
+  it('auto-field with multiple operators { gte: X, lte: Y }', async () => {
+    await createModule([ProductAutoFilter]);
+    const em = await seed();
+    const qb = em.createQueryBuilder(Product);
+    await runner.apply(ProductAutoFilter, { price: { gte: 20, lte: 60 } }, qb);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Widget B']);
+  });
+
+  it('auto-field NOT in autoFields list is ignored', async () => {
+    await createModule([ProductAutoFilter]);
+    const em = await seed();
+    const qb = em.createQueryBuilder(Product);
+    // 'name' is handled by @FilterFor, not auto-field; 'id' not in autoFields, ignored
+    await runner.apply(ProductAutoFilter, { name: 'Widget', id: 999 }, qb);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name).sort()).toEqual(['Widget A', 'Widget B']);
+  });
+
+  it('mixing @FilterFor + auto-fields in same filter', async () => {
+    await createModule([ProductAutoFilter]);
+    const em = await seed();
+    const qb = em.createQueryBuilder(Product);
+    await runner.apply(
+      ProductAutoFilter,
+      { name: 'Gadget', status: 'active', category: 'electronics' },
+      qb,
+    );
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Gadget D']);
+  });
+
+  it('autoFields: true auto-applies any field', async () => {
+    await createModule([ProductAutoAllFilter]);
+    const em = await seed();
+    const qb = em.createQueryBuilder(Product);
+    await runner.apply(ProductAutoAllFilter, { category: 'electronics' }, qb);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Gadget D']);
+  });
+
+  it('autoFields: true with allowed list restricts to allowed keys', async () => {
+    await createModule([ProductAutoAllowedFilter]);
+    const em = await seed();
+    const qb = em.createQueryBuilder(Product);
+    // 'price' is not in allowed list, should be ignored
+    await runner.apply(ProductAutoAllowedFilter, { category: 'tools', price: 10 }, qb);
+    const rows = await qb.getResultList();
+    // Only category filter applied, price ignored
+    expect(rows.map((r) => r.name).sort()).toEqual(['Widget A', 'Widget B']);
+  });
+});
