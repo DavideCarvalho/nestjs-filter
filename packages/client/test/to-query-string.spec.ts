@@ -109,10 +109,10 @@ describe('FilterQueryBuilder.toQueryString()', () => {
     expect(qs).toBe('name[contains]=fleet');
   });
 
-  it('multiple operators on same field merge in flat format', () => {
+  it('multiple operators on same field merge in flat format via add()', () => {
     const qs = filterQuery()
-      .where('createdAt', 'gte', '2026-01-01')
-      .where('createdAt', 'lte', '2026-12-31')
+      .add('createdAt', 'gte', '2026-01-01')
+      .add('createdAt', 'lte', '2026-12-31')
       .toQueryString();
     expect(qs).toBe('createdAt[gte]=2026-01-01&createdAt[lte]=2026-12-31');
   });

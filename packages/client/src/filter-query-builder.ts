@@ -31,12 +31,16 @@ export interface FilterQueryResult {
  * Zero dependencies. Runs in browser + Node.
  */
 export class FilterQueryBuilder {
-  private readonly conditions: Condition[] = [];
+  private conditions: Condition[] = [];
   private readonly groups: Group[] = [];
-  private readonly extra: Record<string, unknown> = {};
+  private extra: Record<string, unknown> = {};
 
   /**
-   * Adds a filter condition.
+   * Adds a filter condition, **replacing** any existing filter(s) for the same field.
+   * Each field has at most one filter via `where()`. This is the natural mode for
+   * React UIs where a dropdown/input replaces the previous selection.
+   *
+   * Use `add()` when you need multiple filters on the same field (e.g. ranges).
    *
    * @example
    * // Equals
@@ -47,10 +51,16 @@ export class FilterQueryBuilder {
    *
    * // Array → auto in
    * where('status', ['A', 'B'])
+   *
+   * // Replaces previous status filter
+   * where('status', ['C'])
    */
   where(field: string, value: unknown): this;
   where(field: string, operator: FilterOperator, value: unknown): this;
   where(field: string, operatorOrValue: unknown, maybeValue?: unknown): this {
+    // Remove any existing filter(s) for this field
+    this.conditions = this.conditions.filter((c) => c.field !== field);
+
     if (maybeValue !== undefined) {
       // Three-arg form: where(field, operator, value)
       this.conditions.push({
@@ -73,6 +83,45 @@ export class FilterQueryBuilder {
         value: operatorOrValue,
       });
     }
+    return this;
+  }
+
+  /**
+   * Adds a filter condition, **accumulating** with any existing filters for the
+   * same field. Use for range queries where you need multiple operators on one field.
+   *
+   * @example
+   * filterQuery()
+   *   .add('createdAt', 'gte', '2026-01-01')
+   *   .add('createdAt', 'lte', '2026-12-31')
+   */
+  add(field: string, operator: FilterOperator, value?: unknown): this {
+    this.conditions.push({ field, operator, value });
+    return this;
+  }
+
+  /**
+   * Removes ALL filters for a given field (both from `where()` and `add()`).
+   *
+   * @example
+   * filterQuery()
+   *   .equals('status', 'COMPLETED')
+   *   .contains('name', 'fleet')
+   *   .remove('status')
+   *   .build();
+   * // → { where: [{ field: 'name', operator: 'contains', value: 'fleet' }] }
+   */
+  remove(field: string): this {
+    this.conditions = this.conditions.filter((c) => c.field !== field);
+    return this;
+  }
+
+  /**
+   * Removes all filters and extra keys, resetting the builder to its initial state.
+   */
+  clear(): this {
+    this.conditions = [];
+    this.extra = {};
     return this;
   }
 
@@ -175,6 +224,38 @@ export class FilterQueryBuilder {
 
   endsWith(field: string, value: string): this {
     return this.where(field, 'endsWith', value);
+  }
+
+  // ─── Range helpers (use add — accumulate) ───────────────────────────────
+
+  /**
+   * Adds a `gte` filter using `add()` (accumulating).
+   * Useful for range queries where you also need an `lte` on the same field.
+   */
+  addGte(field: string, value: unknown): this {
+    return this.add(field, 'gte', value);
+  }
+
+  /**
+   * Adds a `lte` filter using `add()` (accumulating).
+   * Useful for range queries where you also need a `gte` on the same field.
+   */
+  addLte(field: string, value: unknown): this {
+    return this.add(field, 'lte', value);
+  }
+
+  /**
+   * Adds a `gt` filter using `add()` (accumulating).
+   */
+  addGt(field: string, value: unknown): this {
+    return this.add(field, 'gt', value);
+  }
+
+  /**
+   * Adds a `lt` filter using `add()` (accumulating).
+   */
+  addLt(field: string, value: unknown): this {
+    return this.add(field, 'lt', value);
   }
 
   // ─── Extra keys ─────────────────────────────────────────────────────────

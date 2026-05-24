@@ -108,7 +108,7 @@ describe('FilterQueryBuilder', () => {
   });
 
   describe('multiple conditions', () => {
-    it('chains multiple where calls', () => {
+    it('chains multiple where calls on different fields', () => {
       const result = filterQuery()
         .where('name', 'contains', 'fleet')
         .where('status', ['COMPLETED', 'FAILED'])
@@ -155,7 +155,7 @@ describe('FilterQueryBuilder', () => {
   describe('and() composition', () => {
     it('creates AND group', () => {
       const result = filterQuery()
-        .and((q) => q.where('age', 'gte', 18).where('age', 'lte', 65))
+        .and((q) => q.add('age', 'gte', 18).add('age', 'lte', 65))
         .build();
 
       expect(result.where).toHaveLength(1);
@@ -195,10 +195,10 @@ describe('FilterQueryBuilder', () => {
       expect(result).toEqual({ age: { gte: 18 } });
     });
 
-    it('multiple operators on same field → merged', () => {
+    it('multiple operators on same field via add() → merged', () => {
       const result = filterQuery()
-        .where('createdAt', 'gte', '2026-01-01')
-        .where('createdAt', 'lte', '2026-12-31')
+        .add('createdAt', 'gte', '2026-01-01')
+        .add('createdAt', 'lte', '2026-12-31')
         .toFlatObject();
       expect(result).toEqual({
         createdAt: { gte: '2026-01-01', lte: '2026-12-31' },
@@ -355,6 +355,171 @@ describe('FilterQueryBuilder', () => {
     });
   });
 
+  describe('where() replaces semantics', () => {
+    it('where() replaces existing filter for same field', () => {
+      const result = filterQuery()
+        .where('status', 'PENDING')
+        .where('status', 'COMPLETED')
+        .build();
+      expect(result).toEqual({
+        where: [{ field: 'status', operator: 'equals', value: 'COMPLETED' }],
+      });
+    });
+
+    it('where() after add() replaces all filters for that field', () => {
+      const result = filterQuery()
+        .add('createdAt', 'gte', '2026-01-01')
+        .add('createdAt', 'lte', '2026-12-31')
+        .where('createdAt', 'equals', '2026-06-15')
+        .build();
+      expect(result).toEqual({
+        where: [{ field: 'createdAt', operator: 'equals', value: '2026-06-15' }],
+      });
+    });
+
+    it('convenience methods use where() (replace) semantics', () => {
+      const result = filterQuery()
+        .contains('name', 'alpha')
+        .contains('name', 'beta')
+        .build();
+      expect(result).toEqual({
+        where: [{ field: 'name', operator: 'contains', value: 'beta' }],
+      });
+    });
+
+    it('where() does not affect other fields', () => {
+      const result = filterQuery()
+        .where('name', 'foo')
+        .where('status', 'ACTIVE')
+        .where('name', 'bar')
+        .build();
+      expect(result).toEqual({
+        where: [
+          { field: 'status', operator: 'equals', value: 'ACTIVE' },
+          { field: 'name', operator: 'equals', value: 'bar' },
+        ],
+      });
+    });
+  });
+
+  describe('add() accumulates', () => {
+    it('add() accumulates multiple filters for same field', () => {
+      const result = filterQuery()
+        .add('createdAt', 'gte', '2026-01-01')
+        .add('createdAt', 'lte', '2026-12-31')
+        .build();
+      expect(result).toEqual({
+        where: [
+          { field: 'createdAt', operator: 'gte', value: '2026-01-01' },
+          { field: 'createdAt', operator: 'lte', value: '2026-12-31' },
+        ],
+      });
+    });
+
+    it('range pattern: addGte + addLte on same field', () => {
+      const result = filterQuery()
+        .addGte('age', 18)
+        .addLte('age', 65)
+        .build();
+      expect(result).toEqual({
+        where: [
+          { field: 'age', operator: 'gte', value: 18 },
+          { field: 'age', operator: 'lte', value: 65 },
+        ],
+      });
+    });
+
+    it('range pattern: addGt + addLt on same field', () => {
+      const result = filterQuery()
+        .addGt('score', 0)
+        .addLt('score', 100)
+        .build();
+      expect(result).toEqual({
+        where: [
+          { field: 'score', operator: 'gt', value: 0 },
+          { field: 'score', operator: 'lt', value: 100 },
+        ],
+      });
+    });
+
+    it('add() mixed with where() on different fields', () => {
+      const result = filterQuery()
+        .where('status', 'COMPLETED')
+        .add('createdAt', 'gte', '2026-01-01')
+        .add('createdAt', 'lte', '2026-12-31')
+        .build();
+      expect(result).toEqual({
+        where: [
+          { field: 'status', operator: 'equals', value: 'COMPLETED' },
+          { field: 'createdAt', operator: 'gte', value: '2026-01-01' },
+          { field: 'createdAt', operator: 'lte', value: '2026-12-31' },
+        ],
+      });
+    });
+  });
+
+  describe('remove()', () => {
+    it('remove() removes all filters for a field', () => {
+      const result = filterQuery()
+        .where('status', 'COMPLETED')
+        .where('name', 'contains', 'fleet')
+        .remove('status')
+        .build();
+      expect(result).toEqual({
+        where: [{ field: 'name', operator: 'contains', value: 'fleet' }],
+      });
+    });
+
+    it('remove() removes accumulated add() filters too', () => {
+      const result = filterQuery()
+        .add('createdAt', 'gte', '2026-01-01')
+        .add('createdAt', 'lte', '2026-12-31')
+        .where('status', 'COMPLETED')
+        .remove('createdAt')
+        .build();
+      expect(result).toEqual({
+        where: [{ field: 'status', operator: 'equals', value: 'COMPLETED' }],
+      });
+    });
+
+    it('remove() on non-existent field is a no-op', () => {
+      const result = filterQuery()
+        .where('status', 'COMPLETED')
+        .remove('nonExistent')
+        .build();
+      expect(result).toEqual({
+        where: [{ field: 'status', operator: 'equals', value: 'COMPLETED' }],
+      });
+    });
+  });
+
+  describe('clear()', () => {
+    it('clear() removes all filters and extra', () => {
+      const result = filterQuery()
+        .where('status', 'COMPLETED')
+        .where('name', 'fleet')
+        .set('page', 1)
+        .set('size', 25)
+        .clear()
+        .build();
+      expect(result).toEqual({ where: [] });
+    });
+
+    it('clear() allows rebuilding from scratch', () => {
+      const builder = filterQuery()
+        .where('status', 'COMPLETED')
+        .set('page', 1)
+        .clear()
+        .where('name', 'new-value')
+        .set('page', 2);
+
+      expect(builder.build()).toEqual({
+        where: [{ field: 'name', operator: 'equals', value: 'new-value' }],
+        page: 2,
+      });
+    });
+  });
+
   describe('fluent chaining', () => {
     it('all methods return this for chaining', () => {
       const builder = filterQuery();
@@ -380,6 +545,22 @@ describe('FilterQueryBuilder', () => {
 
       expect(result).toBe(builder);
       expect(result.build().where).toHaveLength(17);
+    });
+
+    it('add, remove, clear return this for chaining', () => {
+      const builder = filterQuery();
+      const result = builder
+        .add('a', 'gte', 1)
+        .add('a', 'lte', 10)
+        .addGte('b', 5)
+        .addLte('b', 15)
+        .addGt('c', 0)
+        .addLt('c', 100)
+        .remove('c')
+        .clear();
+
+      expect(result).toBe(builder);
+      expect(result.build()).toEqual({ where: [] });
     });
   });
 
