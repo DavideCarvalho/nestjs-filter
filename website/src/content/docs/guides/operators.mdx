@@ -117,7 +117,7 @@ The `FilterRunner` extracts the `where` array, validates each `ColumnFilter`, an
 
 ```ts
 @Post('search')
-search(@ApplyFilter(UserFilter, { source: 'body' }) qb: any) {
+search(@ApplyFilter(UserFilter, { source: 'body' }) qb: QueryBuilder<User>) {
   return qb.getResultList();
 }
 ```

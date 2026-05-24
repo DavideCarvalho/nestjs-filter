@@ -21,12 +21,12 @@ import { UserFilter } from './user.filter.js';
 @Controller('users')
 export class UsersController {
   @Get()
-  list(@ApplyFilter(UserFilter) qb: any) {
+  list(@ApplyFilter(UserFilter) qb: QueryBuilder<User>) {
     return qb.getResultList(); // MikroORM
   }
 
   @Post('search')
-  search(@ApplyFilter(UserFilter) qb: any, @Body() _body: unknown) {
+  search(@ApplyFilter(UserFilter) qb: QueryBuilder<User>, @Body() _body: unknown) {
     return qb.getResultList();
   }
 }
@@ -56,19 +56,19 @@ Override the source with the `source` option:
 ```ts
 // Always read from query string, even on POST
 @Post('search')
-search(@ApplyFilter(UserFilter, { source: 'query' }) qb: any) {
+search(@ApplyFilter(UserFilter, { source: 'query' }) qb: QueryBuilder<User>) {
   return qb.getResultList();
 }
 
 // Always read from body
 @Post('search')
-search(@ApplyFilter(UserFilter, { source: 'body' }) qb: any) {
+search(@ApplyFilter(UserFilter, { source: 'body' }) qb: QueryBuilder<User>) {
   return qb.getResultList();
 }
 
 // Dot-path source — read from a nested property
 @Post('search')
-search(@ApplyFilter(UserFilter, { source: 'body.filters' }) qb: any) {
+search(@ApplyFilter(UserFilter, { source: 'body.filters' }) qb: QueryBuilder<User>) {
   // Reads from req.body.filters
   return qb.getResultList();
 }
@@ -77,12 +77,12 @@ search(@ApplyFilter(UserFilter, { source: 'body.filters' }) qb: any) {
 @Get()
 list(
   @ApplyFilter(UserFilter, {
-    source: (req: any) => ({
+    source: (req: unknown) => ({
       ...req.query,
       tenantId: req.headers['x-tenant-id'],
     }),
   })
-  qb: any,
+  qb: QueryBuilder<User>,
 ) {
   return qb.getResultList();
 }
@@ -105,10 +105,10 @@ import { AdminUserFilter } from './admin-user.filter.js';
 @Get()
 list(
   @ApplyFilter(UserFilter, {
-    resolve: (req: any) =>
+    resolve: (req: unknown) =>
       req.user?.role === 'admin' ? AdminUserFilter : UserFilter,
   })
-  qb: any,
+  qb: QueryBuilder<User>,
 ) {
   return qb.getResultList();
 }
@@ -176,8 +176,8 @@ You can apply multiple filters to a single controller method. Each `@ApplyFilter
 ```ts
 @Get()
 list(
-  @ApplyFilter(UserFilter) userQb: any,
-  @ApplyFilter(OrderFilter) orderQb: any,
+  @ApplyFilter(UserFilter) userQb: QueryBuilder<User>,
+  @ApplyFilter(OrderFilter) orderQb: QueryBuilder<Order>,
 ) {
   // Both query builders are independently filtered
 }

@@ -192,7 +192,7 @@ import { UserFilter } from './user.filter.js';
 @Controller('users')
 export class UsersController {
   @Get()
-  list(@ApplyFilter(UserFilter) qb: any) {
+  list(@ApplyFilter(UserFilter) qb: QueryBuilder<User>) {
     return qb.getResultList(); // MikroORM
     // return qb.getMany();   // TypeORM
   }
