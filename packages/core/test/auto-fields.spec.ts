@@ -36,11 +36,7 @@ function makeAutoFieldAdapter(): FilterAdapter {
       const mockQb = qb as MockQB;
       if (Array.isArray(value)) {
         mockQb.andWhere({ [field]: { $in: value } });
-      } else if (
-        value != null &&
-        typeof value === 'object' &&
-        !Array.isArray(value)
-      ) {
+      } else if (value != null && typeof value === 'object' && !Array.isArray(value)) {
         // Operator object
         const ops: Record<string, unknown> = {};
         for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {

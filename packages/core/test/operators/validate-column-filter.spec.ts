@@ -56,21 +56,21 @@ describe('validateColumnFilter', () => {
   });
 
   it('rejects empty field', () => {
-    expect(() =>
-      validateColumnFilter({ field: '', operator: 'equals', value: 1 }),
-    ).toThrow(InvalidColumnFilterError);
+    expect(() => validateColumnFilter({ field: '', operator: 'equals', value: 1 })).toThrow(
+      InvalidColumnFilterError,
+    );
   });
 
   it('rejects field with SQL injection characters', () => {
     expect(() =>
       validateColumnFilter({ field: 'name; DROP TABLE', operator: 'equals', value: 1 }),
     ).toThrow(/invalid characters/);
-    expect(() =>
-      validateColumnFilter({ field: "name'", operator: 'equals', value: 1 }),
-    ).toThrow(/invalid characters/);
-    expect(() =>
-      validateColumnFilter({ field: 'name--', operator: 'equals', value: 1 }),
-    ).toThrow(/invalid characters/);
+    expect(() => validateColumnFilter({ field: "name'", operator: 'equals', value: 1 })).toThrow(
+      /invalid characters/,
+    );
+    expect(() => validateColumnFilter({ field: 'name--', operator: 'equals', value: 1 })).toThrow(
+      /invalid characters/,
+    );
   });
 
   it('accepts dotted field names (e.g., relation.field)', () => {
@@ -92,32 +92,37 @@ describe('validateColumnFilter', () => {
   });
 
   it('allows missing value for unary operators', () => {
-    for (const op of ['isEmpty', 'isNotEmpty', 'isNull', 'isNotNull', 'exists', 'notExists'] as const) {
-      expect(() =>
-        validateColumnFilter({ field: 'x', operator: op }),
-      ).not.toThrow();
+    for (const op of [
+      'isEmpty',
+      'isNotEmpty',
+      'isNull',
+      'isNotNull',
+      'exists',
+      'notExists',
+    ] as const) {
+      expect(() => validateColumnFilter({ field: 'x', operator: op })).not.toThrow();
     }
   });
 
   it('rejects "between" with non-array value', () => {
-    expect(() =>
-      validateColumnFilter({ field: 'x', operator: 'between', value: 5 }),
-    ).toThrow(/2-element array/);
+    expect(() => validateColumnFilter({ field: 'x', operator: 'between', value: 5 })).toThrow(
+      /2-element array/,
+    );
   });
 
   it('rejects "between" with wrong-length array', () => {
-    expect(() =>
-      validateColumnFilter({ field: 'x', operator: 'between', value: [1] }),
-    ).toThrow(/2-element array/);
+    expect(() => validateColumnFilter({ field: 'x', operator: 'between', value: [1] })).toThrow(
+      /2-element array/,
+    );
     expect(() =>
       validateColumnFilter({ field: 'x', operator: 'between', value: [1, 2, 3] }),
     ).toThrow(/2-element array/);
   });
 
   it('rejects "in" with non-array value', () => {
-    expect(() =>
-      validateColumnFilter({ field: 'x', operator: 'in', value: 'not-array' }),
-    ).toThrow(/requires an array value/);
+    expect(() => validateColumnFilter({ field: 'x', operator: 'in', value: 'not-array' })).toThrow(
+      /requires an array value/,
+    );
   });
 
   it('rejects "notIn" with non-array value', () => {
@@ -127,21 +132,21 @@ describe('validateColumnFilter', () => {
   });
 
   it('rejects "isAnyOf" with non-array value', () => {
-    expect(() =>
-      validateColumnFilter({ field: 'x', operator: 'isAnyOf', value: 42 }),
-    ).toThrow(/requires an array value/);
+    expect(() => validateColumnFilter({ field: 'x', operator: 'isAnyOf', value: 42 })).toThrow(
+      /requires an array value/,
+    );
   });
 
   it('rejects "notBetween" with non-array value', () => {
-    expect(() =>
-      validateColumnFilter({ field: 'x', operator: 'notBetween', value: 5 }),
-    ).toThrow(/2-element array/);
+    expect(() => validateColumnFilter({ field: 'x', operator: 'notBetween', value: 5 })).toThrow(
+      /2-element array/,
+    );
   });
 
   it('rejects "notBetween" with wrong-length array', () => {
-    expect(() =>
-      validateColumnFilter({ field: 'x', operator: 'notBetween', value: [1] }),
-    ).toThrow(/2-element array/);
+    expect(() => validateColumnFilter({ field: 'x', operator: 'notBetween', value: [1] })).toThrow(
+      /2-element array/,
+    );
     expect(() =>
       validateColumnFilter({ field: 'x', operator: 'notBetween', value: [1, 2, 3] }),
     ).toThrow(/2-element array/);

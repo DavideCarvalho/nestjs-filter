@@ -1,10 +1,5 @@
 import 'reflect-metadata';
-import {
-  FilterFor,
-  FilterModule,
-  FilterRunner,
-  Filterable,
-} from '@dudousxd/nestjs-filter';
+import { FilterFor, FilterModule, FilterRunner, Filterable } from '@dudousxd/nestjs-filter';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';

@@ -1,10 +1,5 @@
 import 'reflect-metadata';
-import {
-  FilterFor,
-  FilterModule,
-  FilterRunner,
-  Filterable,
-} from '@dudousxd/nestjs-filter';
+import { FilterFor, FilterModule, FilterRunner, Filterable } from '@dudousxd/nestjs-filter';
 import { MikroORM } from '@mikro-orm/core';
 import {
   Entity,
@@ -99,8 +94,18 @@ describe('MikroORM auto-fields', () => {
     em.persist([
       em.create(Product, { name: 'Widget A', status: 'active', price: 10, category: 'tools' }),
       em.create(Product, { name: 'Widget B', status: 'inactive', price: 25, category: 'tools' }),
-      em.create(Product, { name: 'Gadget C', status: 'active', price: 50, category: 'electronics' }),
-      em.create(Product, { name: 'Gadget D', status: 'active', price: 100, category: 'electronics' }),
+      em.create(Product, {
+        name: 'Gadget C',
+        status: 'active',
+        price: 50,
+        category: 'electronics',
+      }),
+      em.create(Product, {
+        name: 'Gadget D',
+        status: 'active',
+        price: 100,
+        category: 'electronics',
+      }),
     ]);
     await em.flush();
     return em;

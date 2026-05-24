@@ -1,4 +1,4 @@
-import { FILTER_OPERATORS, type ColumnFilter, type FilterOperator } from './types.js';
+import { type ColumnFilter, FILTER_OPERATORS, type FilterOperator } from './types.js';
 
 const operatorSet = new Set<string>(FILTER_OPERATORS);
 
@@ -53,8 +53,7 @@ export function validateColumnFilter(filter: ColumnFilter): void {
   // Reject field names that contain SQL-unsafe characters
   if (!/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(filter.field)) {
     throw new InvalidColumnFilterError(
-      `Column filter field "${filter.field}" contains invalid characters. ` +
-        'Only letters, digits, underscores, and dots are allowed.',
+      `Column filter field "${filter.field}" contains invalid characters. Only letters, digits, underscores, and dots are allowed.`,
     );
   }
 
@@ -85,9 +84,7 @@ export function validateColumnFilter(filter: ColumnFilter): void {
     }
   } else {
     if (filter.value === undefined) {
-      throw new InvalidColumnFilterError(
-        `Operator "${op}" requires a value.`,
-      );
+      throw new InvalidColumnFilterError(`Operator "${op}" requires a value.`);
     }
   }
 

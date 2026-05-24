@@ -145,7 +145,7 @@ export class FilterRunner {
             continue;
           }
           // Check if this key is an auto-field
-          if (autoFieldSet !== null && autoFieldSet.has(key)) {
+          if (autoFieldSet?.has(key)) {
             if (adapter?.applyAutoField) {
               adapter.applyAutoField(qb, key, value);
             } else {

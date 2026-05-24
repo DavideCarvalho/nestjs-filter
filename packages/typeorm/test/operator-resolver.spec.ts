@@ -143,7 +143,9 @@ describe('TypeORM operator resolver (with better-sqlite3)', () => {
   it('filters with isAnyOf operator', async () => {
     const adapter = new TypeOrmAdapter(ds);
     const qb = adapter.createQueryBuilder(User as any) as any;
-    adapter.applyColumnFilters(qb, [{ field: 'name', operator: 'isAnyOf', value: ['Alice', 'Bob'] }]);
+    adapter.applyColumnFilters(qb, [
+      { field: 'name', operator: 'isAnyOf', value: ['Alice', 'Bob'] },
+    ]);
     const results = await qb.getMany();
     expect(results).toHaveLength(2);
   });

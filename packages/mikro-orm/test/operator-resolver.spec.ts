@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 import { MikroORM } from '@mikro-orm/core';
 import {
   Entity,
@@ -8,9 +9,8 @@ import {
 } from '@mikro-orm/decorators/legacy';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ColumnFilter } from '@dudousxd/nestjs-filter';
-import { resolveColumnFilters, resolveOperator } from '../src/operator-resolver.js';
 import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
+import { resolveColumnFilters, resolveOperator } from '../src/operator-resolver.js';
 
 @Entity({ tableName: 'users' })
 class User {
@@ -97,7 +97,9 @@ describe('MikroORM resolveOperator', () => {
   });
 
   it('isAnyOf', () => {
-    expect(resolveOperator({ field: 'name', operator: 'isAnyOf', value: ['Alice', 'Bob'] })).toEqual({
+    expect(
+      resolveOperator({ field: 'name', operator: 'isAnyOf', value: ['Alice', 'Bob'] }),
+    ).toEqual({
       name: { $in: ['Alice', 'Bob'] },
     });
   });
@@ -174,9 +176,9 @@ describe('MikroORM resolveOperator', () => {
   });
 
   it('throws on unsupported operator', () => {
-    expect(() =>
-      resolveOperator({ field: 'x', operator: 'badOp' as any, value: 1 }),
-    ).toThrow(/Unsupported filter operator/);
+    expect(() => resolveOperator({ field: 'x', operator: 'badOp' as any, value: 1 })).toThrow(
+      /Unsupported filter operator/,
+    );
   });
 });
 
@@ -225,10 +227,7 @@ describe('MikroORM resolveColumnFilters', () => {
     };
     const result = resolveColumnFilters([filter]);
     expect(result).toEqual({
-      $and: [
-        { name: 'Alice' },
-        { $or: [{ name: 'Bob' }, { name: 'Charlie' }] },
-      ],
+      $and: [{ name: 'Alice' }, { $or: [{ name: 'Bob' }, { name: 'Charlie' }] }],
     });
   });
 
@@ -257,10 +256,7 @@ describe('MikroORM resolveColumnFilters', () => {
           $and: [
             { age: { $gte: 18 } },
             {
-              $or: [
-                { role: 'admin' },
-                { role: 'superadmin' },
-              ],
+              $or: [{ role: 'admin' }, { role: 'superadmin' }],
             },
           ],
         },
@@ -379,7 +375,9 @@ describe('MikroOrmAdapter.applyColumnFilters (with SQLite)', () => {
   it('filters with isAnyOf operator', async () => {
     const adapter = new MikroOrmAdapter(orm.em);
     const qb = orm.em.createQueryBuilder(User);
-    adapter.applyColumnFilters(qb, [{ field: 'name', operator: 'isAnyOf', value: ['Alice', 'Bob'] }]);
+    adapter.applyColumnFilters(qb, [
+      { field: 'name', operator: 'isAnyOf', value: ['Alice', 'Bob'] },
+    ]);
     const results = await qb.getResultList();
     expect(results).toHaveLength(2);
   });

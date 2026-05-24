@@ -55,7 +55,9 @@ function makeAdapter(opts?: { supportColumnFilters: boolean }): FilterAdapter {
       columnFilterCalls.push(filters);
       const mockQb = qb as MockQB;
       for (const f of filters) {
-        mockQb.andWhere({ $columnFilter: { field: f.field, operator: f.operator, value: f.value } });
+        mockQb.andWhere({
+          $columnFilter: { field: f.field, operator: f.operator, value: f.value },
+        });
       }
     };
   }
@@ -85,9 +87,13 @@ describe('FilterRunner with column filters', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
 
-    await runner.apply(UserFilter, {
-      where: [{ field: 'age', operator: 'gte', value: 18 }],
-    }, qb);
+    await runner.apply(
+      UserFilter,
+      {
+        where: [{ field: 'age', operator: 'gte', value: 18 }],
+      },
+      qb,
+    );
 
     expect(qb.calls).toEqual([
       ['andWhere', { $columnFilter: { field: 'age', operator: 'gte', value: 18 } }],
@@ -100,10 +106,14 @@ describe('FilterRunner with column filters', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
 
-    await runner.apply(UserFilter, {
-      where: [{ field: 'age', operator: 'gte', value: 18 }],
-      name: 'Alice',
-    }, qb);
+    await runner.apply(
+      UserFilter,
+      {
+        where: [{ field: 'age', operator: 'gte', value: 18 }],
+        name: 'Alice',
+      },
+      qb,
+    );
 
     // Column filters applied first, then @FilterFor dispatch
     expect(qb.calls).toEqual([
@@ -132,12 +142,16 @@ describe('FilterRunner with column filters', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
 
-    await runner.apply(UserFilter, {
-      where: [
-        { field: 'age', operator: 'gte', value: 18 },
-        { field: 'status', operator: 'equals', value: 'active' },
-      ],
-    }, qb);
+    await runner.apply(
+      UserFilter,
+      {
+        where: [
+          { field: 'age', operator: 'gte', value: 18 },
+          { field: 'status', operator: 'equals', value: 'active' },
+        ],
+      },
+      qb,
+    );
 
     expect(qb.calls).toEqual([
       ['andWhere', { $columnFilter: { field: 'age', operator: 'gte', value: 18 } }],
@@ -152,15 +166,17 @@ describe('FilterRunner with column filters', () => {
     const qb = makeMockQB();
 
     // Should not throw, just skip column filters with a warning
-    await runner.apply(UserFilter, {
-      where: [{ field: 'age', operator: 'gte', value: 18 }],
-      name: 'Alice',
-    }, qb);
+    await runner.apply(
+      UserFilter,
+      {
+        where: [{ field: 'age', operator: 'gte', value: 18 }],
+        name: 'Alice',
+      },
+      qb,
+    );
 
     // Only @FilterFor dispatched
-    expect(qb.calls).toEqual([
-      ['andWhere', { name: 'Alice' }],
-    ]);
+    expect(qb.calls).toEqual([['andWhere', { name: 'Alice' }]]);
   });
 
   it('skips column filters when adapter is null', async () => {
@@ -168,14 +184,16 @@ describe('FilterRunner with column filters', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
 
-    await runner.apply(UserFilter, {
-      where: [{ field: 'age', operator: 'gte', value: 18 }],
-      name: 'Alice',
-    }, qb);
+    await runner.apply(
+      UserFilter,
+      {
+        where: [{ field: 'age', operator: 'gte', value: 18 }],
+        name: 'Alice',
+      },
+      qb,
+    );
 
-    expect(qb.calls).toEqual([
-      ['andWhere', { name: 'Alice' }],
-    ]);
+    expect(qb.calls).toEqual([['andWhere', { name: 'Alice' }]]);
   });
 
   it('handles empty where array (no-op)', async () => {
@@ -184,15 +202,17 @@ describe('FilterRunner with column filters', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
 
-    await runner.apply(UserFilter, {
-      where: [],
-      name: 'Alice',
-    }, qb);
+    await runner.apply(
+      UserFilter,
+      {
+        where: [],
+        name: 'Alice',
+      },
+      qb,
+    );
 
     // Empty where → no column filters, only @FilterFor
-    expect(qb.calls).toEqual([
-      ['andWhere', { name: 'Alice' }],
-    ]);
+    expect(qb.calls).toEqual([['andWhere', { name: 'Alice' }]]);
   });
 
   it('rejects invalid column filters', async () => {
@@ -202,9 +222,13 @@ describe('FilterRunner with column filters', () => {
     const qb = makeMockQB();
 
     await expect(
-      runner.apply(UserFilter, {
-        where: [{ field: '', operator: 'equals', value: 1 }],
-      }, qb),
+      runner.apply(
+        UserFilter,
+        {
+          where: [{ field: '', operator: 'equals', value: 1 }],
+        },
+        qb,
+      ),
     ).rejects.toThrow(/non-empty string/);
   });
 
@@ -215,9 +239,13 @@ describe('FilterRunner with column filters', () => {
     const qb = makeMockQB();
 
     await expect(
-      runner.apply(UserFilter, {
-        where: [{ field: 'name', operator: 'badOp', value: 1 }],
-      }, qb),
+      runner.apply(
+        UserFilter,
+        {
+          where: [{ field: 'name', operator: 'badOp', value: 1 }],
+        },
+        qb,
+      ),
     ).rejects.toThrow(/Unknown filter operator/);
   });
 
@@ -233,8 +261,6 @@ describe('FilterRunner with column filters', () => {
 
     // 'where' is dispatched as a regular key (unknown, ignored)
     // 'name' is dispatched via @FilterFor
-    expect(qb.calls).toEqual([
-      ['andWhere', { name: 'Alice' }],
-    ]);
+    expect(qb.calls).toEqual([['andWhere', { name: 'Alice' }]]);
   });
 });

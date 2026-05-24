@@ -136,11 +136,7 @@ describe('Query string bracket notation', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
     // Simulates: ?createdAt[gte]=2026-01-01&createdAt[lte]=2026-12-31
-    await runner.apply(
-      BracketFilter,
-      { createdAt: { gte: '2026-01-01', lte: '2026-12-31' } },
-      qb,
-    );
+    await runner.apply(BracketFilter, { createdAt: { gte: '2026-01-01', lte: '2026-12-31' } }, qb);
     expect(qb.calls).toEqual([
       ['andWhere', { createdAt: { $gte: '2026-01-01', $lte: '2026-12-31' } }],
     ]);
@@ -165,11 +161,7 @@ describe('Query string bracket notation', () => {
     const mod = await makeModule();
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
-    await runner.apply(
-      BracketFilter,
-      { role: 'admin', status: ['A', 'B'], age: { gte: 18 } },
-      qb,
-    );
+    await runner.apply(BracketFilter, { role: 'admin', status: ['A', 'B'], age: { gte: 18 } }, qb);
     expect(qb.calls).toEqual([
       ['andWhere', { role: 'admin' }],
       ['andWhere', { status: { $in: ['A', 'B'] } }],
