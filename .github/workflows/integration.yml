@@ -54,7 +54,7 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r build
+      - run: pnpm --filter './packages/*' build
       - name: Run integration test
         run: pnpm --filter @integration/${{ matrix.suite }} test
         env:
