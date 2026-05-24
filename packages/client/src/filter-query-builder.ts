@@ -1,5 +1,6 @@
 import { columnFiltersToQueryString, flatObjectToQueryString } from './to-query-string.js';
 import type { ColumnFilter, FilterOperator } from './types.js';
+import { validateAddOperator, validateOperatorValue } from './validate-operator-value.js';
 
 /**
  * Internal representation of a condition added via `where()`.
@@ -55,17 +56,42 @@ export class FilterQueryBuilder {
    * // Replaces previous status filter
    * where('status', ['C'])
    */
+  // Scalar operators
+  where(
+    field: string,
+    operator: 'equals' | 'notEquals' | 'gt' | 'gte' | 'lt' | 'lte',
+    value: string | number | boolean | Date,
+  ): this;
+  // String operators
+  where(
+    field: string,
+    operator: 'contains' | 'notContains' | 'iContains' | 'startsWith' | 'endsWith',
+    value: string,
+  ): this;
+  // Array operators
+  where(field: string, operator: 'in' | 'notIn' | 'isAnyOf', value: unknown[]): this;
+  // Tuple operators
+  where(field: string, operator: 'between' | 'notBetween', value: [unknown, unknown]): this;
+  // Unary operators
+  where(
+    field: string,
+    operator: 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty' | 'exists' | 'notExists',
+  ): this;
+  // Two-arg shorthand: value or array
   where(field: string, value: unknown): this;
-  where(field: string, operator: FilterOperator, value: unknown): this;
+  // General fallback
+  where(field: string, operator: FilterOperator, value?: unknown): this;
   where(field: string, operatorOrValue: unknown, maybeValue?: unknown): this {
     // Remove any existing filter(s) for this field
     this.conditions = this.conditions.filter((c) => c.field !== field);
 
     if (maybeValue !== undefined) {
       // Three-arg form: where(field, operator, value)
+      const op = operatorOrValue as FilterOperator;
+      validateOperatorValue(op, maybeValue);
       this.conditions.push({
         field,
-        operator: operatorOrValue as FilterOperator,
+        operator: op,
         value: maybeValue,
       });
     } else if (Array.isArray(operatorOrValue)) {
@@ -74,6 +100,19 @@ export class FilterQueryBuilder {
         field,
         operator: 'in',
         value: operatorOrValue,
+      });
+    } else if (
+      typeof operatorOrValue === 'string' &&
+      ['isNull', 'isNotNull', 'isEmpty', 'isNotEmpty', 'exists', 'notExists'].includes(
+        operatorOrValue,
+      )
+    ) {
+      // Two-arg form with unary operator: where(field, 'isNull')
+      validateOperatorValue(operatorOrValue as FilterOperator, undefined);
+      this.conditions.push({
+        field,
+        operator: operatorOrValue as FilterOperator,
+        value: undefined,
       });
     } else {
       // Simple value → equals
@@ -90,12 +129,23 @@ export class FilterQueryBuilder {
    * Adds a filter condition, **accumulating** with any existing filters for the
    * same field. Use for range queries where you need multiple operators on one field.
    *
+   * Only range operators (`gt`, `gte`, `lt`, `lte`) are allowed. For other
+   * operators, use `where()` which replaces the previous filter for the field.
+   *
    * @example
    * filterQuery()
    *   .add('createdAt', 'gte', '2026-01-01')
    *   .add('createdAt', 'lte', '2026-12-31')
    */
+  add(
+    field: string,
+    operator: 'gt' | 'gte' | 'lt' | 'lte',
+    value: string | number | boolean | Date,
+  ): this;
+  add(field: string, operator: FilterOperator, value?: unknown): this;
   add(field: string, operator: FilterOperator, value?: unknown): this {
+    validateAddOperator(operator);
+    validateOperatorValue(operator, value);
     this.conditions.push({ field, operator, value });
     return this;
   }
@@ -203,19 +253,19 @@ export class FilterQueryBuilder {
   }
 
   isNull(field: string): this {
-    return this.where(field, 'isNull', null);
+    return this.where(field, 'isNull');
   }
 
   isNotNull(field: string): this {
-    return this.where(field, 'isNotNull', null);
+    return this.where(field, 'isNotNull');
   }
 
   isEmpty(field: string): this {
-    return this.where(field, 'isEmpty', null);
+    return this.where(field, 'isEmpty');
   }
 
   isNotEmpty(field: string): this {
-    return this.where(field, 'isNotEmpty', null);
+    return this.where(field, 'isNotEmpty');
   }
 
   startsWith(field: string, value: string): this {

@@ -76,10 +76,10 @@ describe('FilterQueryBuilder', () => {
     });
 
     it('builds with isNull (no value needed)', () => {
-      // isNull doesn't need a value — use the 3-arg form with null
-      const result = filterQuery().where('deletedAt', 'isNull', null).build();
+      // isNull is a unary operator — use the 2-arg form
+      const result = filterQuery().where('deletedAt', 'isNull').build();
       expect(result).toEqual({
-        where: [{ field: 'deletedAt', operator: 'isNull', value: null }],
+        where: [{ field: 'deletedAt', operator: 'isNull', value: undefined }],
       });
     });
 
@@ -293,28 +293,28 @@ describe('FilterQueryBuilder', () => {
     it('isNull(field)', () => {
       const result = filterQuery().isNull('deletedAt').build();
       expect(result).toEqual({
-        where: [{ field: 'deletedAt', operator: 'isNull', value: null }],
+        where: [{ field: 'deletedAt', operator: 'isNull', value: undefined }],
       });
     });
 
     it('isNotNull(field)', () => {
       const result = filterQuery().isNotNull('email').build();
       expect(result).toEqual({
-        where: [{ field: 'email', operator: 'isNotNull', value: null }],
+        where: [{ field: 'email', operator: 'isNotNull', value: undefined }],
       });
     });
 
     it('isEmpty(field)', () => {
       const result = filterQuery().isEmpty('notes').build();
       expect(result).toEqual({
-        where: [{ field: 'notes', operator: 'isEmpty', value: null }],
+        where: [{ field: 'notes', operator: 'isEmpty', value: undefined }],
       });
     });
 
     it('isNotEmpty(field)', () => {
       const result = filterQuery().isNotEmpty('notes').build();
       expect(result).toEqual({
-        where: [{ field: 'notes', operator: 'isNotEmpty', value: null }],
+        where: [{ field: 'notes', operator: 'isNotEmpty', value: undefined }],
       });
     });
 
@@ -357,10 +357,7 @@ describe('FilterQueryBuilder', () => {
 
   describe('where() replaces semantics', () => {
     it('where() replaces existing filter for same field', () => {
-      const result = filterQuery()
-        .where('status', 'PENDING')
-        .where('status', 'COMPLETED')
-        .build();
+      const result = filterQuery().where('status', 'PENDING').where('status', 'COMPLETED').build();
       expect(result).toEqual({
         where: [{ field: 'status', operator: 'equals', value: 'COMPLETED' }],
       });
@@ -378,10 +375,7 @@ describe('FilterQueryBuilder', () => {
     });
 
     it('convenience methods use where() (replace) semantics', () => {
-      const result = filterQuery()
-        .contains('name', 'alpha')
-        .contains('name', 'beta')
-        .build();
+      const result = filterQuery().contains('name', 'alpha').contains('name', 'beta').build();
       expect(result).toEqual({
         where: [{ field: 'name', operator: 'contains', value: 'beta' }],
       });
@@ -417,10 +411,7 @@ describe('FilterQueryBuilder', () => {
     });
 
     it('range pattern: addGte + addLte on same field', () => {
-      const result = filterQuery()
-        .addGte('age', 18)
-        .addLte('age', 65)
-        .build();
+      const result = filterQuery().addGte('age', 18).addLte('age', 65).build();
       expect(result).toEqual({
         where: [
           { field: 'age', operator: 'gte', value: 18 },
@@ -430,10 +421,7 @@ describe('FilterQueryBuilder', () => {
     });
 
     it('range pattern: addGt + addLt on same field', () => {
-      const result = filterQuery()
-        .addGt('score', 0)
-        .addLt('score', 100)
-        .build();
+      const result = filterQuery().addGt('score', 0).addLt('score', 100).build();
       expect(result).toEqual({
         where: [
           { field: 'score', operator: 'gt', value: 0 },
@@ -483,10 +471,7 @@ describe('FilterQueryBuilder', () => {
     });
 
     it('remove() on non-existent field is a no-op', () => {
-      const result = filterQuery()
-        .where('status', 'COMPLETED')
-        .remove('nonExistent')
-        .build();
+      const result = filterQuery().where('status', 'COMPLETED').remove('nonExistent').build();
       expect(result).toEqual({
         where: [{ field: 'status', operator: 'equals', value: 'COMPLETED' }],
       });
@@ -586,6 +571,235 @@ describe('FilterQueryBuilder', () => {
       expect(result).toEqual({
         where: [{ field: 'name', operator: 'equals', value: 'John Doe' }],
       });
+    });
+  });
+
+  // ─── Safeguards ─────────────────────────────────────────────────────────────
+
+  describe('safeguards — scalar operators reject arrays', () => {
+    it('equals throws when value is an array', () => {
+      expect(() => filterQuery().equals('x', [1, 2] as any)).toThrow(/scalar/);
+    });
+
+    it('notEquals throws when value is an array', () => {
+      expect(() => filterQuery().notEquals('x', [1, 2] as any)).toThrow(/scalar/);
+    });
+
+    it('gt throws when value is an array', () => {
+      expect(() => filterQuery().gt('x', [1] as any)).toThrow(/scalar/);
+    });
+
+    it('gte throws when value is an array', () => {
+      expect(() => filterQuery().gte('x', [1] as any)).toThrow(/scalar/);
+    });
+
+    it('lt throws when value is an array', () => {
+      expect(() => filterQuery().lt('x', [1] as any)).toThrow(/scalar/);
+    });
+
+    it('lte throws when value is an array', () => {
+      expect(() => filterQuery().lte('x', [1] as any)).toThrow(/scalar/);
+    });
+
+    it('where with equals and array throws', () => {
+      expect(() => filterQuery().where('x', 'equals', [1, 2])).toThrow(/scalar/);
+    });
+  });
+
+  describe('safeguards — string operators reject non-strings', () => {
+    it('contains throws for non-string value', () => {
+      expect(() => filterQuery().contains('x', 123 as any)).toThrow(/string/);
+    });
+
+    it('where with notContains and number throws', () => {
+      expect(() => filterQuery().where('x', 'notContains', 42)).toThrow(/string/);
+    });
+
+    it('where with iContains and boolean throws', () => {
+      expect(() => filterQuery().where('x', 'iContains', true)).toThrow(/string/);
+    });
+
+    it('startsWith throws for non-string value', () => {
+      expect(() => filterQuery().startsWith('x', 99 as any)).toThrow(/string/);
+    });
+
+    it('endsWith throws for non-string value', () => {
+      expect(() => filterQuery().endsWith('x', false as any)).toThrow(/string/);
+    });
+
+    it('contains throws for array value', () => {
+      expect(() => filterQuery().where('x', 'contains', ['a'])).toThrow(/string/);
+    });
+  });
+
+  describe('safeguards — array operators reject scalars', () => {
+    it('in throws when value is a scalar string', () => {
+      expect(() => filterQuery().in('x', 'not-array' as any)).toThrow(/array/);
+    });
+
+    it('in throws when value is a number', () => {
+      expect(() => filterQuery().in('x', 42 as any)).toThrow(/array/);
+    });
+
+    it('notIn throws when value is a scalar', () => {
+      expect(() => filterQuery().notIn('x', 'scalar' as any)).toThrow(/array/);
+    });
+
+    it('where with isAnyOf and scalar throws', () => {
+      expect(() => filterQuery().where('x', 'isAnyOf', 'not-array')).toThrow(/array/);
+    });
+  });
+
+  describe('safeguards — tuple operators require 2-element array', () => {
+    it('between via where() throws for 1-element array', () => {
+      expect(() => filterQuery().where('x', 'between', [1])).toThrow(/tuple/);
+    });
+
+    it('between via where() throws for 3-element array', () => {
+      expect(() => filterQuery().where('x', 'between', [1, 2, 3])).toThrow(/tuple/);
+    });
+
+    it('between via where() throws for empty array', () => {
+      expect(() => filterQuery().where('x', 'between', [])).toThrow(/tuple/);
+    });
+
+    it('notBetween via where() throws for scalar', () => {
+      expect(() => filterQuery().where('x', 'notBetween', 42)).toThrow(/tuple/);
+    });
+
+    it('between via where() with correct 2-element array works', () => {
+      expect(() => filterQuery().where('x', 'between', [1, 10])).not.toThrow();
+    });
+  });
+
+  describe('safeguards — unary operators reject values', () => {
+    it('isNull throws when a non-null value is provided', () => {
+      expect(() => filterQuery().where('x', 'isNull', 'something')).toThrow(/does not accept/);
+    });
+
+    it('isNotNull throws when a value is provided', () => {
+      expect(() => filterQuery().where('x', 'isNotNull', 42)).toThrow(/does not accept/);
+    });
+
+    it('isEmpty throws when a value is provided', () => {
+      expect(() => filterQuery().where('x', 'isEmpty', 'val')).toThrow(/does not accept/);
+    });
+
+    it('isNotEmpty throws when a value is provided', () => {
+      expect(() => filterQuery().where('x', 'isNotEmpty', true)).toThrow(/does not accept/);
+    });
+
+    it('exists throws when a value is provided', () => {
+      expect(() => filterQuery().where('x', 'exists', 1)).toThrow(/does not accept/);
+    });
+
+    it('notExists throws when a value is provided', () => {
+      expect(() => filterQuery().where('x', 'notExists', 'yes')).toThrow(/does not accept/);
+    });
+
+    it('isNull allows null value (treated as absent)', () => {
+      expect(() => filterQuery().where('x', 'isNull', null)).not.toThrow();
+    });
+
+    it('unary operators work via 2-arg where()', () => {
+      expect(() => filterQuery().where('x', 'isNull')).not.toThrow();
+      expect(() => filterQuery().where('x', 'isNotNull')).not.toThrow();
+      expect(() => filterQuery().where('x', 'isEmpty')).not.toThrow();
+      expect(() => filterQuery().where('x', 'isNotEmpty')).not.toThrow();
+      expect(() => filterQuery().where('x', 'exists')).not.toThrow();
+      expect(() => filterQuery().where('x', 'notExists')).not.toThrow();
+    });
+  });
+
+  describe('safeguards — add() rejects non-range operators', () => {
+    it('add throws for equals operator', () => {
+      expect(() => filterQuery().add('x', 'equals', 'v')).toThrow(/where/);
+    });
+
+    it('add throws for contains operator', () => {
+      expect(() => filterQuery().add('x', 'contains', 'v')).toThrow(/where/);
+    });
+
+    it('add throws for in operator', () => {
+      expect(() => filterQuery().add('x', 'in', [1, 2])).toThrow(/where/);
+    });
+
+    it('add throws for between operator', () => {
+      expect(() => filterQuery().add('x', 'between', [1, 10])).toThrow(/where/);
+    });
+
+    it('add throws for isNull operator', () => {
+      expect(() => filterQuery().add('x', 'isNull')).toThrow(/where/);
+    });
+
+    it('add throws for notEquals operator', () => {
+      expect(() => filterQuery().add('x', 'notEquals', 'v')).toThrow(/where/);
+    });
+
+    it('add throws for startsWith operator', () => {
+      expect(() => filterQuery().add('x', 'startsWith', 'v')).toThrow(/where/);
+    });
+
+    it('add allows gt', () => {
+      expect(() => filterQuery().add('x', 'gt', 1)).not.toThrow();
+    });
+
+    it('add allows gte', () => {
+      expect(() => filterQuery().add('x', 'gte', 1)).not.toThrow();
+    });
+
+    it('add allows lt', () => {
+      expect(() => filterQuery().add('x', 'lt', 10)).not.toThrow();
+    });
+
+    it('add allows lte', () => {
+      expect(() => filterQuery().add('x', 'lte', 10)).not.toThrow();
+    });
+
+    it('add with range operator still validates value', () => {
+      expect(() => filterQuery().add('x', 'gte', [1] as any)).toThrow(/scalar/);
+    });
+  });
+
+  describe('safeguards — valid usage does not throw', () => {
+    it('equals with string value works', () => {
+      expect(() => filterQuery().equals('x', 'hello')).not.toThrow();
+    });
+
+    it('equals with number value works', () => {
+      expect(() => filterQuery().equals('x', 42)).not.toThrow();
+    });
+
+    it('equals with boolean value works', () => {
+      expect(() => filterQuery().equals('x', true)).not.toThrow();
+    });
+
+    it('equals with null value works', () => {
+      expect(() => filterQuery().equals('x', null)).not.toThrow();
+    });
+
+    it('in with array works', () => {
+      expect(() => filterQuery().in('x', [1, 2, 3])).not.toThrow();
+    });
+
+    it('in with empty array works', () => {
+      expect(() => filterQuery().in('x', [])).not.toThrow();
+    });
+
+    it('contains with string works', () => {
+      expect(() => filterQuery().contains('x', 'hello')).not.toThrow();
+    });
+
+    it('between with 2-element array works', () => {
+      expect(() => filterQuery().between('x', 1, 10)).not.toThrow();
+    });
+
+    it('addGte + addLte range pattern works', () => {
+      expect(() => filterQuery().addGte('x', 1).addLte('x', 10)).not.toThrow();
+    });
+
+    it('addGt + addLt range pattern works', () => {
+      expect(() => filterQuery().addGt('x', 0).addLt('x', 100)).not.toThrow();
     });
   });
 });
