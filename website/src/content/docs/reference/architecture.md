@@ -30,6 +30,16 @@ nestjs-filter is a TypeScript-first monorepo of three focused packages that brin
  │  MikroOrmAdapter            │       │  TypeOrmAdapter             │
  │  MikroOrmFilterModule       │       │  TypeOrmFilterModule        │
  └─────────────────────────────┘       └─────────────────────────────┘
+
+                     ┌──────────────────────────────────┐
+                     │  @dudousxd/nestjs-filter-client   │
+                     │         (standalone)               │
+                     │                                    │
+                     │  FilterQueryBuilder                │
+                     │  filterQuery()                     │
+                     │  toQueryString / build             │
+                     │  Zero dependencies (browser+Node)  │
+                     └──────────────────────────────────┘
 ```
 
 ## Package responsibilities
@@ -81,22 +91,32 @@ NestJS Router → Controller method
   │     │     ├── c. Validate (if class-validator installed + auto mode)
   │     │     │     └── plainToInstance → validate → extract
   │     │     │
-  │     │     ├── d. Create AsyncLocalStorage context
+  │     │     ├── d. Extract column filters (where: ColumnFilter[])
+  │     │     │     └── Separate `where` array from remaining input
+  │     │     │
+  │     │     ├── e. Create AsyncLocalStorage context
   │     │     │     └── $query, $input, $context, $adapter
   │     │     │
-  │     │     ├── e. Run setup() hook
+  │     │     ├── f. Run setup() hook
   │     │     │
-  │     │     ├── f. Dispatch each input key
+  │     │     ├── g. Apply column filters via adapter
+  │     │     │     ├── validateColumnFilters() → field/operator/value checks
+  │     │     │     └── adapter.applyColumnFilters(qb, filters)
+  │     │     │         ├── MikroORM → resolveColumnFilters → $and/$or/$like etc.
+  │     │     │         └── TypeORM → applyOperator → parameterized andWhere/Brackets
+  │     │     │
+  │     │     ├── h. Dispatch each input key
   │     │     │     ├── Check blacklist → skip
   │     │     │     ├── Check whitelist → bypass allowed/blocked
   │     │     │     ├── resolveDispatchTarget → @FilterFor method
   │     │     │     ├── resolveRelation → batch for relation
+  │     │     │     ├── resolveAutoFields → adapter.applyAutoField()
   │     │     │     └── handleUnknownKey → ignore/warn/throw
   │     │     │
-  │     │     ├── g. Apply batched relation constraints
+  │     │     ├── i. Apply batched relation constraints
   │     │     │     └── adapter.applyRelationConstraint → recursive apply()
   │     │     │
-  │     │     └── h. Process pushed entries (BFS loop)
+  │     │     └── j. Process pushed entries (BFS loop)
   │     │
   │     └── 4. Store QueryBuilder in request slot
   │
@@ -151,7 +171,8 @@ To add support for a new ORM (e.g., Prisma, Drizzle), implement this interface a
 
 The dispatch algorithm maps input keys to filter methods:
 
-1. For each key in the normalized input:
+0. **Extract column filters:** If the input contains a `where` key with an array value, extract it as `ColumnFilter[]`. Validate each entry. Pass to `adapter.applyColumnFilters()`.
+1. For each key in the normalized input (excluding `where`):
    - If the value is `undefined`, skip.
    - If the key is in the runtime blacklist, skip.
    - If the key is in the runtime whitelist, look up the `@FilterFor` method directly (bypassing `allowed`/`blocked`).
@@ -161,6 +182,7 @@ The dispatch algorithm maps input keys to filter methods:
      - If `@Filterable.blocked` is set, keys in that list are excluded.
    - If a method is found, call it with `(value, key)`.
    - If no method found, check `@Relations` for a relation match.
+   - If no relation match, check **auto-fields** (`resolveAutoFields`). If the key is in the auto-field set, call `adapter.applyAutoField(qb, key, value)`.
    - If still no match, apply the unknown key policy.
 2. After all input keys, apply batched relation constraints.
 3. Process any pushed entries (BFS: pushed handlers may push more).

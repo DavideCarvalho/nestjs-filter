@@ -60,7 +60,9 @@ import { TypeOrmAdapter } from '@dudousxd/nestjs-filter-typeorm';
 | Method | Description |
 |--------|-------------|
 | `createQueryBuilder<E>(entity)` | Creates a `SelectQueryBuilder<E>` via `dataSource.getRepository(entity).createQueryBuilder(alias)`. |
-| `applyRelationConstraint(qb, relationName, callback)` | Joins the relation with `leftJoinAndSelect` and calls the callback on the same QB. |
+| `applyRelationConstraint(qb, relationName, callback)` | Joins the relation with `innerJoin` and calls the callback on the same QB. |
+| `applyColumnFilters(qb, filters)` | Applies an array of `ColumnFilter` conditions using parameterized `andWhere`/`orWhere` calls with `Brackets` for AND/OR groups. |
+| `applyAutoField(qb, field, value)` | Auto-applies a single field value. Handles scalars (`= :param`), arrays (`IN (:...param)`), and operator objects (applies each operator individually). |
 
 ---
 

@@ -66,6 +66,13 @@ search(@ApplyFilter(UserFilter, { source: 'body' }) qb: any) {
   return qb.getResultList();
 }
 
+// Dot-path source — read from a nested property
+@Post('search')
+search(@ApplyFilter(UserFilter, { source: 'body.filters' }) qb: any) {
+  // Reads from req.body.filters
+  return qb.getResultList();
+}
+
 // Custom source function
 @Get()
 list(
@@ -80,6 +87,10 @@ list(
   return qb.getResultList();
 }
 ```
+
+<Aside type="tip">
+  Dot-path sources like `'body.filters'` or `'body.data.query'` traverse the request object using dot notation. This is useful when your API wraps filter input inside a nested object.
+</Aside>
 
 ---
 
@@ -111,7 +122,7 @@ When `resolve` is provided, the first argument (`UserFilter` in this example) ac
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `source` | `'auto' \| 'query' \| 'body' \| (req) => Record` | `'auto'` | Where to read input from. |
+| `source` | `'auto' \| 'query' \| 'body' \| string \| (req) => Record` | `'auto'` | Where to read input from. Strings with dots (e.g. `'body.filters'`) traverse the request object. |
 | `dto` | `Type<unknown>` | -- | Override the DTO class used for validation. |
 | `resolve` | `(req) => Type` | -- | Dynamically select a filter class per request. |
 

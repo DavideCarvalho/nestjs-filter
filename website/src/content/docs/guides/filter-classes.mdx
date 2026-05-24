@@ -75,6 +75,68 @@ You can also explicitly disable validation by setting `validation: 'off'` in `Fi
 
 ---
 
+## Auto-fields
+
+When you enable `autoFields` in `@Filterable`, input keys that do not have a corresponding `@FilterFor` method are automatically applied by the ORM adapter. This means you can write zero-method filter classes for simple equality, array, and operator-based queries.
+
+### Match all fields
+
+```ts
+@Injectable()
+@Filterable({ entity: User, autoFields: true, allowed: ['name', 'email', 'status', 'age'] })
+export class UserFilter extends MikroOrmFilter<User> {
+  // No @FilterFor methods needed for simple equality checks.
+  // GET /users?name=Al&status=active  →  WHERE name = 'Al' AND status = 'active'
+  // GET /users?status[]=A&status[]=B  →  WHERE status IN ('A', 'B')
+}
+```
+
+When `autoFields` is `true`, every key in the `allowed` list that does not have a `@FilterFor` mapping is auto-applied. If there is no `allowed` list, **all** input keys are accepted.
+
+<Aside type="caution">
+  Using `autoFields: true` without an `allowed` list means any column name the client sends will be accepted. Always combine with `allowed` to restrict which fields are queryable.
+</Aside>
+
+### Explicit field list
+
+You can also pass an explicit array of field names to auto-apply:
+
+```ts
+@Filterable({ entity: User, autoFields: ['name', 'email'] })
+```
+
+Only `name` and `email` will be auto-applied. Other keys still need `@FilterFor` methods.
+
+### Mixing auto-fields with `@FilterFor`
+
+You can combine auto-fields with explicit `@FilterFor` methods. Any key that has a `@FilterFor` mapping is dispatched to the method; only unmatched keys fall through to the auto-field handler.
+
+```ts
+@Injectable()
+@Filterable({ entity: User, autoFields: true, allowed: ['name', 'status', 'role'] })
+export class UserFilter extends MikroOrmFilter<User> {
+  @FilterFor('name')
+  applyName(value: string) {
+    // Custom LIKE behavior for name
+    this.whereLike('name', value);
+  }
+
+  // 'status' and 'role' are auto-applied with simple equality
+}
+```
+
+### Bracket notation with auto-fields
+
+Auto-fields support operator objects via query string bracket notation:
+
+```
+GET /users?name[contains]=fleet&age[gte]=18&age[lte]=65
+```
+
+The adapter detects operator objects and applies them accordingly (e.g. `LIKE '%fleet%'` for `contains`, `>= 18` for `gte`).
+
+---
+
 ## The `@FilterFor()` decorator
 
 `@FilterFor(inputKey?)` maps an input key to the decorated method. If `inputKey` is omitted, the method name is used as the key.
@@ -207,6 +269,32 @@ You can also push multiple keys at once:
 ```ts
 this.push({ startDate: '2024-01-01', endDate: '2024-12-31' });
 ```
+
+---
+
+## `related()` for imperative relation filtering
+
+The `related()` method lets you filter by a related entity's columns imperatively, without needing the `@Relations` decorator:
+
+```ts
+@FilterFor('publishedOnly')
+async applyPublishedOnly(value: boolean) {
+  if (value) {
+    await this.related('posts', { status: 'published' });
+  }
+}
+```
+
+This creates a join on the `posts` relation and adds `WHERE posts.status = 'published'`. It delegates to the adapter's `applyRelationConstraint` under the hood.
+
+```ts
+// Full signature
+await this.related(relationName: string, conditions: Record<string, unknown>): Promise<void>
+```
+
+<Aside type="tip">
+  Use `related()` when you need conditional or dynamic relation filtering inside a `@FilterFor` method. For static key-to-relation mapping, prefer the [`@Relations` decorator](/nestjs-filter/guides/relations/).
+</Aside>
 
 ---
 

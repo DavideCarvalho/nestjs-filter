@@ -23,21 +23,27 @@ hero:
 | `@dudousxd/nestjs-filter` | Core: BaseFilter, FilterRunner, decorators, FilterModule |
 | `@dudousxd/nestjs-filter-mikro-orm` | MikroORM 7 adapter |
 | `@dudousxd/nestjs-filter-typeorm` | TypeORM adapter |
+| `@dudousxd/nestjs-filter-client` | Client-side query builder (browser + Node, zero dependencies) |
 
 > **Alpha status:** The API is stabilising -- breaking changes may occur before `1.0`. Not recommended for production use yet.
 
 ## Key features
 
 - **Declarative filter classes** with `@FilterFor()` method decorators
+- **Auto-fields** -- fields without `@FilterFor` are applied automatically via the adapter
+- **22 generic operators** -- `equals`, `contains`, `in`, `between`, `isNull`, and 17 more, with AND/OR composition
+- **Query string bracket notation** -- `?name[contains]=foo&age[gte]=18` for GET requests
 - **Full NestJS dependency injection** inside filters
 - **Optional class-validator integration** -- your filter class doubles as the DTO
 - **`@ApplyFilter()` param decorator** for controllers (method-aware: GET=query, POST=body+query)
 - **`resolve` option** on `@ApplyFilter` for dynamic filter class selection per request
+- **Dot-path source** -- read input from nested request properties (`source: 'body.filters'`)
 - **AsyncLocalStorage-based state isolation** -- singleton filters with zero cross-request contamination
 - **ORM-agnostic core** with native QueryBuilder access per adapter
 - **`FilterRunner.apply()`** for programmatic use in services
 - **`FilterTestingModule` + `makeMockQueryBuilder`** for isolated unit tests
 - **`FilterExceptionFilter`** maps validation errors to 400 responses
+- **Client-side query builder** -- `@dudousxd/nestjs-filter-client` for building filter queries in browser or Node
 - **Input normalization** (camelCase, snake_case, or custom)
 - **Unknown key policies** (ignore, warn, throw)
 

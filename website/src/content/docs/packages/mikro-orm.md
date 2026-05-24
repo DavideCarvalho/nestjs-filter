@@ -57,7 +57,9 @@ import { MikroOrmAdapter } from '@dudousxd/nestjs-filter-mikro-orm';
 | Method | Description |
 |--------|-------------|
 | `createQueryBuilder<E>(entity)` | Creates a `QueryBuilder<E>` via `em.createQueryBuilder(entity)`. |
-| `applyRelationConstraint(qb, relationName, callback)` | Joins the relation with `joinAndSelect` and calls the callback on the same QB. |
+| `applyRelationConstraint(qb, relationName, callback)` | Joins the relation and calls the callback on the same QB. |
+| `applyColumnFilters(qb, filters)` | Applies an array of `ColumnFilter` conditions using MikroORM FilterQuery objects (`$like`, `$gte`, `$in`, `$and`, `$or`, etc.). |
+| `applyAutoField(qb, field, value)` | Auto-applies a single field value. Handles scalars (equals), arrays (`$in`), and operator objects (e.g. `{ gte: 18 }` becomes `{ $gte: 18 }`). |
 
 ---
 

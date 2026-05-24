@@ -137,8 +137,27 @@ Static input key restrictions are configured per-filter via the `@Filterable()` 
 | `entity` | `Type<unknown>` | **Required.** The entity class this filter targets. |
 | `allowed` | `readonly string[]` | Whitelist of input keys. Only these keys are dispatched. |
 | `blocked` | `readonly string[]` | Blacklist of input keys. These keys are never dispatched. |
+| `autoFields` | `true \| readonly string[]` | Enable auto-field behavior. `true` auto-applies all unmatched keys (use with `allowed`). A string array limits auto-apply to listed fields. |
 
 Note: `allowed` and `blocked` cannot be used together on the same filter.
+
+### autoFields
+
+When `autoFields` is set, input keys that have no `@FilterFor` method are passed to the adapter's `applyAutoField()` method. The adapter handles three value shapes:
+
+- **Scalar value** -- applied as `equals` (`WHERE field = value`)
+- **Array value** -- applied as `IN` (`WHERE field IN (...)`)
+- **Operator object** -- applied as the given operator(s) (`WHERE field >= value`)
+
+```ts
+@Filterable({
+  entity: User,
+  autoFields: true,
+  allowed: ['name', 'email', 'status', 'age'],
+})
+```
+
+See the [Filter Classes guide](/nestjs-filter/guides/filter-classes/#auto-fields) for full examples.
 
 ---
 

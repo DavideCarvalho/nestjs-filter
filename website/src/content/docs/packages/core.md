@@ -62,16 +62,28 @@ The core package provides the filter infrastructure: the base class, runner, dec
 | `InputNormalizer` | `'camelCase' \| 'snakeCase' \| (key: string) => string`. |
 | `OnUnknownKey` | `'ignore' \| 'warn' \| 'throw'`. |
 | `ValidationMode` | `'auto' \| 'off'`. |
-| `FilterAdapter` | Interface for ORM adapters. `createQueryBuilder()` and optional `applyRelationConstraint()`. |
+| `FilterAdapter` | Interface for ORM adapters. `createQueryBuilder()` and optional `applyRelationConstraint()`, `applyColumnFilters()`, `applyAutoField()`. |
 | `RelationConfig` | `{ filter: Type, keys: readonly string[] }`. |
 | `RelationsMap` | `Record<string, RelationConfig>`. |
+
+### Operators
+
+| Export | Description |
+|--------|-------------|
+| `ColumnFilter` | Type for a single column filter condition (`{ field, operator, value, AND?, OR? }`). |
+| `FilterOperator` | Union type of all 22 operator strings. |
+| `FILTER_OPERATORS` | Array of all operator strings (for runtime validation). |
+| `ColumnFilterDto` | class-validator decorated DTO for `ColumnFilter` (use in request body DTOs). |
+| `validateColumnFilter(filter)` | Validates a single `ColumnFilter` at runtime. Throws `InvalidColumnFilterError`. |
+| `validateColumnFilters(filters)` | Validates an array of `ColumnFilter` objects. |
+| `InvalidColumnFilterError` | Error class thrown by `validateColumnFilter`. |
 
 ### Utilities
 
 | Export | Description |
 |--------|-------------|
 | `escapeLike(value)` | Escapes `%`, `_`, and `\` in LIKE values. |
-| `resolveInputFromRequest(req, source)` | Resolves input from a request object based on source and HTTP method. |
+| `resolveInputFromRequest(req, source)` | Resolves input from a request object based on source and HTTP method. Supports dot-path sources (`'body.filters'`). |
 | `normalizeInput(input, options)` | Normalizes input keys with camelCase/snakeCase/custom, drops prototype pollution keys. |
 | `getFilterableMetadata(target)` | Reads `@Filterable` metadata from a class. |
 | `getFilterForMap(target)` | Reads all `@FilterFor` mappings (walks prototype chain). |
