@@ -435,6 +435,15 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)
 
+  packages/client:
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)
+
   packages/core:
     devDependencies:
       '@nestjs/common':

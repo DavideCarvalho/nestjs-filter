@@ -7,7 +7,8 @@
     [
       "@dudousxd/nestjs-filter",
       "@dudousxd/nestjs-filter-mikro-orm",
-      "@dudousxd/nestjs-filter-typeorm"
+      "@dudousxd/nestjs-filter-typeorm",
+      "@dudousxd/nestjs-filter-client"
     ]
   ],
   "access": "public",
