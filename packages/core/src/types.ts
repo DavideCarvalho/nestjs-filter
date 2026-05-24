@@ -4,6 +4,7 @@ export type InputSource =
   | 'auto'
   | 'query'
   | 'body'
+  | (string & {})
   | ((req: unknown) => Record<string, unknown> | undefined);
 
 export interface FilterContext {

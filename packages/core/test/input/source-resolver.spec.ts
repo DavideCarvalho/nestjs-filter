@@ -55,4 +55,29 @@ describe('resolveInputFromRequest', () => {
     const r = { method: 'POST' } as unknown;
     expect(resolveInputFromRequest(r, 'auto')).toEqual({});
   });
+
+  it('dot-path resolves nested object from request', () => {
+    const r = { body: { filters: { name: 'foo', age: 25 } } };
+    expect(resolveInputFromRequest(r, 'body.filters')).toEqual({ name: 'foo', age: 25 });
+  });
+
+  it('dot-path resolves deeply nested paths', () => {
+    const r = { body: { data: { nested: { filters: { x: 1 } } } } };
+    expect(resolveInputFromRequest(r, 'body.data.nested.filters')).toEqual({ x: 1 });
+  });
+
+  it('dot-path returns {} when path does not exist', () => {
+    const r = { body: { other: 1 } };
+    expect(resolveInputFromRequest(r, 'body.filters')).toEqual({});
+  });
+
+  it('dot-path returns {} when intermediate segment is null', () => {
+    const r = { body: null };
+    expect(resolveInputFromRequest(r, 'body.filters')).toEqual({});
+  });
+
+  it('dot-path returns {} when resolved value is not an object', () => {
+    const r = { body: { filters: 'not-an-object' } };
+    expect(resolveInputFromRequest(r, 'body.filters')).toEqual({});
+  });
 });
