@@ -1,6 +1,6 @@
 {
   "name": "@dudousxd/nestjs-filter",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "NestJS filter library — core abstractions, runner, decorators.",
   "license": "MIT",
   "repository": {
@@ -25,7 +25,11 @@
   "bin": {
     "nestjs-filter": "./dist/cli/generate.js"
   },
-  "files": ["dist/", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
@@ -68,5 +72,11 @@
   "engines": {
     "node": ">=20"
   },
-  "keywords": ["nestjs", "filter", "query", "mikro-orm", "typeorm"]
+  "keywords": [
+    "nestjs",
+    "filter",
+    "query",
+    "mikro-orm",
+    "typeorm"
+  ]
 }

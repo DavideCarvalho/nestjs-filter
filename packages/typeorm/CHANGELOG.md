@@ -1,5 +1,28 @@
 # @dudousxd/nestjs-filter-typeorm
 
+## 2.0.0
+
+### Major Changes
+
+- [`51efd64`](https://github.com/DavideCarvalho/nestjs-filter/commit/51efd6425f0f4a9ade4e2232e1e66ed40de73399) - BREAKING: Input format changed from flat to structured `{ filter, include, search }`.
+
+  - `filter`: contains all filter keys (auto-fields, @FilterFor, operators, dot-notation)
+  - `include`: array of relation paths for eager loading (e.g. `['role', 'posts.comments']`)
+  - `search`: global search term (ILIKE across string columns or tsvector)
+
+  New features:
+
+  - Eager loading via `?include=role,posts` with entity metadata validation
+  - Global search via `?search=term` with auto-detected string columns or tsvector
+  - Filter class supports `static includes` (allowlist) and `static search` (column config)
+  - Max include depth (default 3, configurable via `maxIncludeDepth`)
+  - Client builder gains `include()` and `search()` methods
+
+### Patch Changes
+
+- Updated dependencies [[`51efd64`](https://github.com/DavideCarvalho/nestjs-filter/commit/51efd6425f0f4a9ade4e2232e1e66ed40de73399)]:
+  - @dudousxd/nestjs-filter@2.0.0
+
 ## 1.0.0
 
 ### Minor Changes
