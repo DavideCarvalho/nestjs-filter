@@ -21,7 +21,7 @@ export function resolveOperator(filter: ColumnFilter): Record<string, unknown> {
       return { $not: { [field]: { $like: `%${escapeLike(String(value))}%` } } };
 
     case 'iContains':
-      return { [field]: { $like: `%${escapeLike(String(value))}%` } };
+      return { [field]: { $ilike: `%${escapeLike(String(value))}%` } };
 
     case 'startsWith':
       return { [field]: { $like: `${escapeLike(String(value))}%` } };
