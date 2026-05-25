@@ -1,4 +1,4 @@
-import { escapeLike, MAX_FILTER_DEPTH } from '@dudousxd/nestjs-filter';
+import { MAX_FILTER_DEPTH, escapeLike } from '@dudousxd/nestjs-filter';
 import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 import { Brackets, type ObjectLiteral, type SelectQueryBuilder } from 'typeorm';
 

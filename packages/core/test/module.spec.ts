@@ -94,10 +94,7 @@ describe('FilterModule', () => {
     } as DynamicModule;
 
     const mod = await Test.createTestingModule({
-      imports: [
-        FactoryModule,
-        FilterModule.forRootAsync({ useExisting: ExistingFactory }),
-      ],
+      imports: [FactoryModule, FilterModule.forRootAsync({ useExisting: ExistingFactory })],
     }).compile();
     expect(mod.get(FILTER_MODULE_OPTIONS)).toMatchObject({ validation: 'off' });
   });

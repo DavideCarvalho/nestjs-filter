@@ -86,20 +86,24 @@ describe('validateColumnFilter', () => {
   });
 
   it('rejects null value for non-unary operators', () => {
-    expect(() =>
-      validateColumnFilter({ field: 'name', operator: 'equals', value: null }),
-    ).toThrow(/null.*isNull/);
+    expect(() => validateColumnFilter({ field: 'name', operator: 'equals', value: null })).toThrow(
+      /null.*isNull/,
+    );
     expect(() =>
       validateColumnFilter({ field: 'name', operator: 'contains', value: null }),
     ).toThrow(/null.*isNull/);
-    expect(() =>
-      validateColumnFilter({ field: 'age', operator: 'gt', value: null }),
-    ).toThrow(/null.*isNull/);
+    expect(() => validateColumnFilter({ field: 'age', operator: 'gt', value: null })).toThrow(
+      /null.*isNull/,
+    );
   });
 
   it('allows null value for unary operators', () => {
-    expect(() => validateColumnFilter({ field: 'x', operator: 'isNull', value: null })).not.toThrow();
-    expect(() => validateColumnFilter({ field: 'x', operator: 'isNotNull', value: null })).not.toThrow();
+    expect(() =>
+      validateColumnFilter({ field: 'x', operator: 'isNull', value: null }),
+    ).not.toThrow();
+    expect(() =>
+      validateColumnFilter({ field: 'x', operator: 'isNotNull', value: null }),
+    ).not.toThrow();
   });
 
   it('rejects missing value for non-unary operators', () => {

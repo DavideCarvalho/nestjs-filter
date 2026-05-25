@@ -92,9 +92,9 @@ describe('FilterExceptionFilter (unit)', () => {
         throw new Error('not HTTP');
       },
     };
-    expect(() =>
-      filter.catch(new FilterValidationException([]), host as any),
-    ).toThrow(FilterValidationException);
+    expect(() => filter.catch(new FilterValidationException([]), host as any)).toThrow(
+      FilterValidationException,
+    );
   });
 
   it('re-throws for RPC context', () => {
@@ -105,9 +105,9 @@ describe('FilterExceptionFilter (unit)', () => {
         throw new Error('not HTTP');
       },
     };
-    expect(() =>
-      filter.catch(new FilterValidationException([]), host as any),
-    ).toThrow(FilterValidationException);
+    expect(() => filter.catch(new FilterValidationException([]), host as any)).toThrow(
+      FilterValidationException,
+    );
   });
 });
 
