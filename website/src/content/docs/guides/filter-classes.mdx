@@ -91,10 +91,14 @@ export class UserFilter extends MikroOrmFilter<User> {
 }
 ```
 
-When `autoFields` is `true`, every key in the `allowed` list that does not have a `@FilterFor` mapping is auto-applied. If there is no `allowed` list, **all** input keys are accepted.
+When `autoFields` is `true`, every key in the `allowed` list that does not have a `@FilterFor` mapping is auto-applied. If there is no `allowed` list, the adapter introspects entity metadata (via `getEntityFields()`) to discover valid columns and **rejects unknown fields automatically**. This prevents unknown-column probing and SQL errors without requiring an explicit `allowed` list.
+
+<Aside type="note">
+  When `autoFields: true` is used without an `allowed` list, the adapter introspects the entity's ORM metadata to build the set of valid column names. Only keys matching real entity columns are accepted; all others are silently skipped. If the adapter does not support metadata introspection, it falls back to accepting all keys (legacy behavior) with a logged warning.
+</Aside>
 
 <Aside type="caution">
-  Using `autoFields: true` without an `allowed` list means any column name the client sends will be accepted. Always combine with `allowed` to restrict which fields are queryable.
+  If your adapter does not implement `getEntityFields()`, using `autoFields: true` without an `allowed` list means any column name the client sends will be accepted. Always combine with `allowed` to restrict which fields are queryable, or ensure your adapter supports metadata introspection.
 </Aside>
 
 ### Explicit field list

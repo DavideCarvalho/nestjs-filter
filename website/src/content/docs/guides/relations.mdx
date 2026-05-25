@@ -122,6 +122,37 @@ await callback(parentQb); // PostFilter methods run on the same QB
 
 ---
 
+## Dot-notation (auto-join)
+
+When `autoFields: true`, you can filter by related entity fields using dot-notation. No `@Relations` decorator needed for simple cases:
+
+```
+GET /users?posts.title[contains]=Hello&posts.status=published
+```
+
+The adapter detects `posts.title`, verifies `posts` is a relation on User via entity metadata, auto-joins, and applies the WHERE clause on the related field.
+
+This works with all operators:
+- `posts.title=Hello` -- equals
+- `posts.title[contains]=Hello` -- LIKE
+- `posts.createdAt[gte]=2024-01-01` -- >=
+- `posts.status[in]=draft,published` -- IN
+
+```ts
+@Injectable()
+@Filterable({ entity: User, autoFields: true })
+export class UserFilter extends MikroOrmFilter<User> {
+  // No @FilterFor or @Relations needed for dot-notation.
+  // GET /users?posts.title[contains]=Hello  →  auto-joins posts, WHERE posts.title LIKE '%Hello%'
+}
+```
+
+<Aside type="note">
+  Dot-notation requires the adapter to implement `getEntityRelations()` and `applyAutoRelationField()`. Both the MikroORM and TypeORM adapters support this. For complex cases (e.g. nested relations, custom join conditions), use `@Relations` or manual relation filtering instead.
+</Aside>
+
+---
+
 ## Manual relation filtering
 
 If you need more control, you can handle relation filtering manually in your filter methods instead of using `@Relations`:

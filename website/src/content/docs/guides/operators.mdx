@@ -58,6 +58,10 @@ interface ColumnFilter {
 | `notIn` | `NOT IN (...)` | array | `{ field: 'role', operator: 'notIn', value: ['banned'] }` |
 | `isAnyOf` | `IN (...)` | array | Alias for `in` |
 
+<Aside type="note">
+  `isAnyOf` is an alias for `in`. Both produce the same `WHERE ... IN (...)` clause. Use whichever reads better in your context.
+</Aside>
+
 ### Range operators
 
 | Operator | SQL equivalent | Value type | Example |
