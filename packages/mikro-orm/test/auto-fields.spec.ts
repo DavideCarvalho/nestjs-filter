@@ -1,18 +1,21 @@
 import 'reflect-metadata';
 import { FilterFor, FilterModule, FilterRunner, Filterable } from '@dudousxd/nestjs-filter';
-import { MikroORM } from '@mikro-orm/core';
+import { EntityManager, MikroORM } from '@mikro-orm/core';
 import {
   Entity,
+  ManyToOne,
   PrimaryKey,
   Property,
   ReflectMetadataProvider,
 } from '@mikro-orm/decorators/legacy';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
+import type { SqlEntityManager } from '@mikro-orm/sql';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MikroOrmFilter } from '../src/mikro-orm-filter.js';
+import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
 import { MikroOrmFilterModule } from '../src/module.js';
 
 // ─── Entity ─────────────────────────────────────────────────────────────────────
@@ -192,5 +195,99 @@ describe('MikroORM auto-fields', () => {
     const rows = await qb.getResultList();
     // Only category filter applied, price ignored
     expect(rows.map((r) => r.name).sort()).toEqual(['Widget A', 'Widget B']);
+  });
+
+  // ─── Entity Metadata Introspection ─────────────────────────────────────────
+
+  describe('entity metadata introspection', () => {
+    it('autoFields: true only accepts real entity columns', async () => {
+      await createModule([ProductAutoAllFilter]);
+      const em = await seed();
+      const qb = em.createQueryBuilder(Product);
+      // 'nonExistentField' is not a column on Product — should be silently skipped
+      await runner.apply(ProductAutoAllFilter, { name: 'Widget A', nonExistentField: 'x' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Widget A']);
+    });
+
+    it('autoFields: true silently skips all unknown columns', async () => {
+      await createModule([ProductAutoAllFilter]);
+      const em = await seed();
+      const qb = em.createQueryBuilder(Product);
+      await runner.apply(
+        ProductAutoAllFilter,
+        { hackerField: 'DROP TABLE', anotherFake: 'value' },
+        qb,
+      );
+      const rows = await qb.getResultList();
+      // No filters applied — all rows returned
+      expect(rows).toHaveLength(4);
+    });
+
+    it('getEntityFields returns correct field info', async () => {
+      await createModule([ProductAutoAllFilter]);
+      const em = orm.em as unknown as SqlEntityManager;
+      const adapter = new MikroOrmAdapter(em);
+      const fields = adapter.getEntityFields(Product);
+      expect(fields).not.toBeNull();
+      const names = fields!.map((f) => f.name).sort();
+      // Should include scalar columns only, not relations
+      expect(names).toEqual(['category', 'id', 'name', 'price', 'status']);
+      // Verify type mapping
+      const idField = fields!.find((f) => f.name === 'id');
+      expect(idField!.type).toBe('number');
+      const nameField = fields!.find((f) => f.name === 'name');
+      expect(nameField!.type).toBe('string');
+    });
+  });
+
+  // ─── Relation fields excluded from getEntityFields ─────────────────────────
+
+  describe('relation fields excluded', () => {
+    @Entity({ tableName: 'categories' })
+    class Category {
+      @PrimaryKey()
+      id!: number;
+
+      @Property()
+      label!: string;
+    }
+
+    @Entity({ tableName: 'items' })
+    class Item {
+      @PrimaryKey()
+      id!: number;
+
+      @Property()
+      title!: string;
+
+      @ManyToOne(() => Category)
+      category!: Category;
+    }
+
+    it('getEntityFields excludes relation properties', async () => {
+      const mod = await Test.createTestingModule({
+        imports: [
+          MikroOrmModule.forRoot({
+            driver: SqliteDriver,
+            dbName: ':memory:',
+            entities: [Category, Item],
+            allowGlobalContext: true,
+            metadataProvider: ReflectMetadataProvider,
+          }),
+        ],
+      }).compile();
+
+      const localOrm = mod.get(MikroORM);
+      const em = localOrm.em as unknown as SqlEntityManager;
+      const adapter = new MikroOrmAdapter(em);
+      const fields = adapter.getEntityFields(Item);
+      expect(fields).not.toBeNull();
+      const names = fields!.map((f) => f.name).sort();
+      // 'category' is a ManyToOne relation — should be excluded
+      // Only scalar properties: 'id' and 'title'
+      expect(names).toEqual(['id', 'title']);
+      await localOrm.close(true);
+    });
   });
 });

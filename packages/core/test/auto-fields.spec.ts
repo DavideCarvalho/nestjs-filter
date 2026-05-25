@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
-import type { FilterAdapter } from '../src/adapter/adapter.js';
+import type { EntityFieldInfo, FilterAdapter } from '../src/adapter/adapter.js';
 import { BaseFilter } from '../src/base-filter.js';
 import { FilterFor } from '../src/decorator/filter-for.decorator.js';
 import { Filterable } from '../src/decorator/filterable.decorator.js';
@@ -29,24 +29,38 @@ function makeMockQB(): MockQB {
 
 // ─── Mock adapter with applyAutoField ───────────────────────────────────────
 
+function applyAutoFieldImpl(qb: unknown, field: string, value: unknown): void {
+  const mockQb = qb as MockQB;
+  if (Array.isArray(value)) {
+    mockQb.andWhere({ [field]: { $in: value } });
+  } else if (value != null && typeof value === 'object' && !Array.isArray(value)) {
+    // Operator object
+    const ops: Record<string, unknown> = {};
+    for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
+      ops[`$${op}`] = opVal;
+    }
+    mockQb.andWhere({ [field]: ops });
+  } else {
+    mockQb.andWhere({ [field]: value });
+  }
+}
+
 function makeAutoFieldAdapter(): FilterAdapter {
   return {
     createQueryBuilder: () => makeMockQB(),
-    applyAutoField(qb: unknown, field: string, value: unknown): void {
-      const mockQb = qb as MockQB;
-      if (Array.isArray(value)) {
-        mockQb.andWhere({ [field]: { $in: value } });
-      } else if (value != null && typeof value === 'object' && !Array.isArray(value)) {
-        // Operator object
-        const ops: Record<string, unknown> = {};
-        for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
-          ops[`$${op}`] = opVal;
-        }
-        mockQb.andWhere({ [field]: ops });
-      } else {
-        mockQb.andWhere({ [field]: value });
-      }
-    },
+    applyAutoField: applyAutoFieldImpl,
+  };
+}
+
+/**
+ * Creates a mock adapter that also implements getEntityFields(),
+ * returning metadata for the given fields.
+ */
+function makeAutoFieldAdapterWithMetadata(fields: EntityFieldInfo[]): FilterAdapter {
+  return {
+    createQueryBuilder: () => makeMockQB(),
+    applyAutoField: applyAutoFieldImpl,
+    getEntityFields: () => fields,
   };
 }
 
@@ -169,8 +183,8 @@ describe('Auto-fields', () => {
     });
   });
 
-  describe('autoFields: true (match all)', () => {
-    it('auto-applies any key without @FilterFor', async () => {
+  describe('autoFields: true (fallback without getEntityFields)', () => {
+    it('auto-applies any key without @FilterFor when adapter lacks getEntityFields', async () => {
       const mod = await makeModule(MatchAllAutoFieldFilter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
@@ -191,6 +205,82 @@ describe('Auto-fields', () => {
         ['andWhere', { role: 'admin' }],
         ['andWhere', { status: 'active' }],
       ]);
+    });
+  });
+
+  describe('autoFields: true with entity metadata introspection', () => {
+    const entityFields: EntityFieldInfo[] = [
+      { name: 'id', columnName: 'id', type: 'number' },
+      { name: 'status', columnName: 'status', type: 'string' },
+      { name: 'name', columnName: 'name', type: 'string' },
+      { name: 'age', columnName: 'age', type: 'number' },
+    ];
+
+    it('only accepts keys matching entity columns', async () => {
+      const adapter = makeAutoFieldAdapterWithMetadata(entityFields);
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(MatchAllAutoFieldFilter, { status: 'active', nonExistentField: 'x' }, qb);
+      // status is a real column — applied; nonExistentField is not — silently skipped
+      expect(qb.calls).toEqual([['andWhere', { status: 'active' }]]);
+    });
+
+    it('silently skips unknown columns instead of applying them', async () => {
+      const adapter = makeAutoFieldAdapterWithMetadata(entityFields);
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(
+        MatchAllAutoFieldFilter,
+        { hackerField: 'DROP TABLE users', sqlInjection: '1=1' },
+        qb,
+      );
+      // Neither field exists on entity — nothing applied
+      expect(qb.calls).toEqual([]);
+    });
+
+    it('still dispatches @FilterFor keys that also exist on entity', async () => {
+      const adapter = makeAutoFieldAdapterWithMetadata(entityFields);
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(MatchAllAutoFieldFilter, { role: 'admin', status: 'active' }, qb);
+      // role dispatched via @FilterFor; status dispatched via auto-field (it's a real column)
+      expect(qb.calls).toEqual([
+        ['andWhere', { role: 'admin' }],
+        ['andWhere', { status: 'active' }],
+      ]);
+    });
+
+    it('excludes @FilterFor keys from the entity-metadata auto-field set', async () => {
+      // 'role' exists in @FilterFor, so even though we include it in metadata,
+      // it should not appear in the auto-field set (dispatched via @FilterFor instead).
+      const fieldsWithRole: EntityFieldInfo[] = [
+        ...entityFields,
+        { name: 'role', columnName: 'role', type: 'string' },
+      ];
+      const adapter = makeAutoFieldAdapterWithMetadata(fieldsWithRole);
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(MatchAllAutoFieldFilter, { role: 'admin' }, qb);
+      // role goes through @FilterFor method, not auto-field
+      expect(qb.calls).toEqual([['andWhere', { role: 'admin' }]]);
+    });
+
+    it('falls back to match-all when getEntityFields returns null', async () => {
+      const adapter: FilterAdapter = {
+        createQueryBuilder: () => makeMockQB(),
+        applyAutoField: applyAutoFieldImpl,
+        getEntityFields: () => null,
+      };
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(MatchAllAutoFieldFilter, { anyKey: 'value' }, qb);
+      // Fallback — any key accepted
+      expect(qb.calls).toEqual([['andWhere', { anyKey: 'value' }]]);
     });
   });
 

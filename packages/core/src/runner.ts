@@ -310,7 +310,12 @@ export class FilterRunner {
    * - Set of explicit field names when autoFields is a string array
    *
    * When autoFields is `true`, the set contains all possible keys from the
-   * `allowed` list if present; otherwise it uses a special match-all set.
+   * `allowed` list if present; otherwise it introspects entity metadata via
+   * the adapter's `getEntityFields()` to restrict to real columns.
+   *
+   * When metadata introspection is unavailable (adapter doesn't implement
+   * `getEntityFields` or returns null), falls back to accept-all with a
+   * logged warning.
    */
   private resolveAutoFields(FilterClass: Function): AutoFieldSet | null {
     const meta = getFilterableMetadata(FilterClass);
@@ -327,7 +332,25 @@ export class FilterRunner {
         }
         return set;
       }
-      // Match-all: any key without @FilterFor can be auto-applied
+
+      // Introspect entity metadata to restrict auto-fields to real columns
+      const adapter = this.resolveAdapter();
+      if (adapter?.getEntityFields) {
+        const entityFields = adapter.getEntityFields(meta.entity);
+        if (entityFields) {
+          const filterForMap = getFilterForMap(FilterClass);
+          const set = new Set<string>();
+          for (const field of entityFields) {
+            if (!filterForMap.has(field.name)) set.add(field.name);
+          }
+          return set;
+        }
+      }
+
+      // Fallback: adapter doesn't support metadata introspection — accept all with warning
+      this.logger.warn(
+        `autoFields: true on ${FilterClass.name} cannot validate fields against entity metadata. The adapter does not implement getEntityFields() or returned null. All input keys will be accepted (legacy behavior). Consider upgrading your adapter or using an explicit autoFields list.`,
+      );
       return MATCH_ALL_SET;
     }
 

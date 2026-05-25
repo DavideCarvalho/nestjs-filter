@@ -1,6 +1,20 @@
 import type { Type } from '@nestjs/common';
 import type { ColumnFilter } from '../operators/types.js';
 
+/**
+ * Describes a single scalar field on an entity, as reported by the ORM's
+ * metadata layer. Used by `autoFields: true` to validate that incoming
+ * filter keys correspond to real entity columns.
+ */
+export interface EntityFieldInfo {
+  /** Property name on the entity class (e.g. 'name', 'email', 'createdAt'). */
+  name: string;
+  /** Actual database column name (e.g. 'name', 'email', 'created_at'). */
+  columnName: string;
+  /** Simplified type classification for the column. */
+  type: 'string' | 'number' | 'boolean' | 'date' | 'json' | 'unknown';
+}
+
 export interface FilterAdapter {
   createQueryBuilder<E>(entity: Type<E>): unknown;
 
@@ -52,4 +66,19 @@ export interface FilterAdapter {
    * @param value - The filter value (scalar, array, or operator object).
    */
   applyAutoField?(qb: unknown, field: string, value: unknown): void;
+
+  /**
+   * Introspects the ORM's metadata for the given entity class and returns
+   * an array of scalar (non-relation) field descriptors.
+   *
+   * Used by `autoFields: true` to restrict accepted input keys to actual
+   * entity columns, preventing unknown-column probing and SQL errors.
+   *
+   * Optional — when absent or when it returns `null`, `autoFields: true`
+   * falls back to accepting any key (legacy behavior) with a logged warning.
+   *
+   * @param entity - The entity class to introspect.
+   * @returns Array of field descriptors, or `null` if metadata is unavailable.
+   */
+  getEntityFields?(entity: Type<unknown>): EntityFieldInfo[] | null;
 }

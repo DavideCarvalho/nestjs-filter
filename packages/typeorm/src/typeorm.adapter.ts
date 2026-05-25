@@ -1,4 +1,9 @@
-import { type ColumnFilter, FILTER_OPERATORS, type FilterAdapter } from '@dudousxd/nestjs-filter';
+import {
+  type ColumnFilter,
+  type EntityFieldInfo,
+  FILTER_OPERATORS,
+  type FilterAdapter,
+} from '@dudousxd/nestjs-filter';
 import type { Type } from '@nestjs/common';
 import type { DataSource, ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import { applyColumnFiltersTypeOrm, applyOperator } from './operator-resolver.js';
@@ -49,6 +54,42 @@ export class TypeOrmAdapter implements FilterAdapter {
     } else {
       applyOperator(queryBuilder, alias, { field, operator: 'equals', value }, 'andWhere');
     }
+  }
+
+  getEntityFields(entity: Type<unknown>): EntityFieldInfo[] | null {
+    try {
+      const meta = this.dataSource.getMetadata(entity);
+      return meta.columns
+        .filter((col) => !col.relationMetadata)
+        .map((col) => ({
+          name: col.propertyName,
+          columnName: col.databaseName,
+          type: this.mapTypeOrmType(col.type),
+        }));
+    } catch {
+      return null;
+    }
+  }
+
+  private mapTypeOrmType(ormType: string | Function): EntityFieldInfo['type'] {
+    if (typeof ormType === 'function') {
+      if (ormType === String) return 'string';
+      if (ormType === Number) return 'number';
+      if (ormType === Boolean) return 'boolean';
+      if (ormType === Date) return 'date';
+      return 'unknown';
+    }
+    const t = String(ormType).toLowerCase();
+    if (['varchar', 'text', 'string', 'char', 'uuid', 'enum'].some((s) => t.includes(s)))
+      return 'string';
+    if (
+      ['int', 'float', 'double', 'decimal', 'number', 'numeric', 'real'].some((s) => t.includes(s))
+    )
+      return 'number';
+    if (['bool', 'boolean', 'bit'].some((s) => t.includes(s))) return 'boolean';
+    if (['date', 'time', 'timestamp', 'datetime'].some((s) => t.includes(s))) return 'date';
+    if (['json', 'jsonb'].some((s) => t.includes(s))) return 'json';
+    return 'unknown';
   }
 
   private isOperatorObject(value: unknown): value is Record<string, unknown> {

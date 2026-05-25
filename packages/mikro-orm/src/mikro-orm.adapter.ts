@@ -1,4 +1,10 @@
-import { type ColumnFilter, FILTER_OPERATORS, type FilterAdapter } from '@dudousxd/nestjs-filter';
+import {
+  type ColumnFilter,
+  type EntityFieldInfo,
+  FILTER_OPERATORS,
+  type FilterAdapter,
+} from '@dudousxd/nestjs-filter';
+import { ReferenceKind } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/sql';
 import type { Type } from '@nestjs/common';
 import { resolveColumnFilters } from './operator-resolver.js';
@@ -44,6 +50,34 @@ export class MikroOrmAdapter implements FilterAdapter {
     } else {
       queryBuilder.andWhere({ [field]: value });
     }
+  }
+
+  getEntityFields(entity: Type<unknown>): EntityFieldInfo[] | null {
+    try {
+      const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+      if (!meta?.properties) return null;
+
+      return Object.values(meta.properties)
+        .filter((prop) => prop.kind === ReferenceKind.SCALAR)
+        .map((prop) => ({
+          name: prop.name as string,
+          columnName: prop.fieldNames?.[0] ?? (prop.name as string),
+          type: this.mapMikroOrmType(prop.runtimeType),
+        }));
+    } catch {
+      return null;
+    }
+  }
+
+  private mapMikroOrmType(runtimeType: string | undefined): EntityFieldInfo['type'] {
+    if (!runtimeType) return 'unknown';
+    const t = runtimeType.toLowerCase();
+    if (t === 'string') return 'string';
+    if (t === 'number' || t === 'bigint') return 'number';
+    if (t === 'boolean') return 'boolean';
+    if (t === 'date') return 'date';
+    if (t === 'object') return 'json';
+    return 'unknown';
   }
 
   private isOperatorObject(value: unknown): value is Record<string, unknown> {

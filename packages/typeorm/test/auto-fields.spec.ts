@@ -3,10 +3,11 @@ import { FilterFor, FilterModule, FilterRunner, Filterable } from '@dudousxd/nes
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Column, DataSource, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, DataSource, Entity, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TypeOrmFilterModule } from '../src/module.js';
 import { TypeOrmFilter } from '../src/typeorm-filter.js';
+import { TypeOrmAdapter } from '../src/typeorm.adapter.js';
 
 // ─── Entity ─────────────────────────────────────────────────────────────────────
 
@@ -179,5 +180,108 @@ describe('TypeORM auto-fields', () => {
     // Only category filter applied, price ignored
     expect(rows.map((r) => r.name).sort()).toEqual(['Widget A', 'Widget B']);
     await mod.close();
+  });
+
+  // ─── Entity Metadata Introspection ─────────────────────────────────────────
+
+  describe('entity metadata introspection', () => {
+    it('autoFields: true only accepts real entity columns', async () => {
+      const mod = await createModule([ProductAutoAllFilter]);
+      const repo = await seed();
+      const qb = repo.createQueryBuilder('product');
+      // 'nonExistentField' is not a column on Product — should be silently skipped
+      await runner.apply(ProductAutoAllFilter, { name: 'Widget A', nonExistentField: 'x' }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name)).toEqual(['Widget A']);
+      await mod.close();
+    });
+
+    it('autoFields: true silently skips all unknown columns', async () => {
+      const mod = await createModule([ProductAutoAllFilter]);
+      const repo = await seed();
+      const qb = repo.createQueryBuilder('product');
+      await runner.apply(
+        ProductAutoAllFilter,
+        { hackerField: 'DROP TABLE', anotherFake: 'value' },
+        qb,
+      );
+      const rows = await qb.getMany();
+      // No filters applied — all rows returned
+      expect(rows).toHaveLength(4);
+      await mod.close();
+    });
+
+    it('getEntityFields returns correct field info', async () => {
+      const mod = await createModule([ProductAutoAllFilter]);
+      const adapter = new TypeOrmAdapter(ds);
+      const fields = adapter.getEntityFields(Product);
+      expect(fields).not.toBeNull();
+      const names = fields!.map((f) => f.name).sort();
+      // Should include scalar columns only, not relations
+      expect(names).toEqual(['category', 'id', 'name', 'price', 'status']);
+      // Verify type mapping
+      const idField = fields!.find((f) => f.name === 'id');
+      expect(idField!.type).toBe('number');
+      const nameField = fields!.find((f) => f.name === 'name');
+      expect(nameField!.type).toBe('string');
+      await mod.close();
+    });
+  });
+
+  // ─── Relation fields excluded from getEntityFields ─────────────────────────
+
+  describe('relation fields excluded', () => {
+    @Entity('rel_categories')
+    class RelCategory {
+      @PrimaryGeneratedColumn()
+      id!: number;
+
+      @Column()
+      label!: string;
+
+      @OneToMany(
+        () => RelItem,
+        (item) => item.category,
+      )
+      items!: RelItem[];
+    }
+
+    @Entity('rel_items')
+    class RelItem {
+      @PrimaryGeneratedColumn()
+      id!: number;
+
+      @Column()
+      title!: string;
+
+      @ManyToOne(
+        () => RelCategory,
+        (cat) => cat.items,
+      )
+      category!: RelCategory;
+    }
+
+    it('getEntityFields excludes relation properties', async () => {
+      const mod = await Test.createTestingModule({
+        imports: [
+          TypeOrmModule.forRoot({
+            type: 'better-sqlite3',
+            database: ':memory:',
+            entities: [RelCategory, RelItem],
+            synchronize: true,
+          }),
+        ],
+      }).compile();
+
+      const localDs = mod.get(DataSource);
+      const adapter = new TypeOrmAdapter(localDs);
+      const fields = adapter.getEntityFields(RelItem);
+      expect(fields).not.toBeNull();
+      const names = fields!.map((f) => f.name).sort();
+      // 'category' is a ManyToOne relation — should be excluded
+      // Only scalar properties: 'id' and 'title'
+      expect(names).toEqual(['id', 'title']);
+      await localDs.destroy();
+    });
   });
 });
