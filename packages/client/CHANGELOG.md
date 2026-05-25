@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter-client
 
+## 1.0.2
+
+### Patch Changes
+
+- [`9e1c8f5`](https://github.com/DavideCarvalho/nestjs-filter/commit/9e1c8f5423a67249f7626dcb03cfe8477770cdf5) - Add TypedFilterQuery<Fields> type and filterQueryTyped<Fields>() builder for type-safe integration with nestjs-inertia codegen.
+
 ## 1.0.0
 
 ### Minor Changes
