@@ -244,7 +244,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { name: 'li' }, qb);
+      await runner.apply(UserFilter, { filter: { name: 'li' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Charlie']);
       await mod.close();
@@ -254,7 +254,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { role: 'admin' }, qb);
+      await runner.apply(UserFilter, { filter: { role: 'admin' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
       await mod.close();
@@ -264,7 +264,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { minAge: 30 }, qb);
+      await runner.apply(UserFilter, { filter: { minAge: 30 } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Charlie']);
       await mod.close();
@@ -274,7 +274,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { maxAge: 25 }, qb);
+      await runner.apply(UserFilter, { filter: { maxAge: 25 } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name).sort()).toEqual(['Bob', 'Diana']);
       await mod.close();
@@ -284,7 +284,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { active: true }, qb);
+      await runner.apply(UserFilter, { filter: { active: true } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob', 'Diana']);
       await mod.close();
@@ -294,7 +294,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { active: false }, qb);
+      await runner.apply(UserFilter, { filter: { active: false } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Charlie']);
       await mod.close();
@@ -308,7 +308,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { name: 'a', role: 'admin' }, qb);
+      await runner.apply(UserFilter, { filter: { name: 'a', role: 'admin' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
       await mod.close();
@@ -318,7 +318,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { minAge: 25, maxAge: 35 }, qb);
+      await runner.apply(UserFilter, { filter: { minAge: 25, maxAge: 35 } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob', 'Charlie']);
       await mod.close();
@@ -328,7 +328,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { active: true, role: 'user', minAge: 23 }, qb);
+      await runner.apply(UserFilter, { filter: { active: true, role: 'user', minAge: 23 } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Bob']);
       await mod.close();
@@ -342,7 +342,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, {}, qb);
+      await runner.apply(UserFilter, { filter: {} }, qb);
       const rows = await qb.getMany();
       expect(rows).toHaveLength(4);
       await mod.close();
@@ -362,7 +362,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { name: undefined, role: 'admin' }, qb);
+      await runner.apply(UserFilter, { filter: { name: undefined, role: 'admin' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
       await mod.close();
@@ -372,7 +372,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { name: '' }, qb);
+      await runner.apply(UserFilter, { filter: { name: '' } }, qb);
       const rows = await qb.getMany();
       expect(rows).toHaveLength(4);
       await mod.close();
@@ -382,7 +382,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule({ stripEmpty: false });
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { name: '' }, qb);
+      await runner.apply(UserFilter, { filter: { name: '' } }, qb);
       const rows = await qb.getMany();
       // name LIKE '%%' matches all rows
       expect(rows).toHaveLength(4);
@@ -393,7 +393,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { name: 'zzzzz' }, qb);
+      await runner.apply(UserFilter, { filter: { name: 'zzzzz' } }, qb);
       const rows = await qb.getMany();
       expect(rows).toEqual([]);
       await mod.close();
@@ -403,7 +403,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { bio: 'Engineer' }, qb);
+      await runner.apply(UserFilter, { filter: { bio: 'Engineer' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
       await mod.close();
@@ -413,7 +413,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { name: '%' }, qb);
+      await runner.apply(UserFilter, { filter: { name: '%' } }, qb);
       const rows = await qb.getMany();
       expect(rows).toEqual([]);
       await mod.close();
@@ -427,7 +427,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { name: 'ob' }, qb);
+      await runner.apply(UserFilter, { filter: { name: 'ob' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Bob']);
       await mod.close();
@@ -437,7 +437,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { nameStartsWith: 'Al' }, qb);
+      await runner.apply(UserFilter, { filter: { nameStartsWith: 'Al' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
       await mod.close();
@@ -448,7 +448,7 @@ describe('TypeORM end-to-end filter', () => {
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
       // "ie" only matches Charlie (Charl-ie). Alice ends with "ce".
-      await runner.apply(UserFilter, { nameEndsWith: 'ie' }, qb);
+      await runner.apply(UserFilter, { filter: { nameEndsWith: 'ie' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Charlie']);
       await mod.close();
@@ -462,7 +462,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { postStatus: 'published' }, qb);
+      await runner.apply(UserFilter, { filter: { postStatus: 'published' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
       await mod.close();
@@ -472,7 +472,7 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { postTitle: 'GraphQL' }, qb);
+      await runner.apply(UserFilter, { filter: { postTitle: 'GraphQL' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
       await mod.close();
@@ -486,8 +486,8 @@ describe('TypeORM end-to-end filter', () => {
       const mod = await createModule();
       const repo = await seed();
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { active: true }, qb);
-      await runner.apply(UserFilter, { role: 'user' }, qb);
+      await runner.apply(UserFilter, { filter: { active: true } }, qb);
+      await runner.apply(UserFilter, { filter: { role: 'user' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name).sort()).toEqual(['Bob', 'Diana']);
       await mod.close();
@@ -502,9 +502,70 @@ describe('TypeORM end-to-end filter', () => {
       // No seed — table exists but is empty
       const repo = ds.getRepository(User);
       const qb = repo.createQueryBuilder('user');
-      await runner.apply(UserFilter, { name: 'test' }, qb);
+      await runner.apply(UserFilter, { filter: { name: 'test' } }, qb);
       const rows = await qb.getMany();
       expect(rows).toEqual([]);
+      await mod.close();
+    });
+  });
+
+  // ─── Structured Input ──────────────────────────────────────────────────────
+
+  describe('Structured input format', () => {
+    it('25. filter key wraps the filter portion', async () => {
+      const mod = await createModule();
+      const repo = await seed();
+      const qb = repo.createQueryBuilder('user');
+      await runner.apply(UserFilter, { filter: { name: 'Alice' } }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+      await mod.close();
+    });
+
+    it('26. empty filter returns all users', async () => {
+      const mod = await createModule();
+      await seed();
+      const repo = ds.getRepository(User);
+      const qb = repo.createQueryBuilder('user');
+      await runner.apply(UserFilter, { filter: {} }, qb);
+      const rows = await qb.getMany();
+      expect(rows).toHaveLength(4);
+      await mod.close();
+    });
+
+    it('27. include loads related posts via leftJoinAndSelect', async () => {
+      const mod = await createModule();
+      const repo = await seed();
+      const qb = repo.createQueryBuilder('user');
+      await runner.apply(UserFilter, { filter: { name: 'Alice' }, include: ['posts'] }, qb);
+      const rows = await qb.getMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.name).toBe('Alice');
+      // Posts should be loaded via the include
+      expect(rows[0]!.posts).toBeDefined();
+      expect(rows[0]!.posts.length).toBeGreaterThan(0);
+      await mod.close();
+    });
+
+    it('28. include as comma-separated string', async () => {
+      const mod = await createModule();
+      const repo = await seed();
+      const qb = repo.createQueryBuilder('user');
+      await runner.apply(UserFilter, { filter: { name: 'Alice' }, include: 'posts' }, qb);
+      const rows = await qb.getMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.posts).toBeDefined();
+      await mod.close();
+    });
+
+    it('29. undefined filter with include still works', async () => {
+      const mod = await createModule();
+      await seed();
+      const repo = ds.getRepository(User);
+      const qb = repo.createQueryBuilder('user');
+      await runner.apply(UserFilter, { filter: undefined, include: ['posts'] }, qb);
+      const rows = await qb.getMany();
+      expect(rows).toHaveLength(4);
       await mod.close();
     });
   });

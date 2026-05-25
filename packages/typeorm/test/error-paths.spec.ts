@@ -129,7 +129,7 @@ describe('TypeORM adapter — error paths', () => {
 
     // TypeORM may not error on andWhere but on getMany
     try {
-      await r.apply(InvalidSQLFilter, { test: 'x' }, qb);
+      await r.apply(InvalidSQLFilter, { filter: { test: 'x' } }, qb);
       await qb.getMany();
     } catch (err) {
       // Error should surface — we document the behavior
@@ -150,9 +150,9 @@ describe('TypeORM adapter — error paths', () => {
     const qb = repo.createQueryBuilder('user');
 
     // Apply name filter twice on same QueryBuilder — should not collide
-    await runner.apply(UserFilter, { name: 'Alice' }, qb);
+    await runner.apply(UserFilter, { filter: { name: 'Alice' } }, qb);
     // Second apply on same QB
-    await runner.apply(UserFilter, { name: 'Smith' }, qb);
+    await runner.apply(UserFilter, { filter: { name: 'Smith' } }, qb);
 
     const rows = await qb.getMany();
     // "Alice Smith" matches both LIKE '%Alice%' AND LIKE '%Smith%'
@@ -167,7 +167,7 @@ describe('TypeORM adapter — error paths', () => {
     const repo = ds.getRepository(User);
     const qb = repo.createQueryBuilder('user');
 
-    await expect(runner.apply(ErrorFilter, { fail: 'x' }, qb)).rejects.toThrow(
+    await expect(runner.apply(ErrorFilter, { filter: { fail: 'x' } }, qb)).rejects.toThrow(
       FilterMethodException,
     );
 
@@ -180,7 +180,7 @@ describe('TypeORM adapter — error paths', () => {
     const repo = ds.getRepository(User);
     const qb = repo.createQueryBuilder('user');
 
-    await runner.apply(UserFilter, { name: "'; DROP TABLE users; --" }, qb);
+    await runner.apply(UserFilter, { filter: { name: "'; DROP TABLE users; --" } }, qb);
     const rows = await qb.getMany();
     // Should return empty results, not drop the table
     expect(rows).toEqual([]);
@@ -214,7 +214,7 @@ describe('TypeORM adapter — error paths', () => {
     const repo = d.getRepository(User);
     const qb = repo.createQueryBuilder('user');
 
-    await r.apply(UserFilter, { name: 'nobody' }, qb);
+    await r.apply(UserFilter, { filter: { name: 'nobody' } }, qb);
     const rows = await qb.getMany();
     expect(rows).toEqual([]);
 
@@ -227,7 +227,7 @@ describe('TypeORM adapter — error paths', () => {
     const repo = ds.getRepository(User);
     const qb = repo.createQueryBuilder('user');
 
-    await runner.apply(UserFilter, { name: '<script>alert(1)</script>' }, qb);
+    await runner.apply(UserFilter, { filter: { name: '<script>alert(1)</script>' } }, qb);
     const rows = await qb.getMany();
     expect(rows).toEqual([]);
 
@@ -266,7 +266,7 @@ describe('TypeORM adapter — error paths', () => {
     await repo.save({ name: 'Alice', age: 30 });
 
     const qb = repo.createQueryBuilder('custom_alias');
-    await r.apply(AliasFilter, { test: 'x' }, qb);
+    await r.apply(AliasFilter, { filter: { test: 'x' } }, qb);
     const rows = await qb.getMany();
     expect(rows.map((u) => u.name)).toEqual(['Alice']);
 
@@ -280,7 +280,7 @@ describe('TypeORM adapter — error paths', () => {
     await repo.save({ name: 'Joao', age: 28 });
 
     const qb = repo.createQueryBuilder('user');
-    await runner.apply(UserFilter, { name: 'Joao' }, qb);
+    await runner.apply(UserFilter, { filter: { name: 'Joao' } }, qb);
     const rows = await qb.getMany();
     expect(rows).toHaveLength(1);
 

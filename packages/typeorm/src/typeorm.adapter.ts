@@ -4,9 +4,10 @@ import {
   type EntityRelationInfo,
   FILTER_OPERATORS,
   type FilterAdapter,
+  escapeLike,
 } from '@dudousxd/nestjs-filter';
 import type { Type } from '@nestjs/common';
-import type { DataSource, ObjectLiteral, SelectQueryBuilder } from 'typeorm';
+import { Brackets, type DataSource, type ObjectLiteral, type SelectQueryBuilder } from 'typeorm';
 import { applyColumnFiltersTypeOrm, applyOperator } from './operator-resolver.js';
 
 const OPERATOR_SET = new Set<string>(FILTER_OPERATORS);
@@ -124,6 +125,51 @@ export class TypeOrmAdapter implements FilterAdapter {
     } else {
       applyOperator(queryBuilder, relAlias, { field, operator: 'equals', value }, 'andWhere');
     }
+  }
+
+  applyIncludes(qb: unknown, includes: string[], entity: Type<unknown>): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const rootAlias = queryBuilder.alias;
+    for (const path of includes) {
+      const segments = path.split('.');
+      let currentAlias = rootAlias;
+      for (const segment of segments) {
+        if (!SAFE_FIELD.test(segment)) continue;
+        const joinAlias = `${currentAlias}_${segment}`;
+        const hasJoin = queryBuilder.expressionMap.joinAttributes.some(
+          (j) => j.alias.name === joinAlias,
+        );
+        if (!hasJoin) {
+          queryBuilder.leftJoinAndSelect(`${currentAlias}.${segment}`, joinAlias);
+        }
+        currentAlias = joinAlias;
+      }
+    }
+  }
+
+  applySearch(qb: unknown, term: string, columns: string[], entity: Type<unknown>): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const alias = queryBuilder.alias;
+    const escaped = `%${escapeLike(term)}%`;
+
+    const brackets = new Brackets((sqb) => {
+      columns.forEach((col, i) => {
+        if (!SAFE_FIELD.test(col)) return;
+        const param = `search_${col}_${i}`;
+        const sql = `${alias}.${col} LIKE :${param}`;
+        if (i === 0) sqb.where(sql, { [param]: escaped });
+        else sqb.orWhere(sql, { [param]: escaped });
+      });
+    });
+    queryBuilder.andWhere(brackets);
+  }
+
+  applyVectorSearch(qb: unknown, term: string, vectorColumn: string): void {
+    if (!SAFE_FIELD.test(vectorColumn)) return;
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const alias = queryBuilder.alias;
+    const param = 'search_vector_0';
+    queryBuilder.andWhere(`${alias}.${vectorColumn} @@ to_tsquery(:${param})`, { [param]: term });
   }
 
   private mapTypeOrmType(ormType: string | Function): EntityFieldInfo['type'] {

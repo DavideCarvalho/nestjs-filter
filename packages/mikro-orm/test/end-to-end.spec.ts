@@ -247,7 +247,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { name: 'li' }, qb);
+      await runner.apply(UserFilter, { filter: { name: 'li' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Charlie']);
     });
@@ -256,7 +256,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { role: 'admin' }, qb);
+      await runner.apply(UserFilter, { filter: { role: 'admin' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
     });
@@ -265,7 +265,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { minAge: 30 }, qb);
+      await runner.apply(UserFilter, { filter: { minAge: 30 } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Charlie']);
     });
@@ -274,7 +274,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { maxAge: 25 }, qb);
+      await runner.apply(UserFilter, { filter: { maxAge: 25 } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name).sort()).toEqual(['Bob', 'Diana']);
     });
@@ -283,7 +283,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { active: true }, qb);
+      await runner.apply(UserFilter, { filter: { active: true } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob', 'Diana']);
     });
@@ -292,7 +292,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { active: false }, qb);
+      await runner.apply(UserFilter, { filter: { active: false } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Charlie']);
     });
@@ -305,7 +305,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { name: 'a', role: 'admin' }, qb);
+      await runner.apply(UserFilter, { filter: { name: 'a', role: 'admin' } }, qb);
       const rows = await qb.getResultList();
       // "a" matches Alice (admin) and Diana (user), Charlie (moderator)
       // but role=admin narrows to Alice only
@@ -316,7 +316,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { minAge: 25, maxAge: 35 }, qb);
+      await runner.apply(UserFilter, { filter: { minAge: 25, maxAge: 35 } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob', 'Charlie']);
     });
@@ -325,7 +325,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { active: true, role: 'user', minAge: 23 }, qb);
+      await runner.apply(UserFilter, { filter: { active: true, role: 'user', minAge: 23 } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Bob']);
     });
@@ -338,7 +338,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, {}, qb);
+      await runner.apply(UserFilter, { filter: {} }, qb);
       const rows = await qb.getResultList();
       expect(rows).toHaveLength(4);
     });
@@ -356,7 +356,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { name: undefined, role: 'admin' }, qb);
+      await runner.apply(UserFilter, { filter: { name: undefined, role: 'admin' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
     });
@@ -365,7 +365,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { name: '' }, qb);
+      await runner.apply(UserFilter, { filter: { name: '' } }, qb);
       const rows = await qb.getResultList();
       // stripEmpty is true by default, so name='' is dropped, returns all
       expect(rows).toHaveLength(4);
@@ -375,7 +375,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule({ stripEmpty: false });
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { name: '' }, qb);
+      await runner.apply(UserFilter, { filter: { name: '' } }, qb);
       const rows = await qb.getResultList();
       // name LIKE '%%' matches all rows
       expect(rows).toHaveLength(4);
@@ -385,7 +385,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { name: 'zzzzz' }, qb);
+      await runner.apply(UserFilter, { filter: { name: 'zzzzz' } }, qb);
       const rows = await qb.getResultList();
       expect(rows).toEqual([]);
     });
@@ -394,7 +394,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { bio: 'Engineer' }, qb);
+      await runner.apply(UserFilter, { filter: { bio: 'Engineer' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
     });
@@ -404,7 +404,7 @@ describe('MikroORM end-to-end filter', () => {
       const em = await seed();
       const qb = em.createQueryBuilder(User);
       // '%' should be escaped so it does not act as wildcard
-      await runner.apply(UserFilter, { name: '%' }, qb);
+      await runner.apply(UserFilter, { filter: { name: '%' } }, qb);
       const rows = await qb.getResultList();
       // No user has '%' in their name
       expect(rows).toEqual([]);
@@ -418,7 +418,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { name: 'ob' }, qb);
+      await runner.apply(UserFilter, { filter: { name: 'ob' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Bob']);
     });
@@ -427,7 +427,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { nameStartsWith: 'Al' }, qb);
+      await runner.apply(UserFilter, { filter: { nameStartsWith: 'Al' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
     });
@@ -437,7 +437,7 @@ describe('MikroORM end-to-end filter', () => {
       const em = await seed();
       const qb = em.createQueryBuilder(User);
       // "ie" only matches Charlie (Charl-ie). Alice ends with "ce", not "ie".
-      await runner.apply(UserFilter, { nameEndsWith: 'ie' }, qb);
+      await runner.apply(UserFilter, { filter: { nameEndsWith: 'ie' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Charlie']);
     });
@@ -450,7 +450,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { postStatus: 'published' }, qb);
+      await runner.apply(UserFilter, { filter: { postStatus: 'published' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
     });
@@ -459,7 +459,7 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { postTitle: 'GraphQL' }, qb);
+      await runner.apply(UserFilter, { filter: { postTitle: 'GraphQL' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
     });
@@ -472,8 +472,8 @@ describe('MikroORM end-to-end filter', () => {
       await createModule();
       const em = await seed();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { active: true }, qb);
-      await runner.apply(UserFilter, { role: 'user' }, qb);
+      await runner.apply(UserFilter, { filter: { active: true } }, qb);
+      await runner.apply(UserFilter, { filter: { role: 'user' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name).sort()).toEqual(['Bob', 'Diana']);
     });
@@ -487,9 +487,72 @@ describe('MikroORM end-to-end filter', () => {
       // No seed data — table exists but is empty
       const em = orm.em.fork();
       const qb = em.createQueryBuilder(User);
-      await runner.apply(UserFilter, { name: 'test' }, qb);
+      await runner.apply(UserFilter, { filter: { name: 'test' } }, qb);
       const rows = await qb.getResultList();
       expect(rows).toEqual([]);
+    });
+  });
+
+  // ─── Structured Input ──────────────────────────────────────────────────────
+
+  describe('Structured input format', () => {
+    it('25. filter key wraps the filter portion', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { filter: { name: 'Alice' } }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('26. empty filter returns all users', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { filter: {} }, qb);
+      const rows = await qb.getResultList();
+      expect(rows).toHaveLength(4);
+    });
+
+    it('27. include loads related posts via joinAndSelect', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { filter: { name: 'Alice' }, include: ['posts'] }, qb);
+      const rows = await qb.getResultList();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.name).toBe('Alice');
+    });
+
+    it('28. include as comma-separated string', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { filter: { name: 'Alice' }, include: 'posts,tags' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows).toHaveLength(1);
+    });
+
+    it('29. search applies LIKE condition across auto-detected string columns', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      // UserFilter has autoFields: false but no static search. The runner auto-detects
+      // string columns from entity metadata (name, email, role, bio) and applies ILIKE.
+      await runner.apply(UserFilter, { filter: {}, search: 'Alice' }, qb);
+      const rows = await qb.getResultList();
+      // Only Alice matches LIKE '%Alice%' in name/email/role/bio columns
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.name).toBe('Alice');
+    });
+
+    it('30. undefined filter with include still applies includes', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.apply(UserFilter, { filter: undefined, include: ['posts'] }, qb);
+      const rows = await qb.getResultList();
+      expect(rows).toHaveLength(4); // no filter, but includes loaded
     });
   });
 });

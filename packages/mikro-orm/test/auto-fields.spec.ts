@@ -159,7 +159,7 @@ describe('MikroORM auto-fields', () => {
     await createModule([ProductAutoFilter]);
     const em = await seed();
     const qb = em.createQueryBuilder(Product);
-    await runner.apply(ProductAutoFilter, { status: 'active' }, qb);
+    await runner.apply(ProductAutoFilter, { filter: { status: 'active' } }, qb);
     const rows = await qb.getResultList();
     expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Gadget D', 'Widget A']);
   });
@@ -168,7 +168,7 @@ describe('MikroORM auto-fields', () => {
     await createModule([ProductAutoFilter]);
     const em = await seed();
     const qb = em.createQueryBuilder(Product);
-    await runner.apply(ProductAutoFilter, { status: ['active', 'inactive'] }, qb);
+    await runner.apply(ProductAutoFilter, { filter: { status: ['active', 'inactive'] } }, qb);
     const rows = await qb.getResultList();
     expect(rows).toHaveLength(4);
   });
@@ -177,7 +177,7 @@ describe('MikroORM auto-fields', () => {
     await createModule([ProductAutoFilter]);
     const em = await seed();
     const qb = em.createQueryBuilder(Product);
-    await runner.apply(ProductAutoFilter, { price: { gte: 50 } }, qb);
+    await runner.apply(ProductAutoFilter, { filter: { price: { gte: 50 } } }, qb);
     const rows = await qb.getResultList();
     expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Gadget D']);
   });
@@ -186,7 +186,7 @@ describe('MikroORM auto-fields', () => {
     await createModule([ProductAutoFilter]);
     const em = await seed();
     const qb = em.createQueryBuilder(Product);
-    await runner.apply(ProductAutoFilter, { price: { gte: 20, lte: 60 } }, qb);
+    await runner.apply(ProductAutoFilter, { filter: { price: { gte: 20, lte: 60 } } }, qb);
     const rows = await qb.getResultList();
     expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Widget B']);
   });
@@ -196,7 +196,7 @@ describe('MikroORM auto-fields', () => {
     const em = await seed();
     const qb = em.createQueryBuilder(Product);
     // 'name' is handled by @FilterFor, not auto-field; 'id' not in autoFields, ignored
-    await runner.apply(ProductAutoFilter, { name: 'Widget', id: 999 }, qb);
+    await runner.apply(ProductAutoFilter, { filter: { name: 'Widget', id: 999 } }, qb);
     const rows = await qb.getResultList();
     expect(rows.map((r) => r.name).sort()).toEqual(['Widget A', 'Widget B']);
   });
@@ -207,7 +207,7 @@ describe('MikroORM auto-fields', () => {
     const qb = em.createQueryBuilder(Product);
     await runner.apply(
       ProductAutoFilter,
-      { name: 'Gadget', status: 'active', category: 'electronics' },
+      { filter: { name: 'Gadget', status: 'active', category: 'electronics' } },
       qb,
     );
     const rows = await qb.getResultList();
@@ -218,7 +218,7 @@ describe('MikroORM auto-fields', () => {
     await createModule([ProductAutoAllFilter]);
     const em = await seed();
     const qb = em.createQueryBuilder(Product);
-    await runner.apply(ProductAutoAllFilter, { category: 'electronics' }, qb);
+    await runner.apply(ProductAutoAllFilter, { filter: { category: 'electronics' } }, qb);
     const rows = await qb.getResultList();
     expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Gadget D']);
   });
@@ -228,7 +228,7 @@ describe('MikroORM auto-fields', () => {
     const em = await seed();
     const qb = em.createQueryBuilder(Product);
     // 'price' is not in allowed list, should be ignored
-    await runner.apply(ProductAutoAllowedFilter, { category: 'tools', price: 10 }, qb);
+    await runner.apply(ProductAutoAllowedFilter, { filter: { category: 'tools', price: 10 } }, qb);
     const rows = await qb.getResultList();
     // Only category filter applied, price ignored
     expect(rows.map((r) => r.name).sort()).toEqual(['Widget A', 'Widget B']);
@@ -242,7 +242,11 @@ describe('MikroORM auto-fields', () => {
       const em = await seed();
       const qb = em.createQueryBuilder(Product);
       // 'nonExistentField' is not a column on Product — should be silently skipped
-      await runner.apply(ProductAutoAllFilter, { name: 'Widget A', nonExistentField: 'x' }, qb);
+      await runner.apply(
+        ProductAutoAllFilter,
+        { filter: { name: 'Widget A', nonExistentField: 'x' } },
+        qb,
+      );
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Widget A']);
     });
@@ -253,7 +257,7 @@ describe('MikroORM auto-fields', () => {
       const qb = em.createQueryBuilder(Product);
       await runner.apply(
         ProductAutoAllFilter,
-        { hackerField: 'DROP TABLE', anotherFake: 'value' },
+        { filter: { hackerField: 'DROP TABLE', anotherFake: 'value' } },
         qb,
       );
       const rows = await qb.getResultList();
@@ -382,7 +386,7 @@ describe('MikroORM auto-fields', () => {
       await createDotModule();
       const em = await seedDotData();
       const qb = em.createQueryBuilder(DotUser);
-      await dotRunner.apply(DotUserFilter, { 'posts.title': 'GraphQL Tips' }, qb);
+      await dotRunner.apply(DotUserFilter, { filter: { 'posts.title': 'GraphQL Tips' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
     });
@@ -391,7 +395,7 @@ describe('MikroORM auto-fields', () => {
       await createDotModule();
       const em = await seedDotData();
       const qb = em.createQueryBuilder(DotUser);
-      await dotRunner.apply(DotUserFilter, { 'posts.status': 'published' }, qb);
+      await dotRunner.apply(DotUserFilter, { filter: { 'posts.status': 'published' } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
     });
@@ -400,7 +404,11 @@ describe('MikroORM auto-fields', () => {
       await createDotModule();
       const em = await seedDotData();
       const qb = em.createQueryBuilder(DotUser);
-      await dotRunner.apply(DotUserFilter, { name: 'Alice', 'posts.status': 'published' }, qb);
+      await dotRunner.apply(
+        DotUserFilter,
+        { filter: { name: 'Alice', 'posts.status': 'published' } },
+        qb,
+      );
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
     });
@@ -409,7 +417,11 @@ describe('MikroORM auto-fields', () => {
       await createDotModule();
       const em = await seedDotData();
       const qb = em.createQueryBuilder(DotUser);
-      await dotRunner.apply(DotUserFilter, { 'posts.status': ['published', 'draft'] }, qb);
+      await dotRunner.apply(
+        DotUserFilter,
+        { filter: { 'posts.status': ['published', 'draft'] } },
+        qb,
+      );
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
     });

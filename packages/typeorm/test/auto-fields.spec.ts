@@ -100,7 +100,7 @@ describe('TypeORM auto-fields', () => {
     const mod = await createModule([ProductAutoFilter]);
     const repo = await seed();
     const qb = repo.createQueryBuilder('product');
-    await runner.apply(ProductAutoFilter, { status: 'active' }, qb);
+    await runner.apply(ProductAutoFilter, { filter: { status: 'active' } }, qb);
     const rows = await qb.getMany();
     expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Gadget D', 'Widget A']);
     await mod.close();
@@ -110,7 +110,7 @@ describe('TypeORM auto-fields', () => {
     const mod = await createModule([ProductAutoFilter]);
     const repo = await seed();
     const qb = repo.createQueryBuilder('product');
-    await runner.apply(ProductAutoFilter, { status: ['active', 'inactive'] }, qb);
+    await runner.apply(ProductAutoFilter, { filter: { status: ['active', 'inactive'] } }, qb);
     const rows = await qb.getMany();
     expect(rows).toHaveLength(4);
     await mod.close();
@@ -120,7 +120,7 @@ describe('TypeORM auto-fields', () => {
     const mod = await createModule([ProductAutoFilter]);
     const repo = await seed();
     const qb = repo.createQueryBuilder('product');
-    await runner.apply(ProductAutoFilter, { price: { gte: 50 } }, qb);
+    await runner.apply(ProductAutoFilter, { filter: { price: { gte: 50 } } }, qb);
     const rows = await qb.getMany();
     expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Gadget D']);
     await mod.close();
@@ -130,7 +130,7 @@ describe('TypeORM auto-fields', () => {
     const mod = await createModule([ProductAutoFilter]);
     const repo = await seed();
     const qb = repo.createQueryBuilder('product');
-    await runner.apply(ProductAutoFilter, { price: { gte: 20, lte: 60 } }, qb);
+    await runner.apply(ProductAutoFilter, { filter: { price: { gte: 20, lte: 60 } } }, qb);
     const rows = await qb.getMany();
     expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Widget B']);
     await mod.close();
@@ -140,7 +140,7 @@ describe('TypeORM auto-fields', () => {
     const mod = await createModule([ProductAutoFilter]);
     const repo = await seed();
     const qb = repo.createQueryBuilder('product');
-    await runner.apply(ProductAutoFilter, { name: 'Widget', id: 999 }, qb);
+    await runner.apply(ProductAutoFilter, { filter: { name: 'Widget', id: 999 } }, qb);
     const rows = await qb.getMany();
     expect(rows.map((r) => r.name).sort()).toEqual(['Widget A', 'Widget B']);
     await mod.close();
@@ -152,7 +152,7 @@ describe('TypeORM auto-fields', () => {
     const qb = repo.createQueryBuilder('product');
     await runner.apply(
       ProductAutoFilter,
-      { name: 'Gadget', status: 'active', category: 'electronics' },
+      { filter: { name: 'Gadget', status: 'active', category: 'electronics' } },
       qb,
     );
     const rows = await qb.getMany();
@@ -164,7 +164,7 @@ describe('TypeORM auto-fields', () => {
     const mod = await createModule([ProductAutoAllFilter]);
     const repo = await seed();
     const qb = repo.createQueryBuilder('product');
-    await runner.apply(ProductAutoAllFilter, { category: 'electronics' }, qb);
+    await runner.apply(ProductAutoAllFilter, { filter: { category: 'electronics' } }, qb);
     const rows = await qb.getMany();
     expect(rows.map((r) => r.name).sort()).toEqual(['Gadget C', 'Gadget D']);
     await mod.close();
@@ -175,7 +175,7 @@ describe('TypeORM auto-fields', () => {
     const repo = await seed();
     const qb = repo.createQueryBuilder('product');
     // 'price' is not in allowed list, should be ignored
-    await runner.apply(ProductAutoAllowedFilter, { category: 'tools', price: 10 }, qb);
+    await runner.apply(ProductAutoAllowedFilter, { filter: { category: 'tools', price: 10 } }, qb);
     const rows = await qb.getMany();
     // Only category filter applied, price ignored
     expect(rows.map((r) => r.name).sort()).toEqual(['Widget A', 'Widget B']);
@@ -190,7 +190,7 @@ describe('TypeORM auto-fields', () => {
       const repo = await seed();
       const qb = repo.createQueryBuilder('product');
       // Send unsafe field name via autoFields — should be silently skipped
-      await runner.apply(ProductAutoAllFilter, { 'evil; DROP TABLE': 'x' }, qb);
+      await runner.apply(ProductAutoAllFilter, { filter: { 'evil; DROP TABLE': 'x' } }, qb);
       const rows = await qb.getMany();
       // All rows returned since the unsafe field was skipped
       expect(rows).toHaveLength(4);
@@ -201,7 +201,7 @@ describe('TypeORM auto-fields', () => {
       const mod = await createModule([ProductAutoAllFilter]);
       const repo = await seed();
       const qb = repo.createQueryBuilder('product');
-      await runner.apply(ProductAutoAllFilter, { "name'--": 'x' }, qb);
+      await runner.apply(ProductAutoAllFilter, { filter: { "name'--": 'x' } }, qb);
       const rows = await qb.getMany();
       expect(rows).toHaveLength(4);
       await mod.close();
@@ -216,7 +216,11 @@ describe('TypeORM auto-fields', () => {
       const repo = await seed();
       const qb = repo.createQueryBuilder('product');
       // 'nonExistentField' is not a column on Product — should be silently skipped
-      await runner.apply(ProductAutoAllFilter, { name: 'Widget A', nonExistentField: 'x' }, qb);
+      await runner.apply(
+        ProductAutoAllFilter,
+        { filter: { name: 'Widget A', nonExistentField: 'x' } },
+        qb,
+      );
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Widget A']);
       await mod.close();
@@ -228,7 +232,7 @@ describe('TypeORM auto-fields', () => {
       const qb = repo.createQueryBuilder('product');
       await runner.apply(
         ProductAutoAllFilter,
-        { hackerField: 'DROP TABLE', anotherFake: 'value' },
+        { filter: { hackerField: 'DROP TABLE', anotherFake: 'value' } },
         qb,
       );
       const rows = await qb.getMany();
@@ -398,7 +402,7 @@ describe('TypeORM auto-fields', () => {
       const mod = await createDotModule();
       await seedDotData();
       const qb = dotDs.getRepository(DotUser).createQueryBuilder('dotuser');
-      await dotRunner.apply(DotUserFilter, { 'posts.title': 'GraphQL Tips' }, qb);
+      await dotRunner.apply(DotUserFilter, { filter: { 'posts.title': 'GraphQL Tips' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
       await mod.close();
@@ -408,7 +412,7 @@ describe('TypeORM auto-fields', () => {
       const mod = await createDotModule();
       await seedDotData();
       const qb = dotDs.getRepository(DotUser).createQueryBuilder('dotuser');
-      await dotRunner.apply(DotUserFilter, { 'posts.status': 'published' }, qb);
+      await dotRunner.apply(DotUserFilter, { filter: { 'posts.status': 'published' } }, qb);
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
       await mod.close();
@@ -418,7 +422,11 @@ describe('TypeORM auto-fields', () => {
       const mod = await createDotModule();
       await seedDotData();
       const qb = dotDs.getRepository(DotUser).createQueryBuilder('dotuser');
-      await dotRunner.apply(DotUserFilter, { name: 'Alice', 'posts.status': 'published' }, qb);
+      await dotRunner.apply(
+        DotUserFilter,
+        { filter: { name: 'Alice', 'posts.status': 'published' } },
+        qb,
+      );
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name)).toEqual(['Alice']);
       await mod.close();
@@ -428,7 +436,11 @@ describe('TypeORM auto-fields', () => {
       const mod = await createDotModule();
       await seedDotData();
       const qb = dotDs.getRepository(DotUser).createQueryBuilder('dotuser');
-      await dotRunner.apply(DotUserFilter, { 'posts.status': ['published', 'draft'] }, qb);
+      await dotRunner.apply(
+        DotUserFilter,
+        { filter: { 'posts.status': ['published', 'draft'] } },
+        qb,
+      );
       const rows = await qb.getMany();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
       await mod.close();

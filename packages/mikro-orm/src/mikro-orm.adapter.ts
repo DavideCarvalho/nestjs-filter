@@ -4,6 +4,7 @@ import {
   type EntityRelationInfo,
   FILTER_OPERATORS,
   type FilterAdapter,
+  escapeLike,
 } from '@dudousxd/nestjs-filter';
 import { ReferenceKind } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/sql';
@@ -100,6 +101,25 @@ export class MikroOrmAdapter implements FilterAdapter {
     } else {
       queryBuilder.andWhere({ [relationName]: { [field]: value } });
     }
+  }
+
+  applyIncludes(qb: unknown, includes: string[]): void {
+    const queryBuilder = qb as { leftJoinAndSelect: (field: string, alias: string) => void };
+    for (const path of includes) {
+      const alias = path.replace(/\./g, '_');
+      queryBuilder.leftJoinAndSelect(path, alias);
+    }
+  }
+
+  applySearch(qb: unknown, term: string, columns: string[]): void {
+    const queryBuilder = qb as { andWhere: (condition: unknown) => void };
+    const conditions = columns.map((col) => ({ [col]: { $like: `%${escapeLike(term)}%` } }));
+    queryBuilder.andWhere({ $or: conditions });
+  }
+
+  applyVectorSearch(qb: unknown, term: string, vectorColumn: string): void {
+    const queryBuilder = qb as { andWhere: (condition: unknown) => void };
+    queryBuilder.andWhere({ [vectorColumn]: { $fulltext: term } });
   }
 
   private mapRelationType(kind: ReferenceKind): EntityRelationInfo['type'] {

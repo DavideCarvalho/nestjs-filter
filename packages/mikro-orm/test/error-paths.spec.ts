@@ -142,7 +142,7 @@ describe('MikroORM adapter — error paths', () => {
     // The invalid operator may not error until getResultList (query execution)
     // or it may error at andWhere time — either way it should be catchable
     try {
-      await r.apply(InvalidOpFilter, { test: 'x' }, qb);
+      await r.apply(InvalidOpFilter, { filter: { test: 'x' } }, qb);
       // If apply doesn't throw, getResultList should
       await qb.getResultList();
     } catch (err) {
@@ -159,7 +159,7 @@ describe('MikroORM adapter — error paths', () => {
     const em = orm.em.fork();
     const qb = em.createQueryBuilder(User);
 
-    await expect(runner.apply(ErrorFilter, { fail: 'x' }, qb)).rejects.toThrow(
+    await expect(runner.apply(ErrorFilter, { filter: { fail: 'x' } }, qb)).rejects.toThrow(
       FilterMethodException,
     );
   });
@@ -170,7 +170,7 @@ describe('MikroORM adapter — error paths', () => {
     const em = orm.em.fork();
     const qb = em.createQueryBuilder(User);
 
-    await runner.apply(UserFilter, { name: "'; DROP TABLE users; --" }, qb);
+    await runner.apply(UserFilter, { filter: { name: "'; DROP TABLE users; --" } }, qb);
     const rows = await qb.getResultList();
     // Should return empty results, not drop the table
     expect(rows).toEqual([]);
@@ -204,7 +204,7 @@ describe('MikroORM adapter — error paths', () => {
 
     const em = o.em.fork();
     const qb = em.createQueryBuilder(User);
-    await r.apply(UserFilter, { name: 'nobody' }, qb);
+    await r.apply(UserFilter, { filter: { name: 'nobody' } }, qb);
     const rows = await qb.getResultList();
     expect(rows).toEqual([]);
 
@@ -218,7 +218,7 @@ describe('MikroORM adapter — error paths', () => {
     const qb = em.createQueryBuilder(User);
 
     // Apply a valid filter with multiple invocations
-    await runner.apply(UserFilter, { name: 'Alice', minAge: 1 }, qb);
+    await runner.apply(UserFilter, { filter: { name: 'Alice', minAge: 1 } }, qb);
     const rows = await qb.getResultList();
     expect(rows.map((r) => r.name)).toEqual(['Alice']);
   });
@@ -229,7 +229,7 @@ describe('MikroORM adapter — error paths', () => {
     const em = orm.em.fork();
     const qb = em.createQueryBuilder(User);
 
-    await runner.apply(UserFilter, { name: '<script>alert(1)</script>' }, qb);
+    await runner.apply(UserFilter, { filter: { name: '<script>alert(1)</script>' } }, qb);
     const rows = await qb.getResultList();
     // No user has this name, so empty results
     expect(rows).toEqual([]);
@@ -245,7 +245,7 @@ describe('MikroORM adapter — error paths', () => {
     await em.flush();
 
     const qb = em.createQueryBuilder(User);
-    await runner.apply(UserFilter, { name: 'Joao' }, qb);
+    await runner.apply(UserFilter, { filter: { name: 'Joao' } }, qb);
     const rows = await qb.getResultList();
     expect(rows).toHaveLength(1);
   });
