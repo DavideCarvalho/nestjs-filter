@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { FILTER_OPERATORS } from './types.js';
 
 /**
  * Reusable DTO for ColumnFilter with class-validator decorators.
@@ -20,6 +21,7 @@ export class ColumnFilterDto {
   field!: string;
 
   @IsString()
+  @IsIn(FILTER_OPERATORS as unknown as string[])
   operator!: string;
 
   @IsOptional()
