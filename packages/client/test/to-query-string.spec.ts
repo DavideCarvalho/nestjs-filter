@@ -134,6 +134,16 @@ describe('FilterQueryBuilder.toQueryString()', () => {
     expect(qs).toContain('where[0]');
   });
 
+  it('encodes & in values', () => {
+    const q = filterQuery().equals('q', 'a&b');
+    expect(q.toQueryString()).toContain('a%26b');
+  });
+
+  it('encodes = in values', () => {
+    const q = filterQuery().equals('q', 'a=b');
+    expect(q.toQueryString()).toContain('a%3Db');
+  });
+
   it('empty builder returns empty string', () => {
     expect(filterQuery().toQueryString()).toBe('');
   });

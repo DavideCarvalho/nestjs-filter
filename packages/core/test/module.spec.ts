@@ -76,6 +76,32 @@ describe('FilterModule', () => {
     expect(options).toMatchObject({ inputNormalizer: 'camelCase', validation: 'off' });
   });
 
+  it('forRootAsync useExisting resolves from existing factory', async () => {
+    @Injectable()
+    class ExistingFactory implements FilterModuleOptionsFactory {
+      createFilterOptions() {
+        return { validation: 'off' as const };
+      }
+    }
+
+    // useExisting expects the factory to already be registered in the DI container,
+    // typically via a previously-imported module.
+    const FactoryModule = {
+      module: class FactoryModule {},
+      global: true,
+      providers: [ExistingFactory],
+      exports: [ExistingFactory],
+    } as DynamicModule;
+
+    const mod = await Test.createTestingModule({
+      imports: [
+        FactoryModule,
+        FilterModule.forRootAsync({ useExisting: ExistingFactory }),
+      ],
+    }).compile();
+    expect(mod.get(FILTER_MODULE_OPTIONS)).toMatchObject({ validation: 'off' });
+  });
+
   it('forFeatureAsync registers filters resolved by async factory', async () => {
     const mod = await Test.createTestingModule({
       imports: [

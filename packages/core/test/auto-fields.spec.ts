@@ -526,4 +526,17 @@ describe('Auto-fields', () => {
       ]);
     });
   });
+
+  describe('large input', () => {
+    it('handles 100+ auto-field keys without error', async () => {
+      const adapter = makeAutoFieldAdapter();
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      const input: Record<string, unknown> = {};
+      for (let i = 0; i < 100; i++) input[`field${i}`] = `value${i}`;
+      // Should not throw or hang (unknown fields silently skipped)
+      await expect(runner.apply(MatchAllAutoFieldFilter, input, qb)).resolves.toBeDefined();
+    });
+  });
 });

@@ -570,6 +570,15 @@ describe('FilterQueryBuilder', () => {
     });
   });
 
+  describe('build() idempotency', () => {
+    it('build() is idempotent', () => {
+      const b = filterQuery().equals('name', 'foo').gte('age', 18);
+      const r1 = b.build();
+      const r2 = b.build();
+      expect(r1).toEqual(r2);
+    });
+  });
+
   describe('special characters in values', () => {
     it('handles values with special URL characters', () => {
       const result = filterQuery().where('email', 'test+user@example.com').build();
