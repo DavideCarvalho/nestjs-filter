@@ -284,4 +284,139 @@ describe('TypeORM auto-fields', () => {
       await localDs.destroy();
     });
   });
+
+  // ─── Dot-notation relation filtering ──────────────────────────────────────
+
+  describe('dot-notation relation filtering', () => {
+    @Entity('dot_users_typeorm')
+    class DotUser {
+      @PrimaryGeneratedColumn()
+      id!: number;
+
+      @Column()
+      name!: string;
+
+      @OneToMany(
+        () => DotPost,
+        (post) => post.author,
+      )
+      posts!: DotPost[];
+    }
+
+    @Entity('dot_posts_typeorm')
+    class DotPost {
+      @PrimaryGeneratedColumn()
+      id!: number;
+
+      @Column()
+      title!: string;
+
+      @Column()
+      status!: string;
+
+      @ManyToOne(
+        () => DotUser,
+        (user) => user.posts,
+      )
+      author!: DotUser;
+    }
+
+    @Injectable()
+    @Filterable({ entity: DotUser, autoFields: true })
+    class DotUserFilter extends TypeOrmFilter<DotUser> {}
+
+    let dotDs: DataSource;
+    let dotRunner: FilterRunner;
+
+    async function createDotModule() {
+      const mod = await Test.createTestingModule({
+        imports: [
+          TypeOrmModule.forRoot({
+            type: 'better-sqlite3',
+            database: ':memory:',
+            entities: [DotUser, DotPost],
+            synchronize: true,
+          }),
+          FilterModule.forRoot({ validation: 'off' }),
+          TypeOrmFilterModule.forRoot(),
+          FilterModule.forFeature([DotUserFilter]),
+        ],
+      }).compile();
+
+      dotDs = mod.get(DataSource);
+      dotRunner = mod.get(FilterRunner);
+      return mod;
+    }
+
+    async function seedDotData() {
+      const userRepo = dotDs.getRepository(DotUser);
+      const postRepo = dotDs.getRepository(DotPost);
+
+      const alice = await userRepo.save({ name: 'Alice' });
+      const bob = await userRepo.save({ name: 'Bob' });
+      const charlie = await userRepo.save({ name: 'Charlie' });
+
+      await postRepo.save([
+        { title: 'GraphQL Tips', status: 'published', author: alice },
+        { title: 'Draft Post', status: 'draft', author: alice },
+        { title: 'REST Guide', status: 'published', author: bob },
+        { title: 'TypeORM Intro', status: 'archived', author: charlie },
+      ]);
+    }
+
+    afterEach(async () => {
+      if (dotDs?.isInitialized) await dotDs.destroy();
+    });
+
+    it('filters users by posts.title via dot-notation', async () => {
+      const mod = await createDotModule();
+      await seedDotData();
+      const qb = dotDs.getRepository(DotUser).createQueryBuilder('dotuser');
+      await dotRunner.apply(DotUserFilter, { 'posts.title': 'GraphQL Tips' }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+      await mod.close();
+    });
+
+    it('filters users by posts.status via dot-notation', async () => {
+      const mod = await createDotModule();
+      await seedDotData();
+      const qb = dotDs.getRepository(DotUser).createQueryBuilder('dotuser');
+      await dotRunner.apply(DotUserFilter, { 'posts.status': 'published' }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
+      await mod.close();
+    });
+
+    it('combines dot-notation with regular auto-field', async () => {
+      const mod = await createDotModule();
+      await seedDotData();
+      const qb = dotDs.getRepository(DotUser).createQueryBuilder('dotuser');
+      await dotRunner.apply(DotUserFilter, { name: 'Alice', 'posts.status': 'published' }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+      await mod.close();
+    });
+
+    it('filters with array value on dot-notation field (IN)', async () => {
+      const mod = await createDotModule();
+      await seedDotData();
+      const qb = dotDs.getRepository(DotUser).createQueryBuilder('dotuser');
+      await dotRunner.apply(DotUserFilter, { 'posts.status': ['published', 'draft'] }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
+      await mod.close();
+    });
+
+    it('getEntityRelations returns correct relation info', async () => {
+      const mod = await createDotModule();
+      const adapter = new TypeOrmAdapter(dotDs);
+      const relations = adapter.getEntityRelations(DotUser);
+      expect(relations).not.toBeNull();
+      expect(relations).toHaveLength(1);
+      expect(relations![0]!.name).toBe('posts');
+      expect(relations![0]!.type).toBe('one-to-many');
+      await mod.close();
+    });
+  });
 });

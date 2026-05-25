@@ -1,6 +1,7 @@
 import {
   type ColumnFilter,
   type EntityFieldInfo,
+  type EntityRelationInfo,
   FILTER_OPERATORS,
   type FilterAdapter,
 } from '@dudousxd/nestjs-filter';
@@ -68,6 +69,52 @@ export class TypeOrmAdapter implements FilterAdapter {
         }));
     } catch {
       return null;
+    }
+  }
+
+  getEntityRelations(entity: Type<unknown>): EntityRelationInfo[] | null {
+    try {
+      const meta = this.dataSource.getMetadata(entity);
+      return meta.relations.map((rel) => ({
+        name: rel.propertyName,
+        targetEntity: rel.inverseEntityMetadata.targetName,
+        type: rel.relationType as EntityRelationInfo['type'],
+      }));
+    } catch {
+      return null;
+    }
+  }
+
+  applyAutoRelationField(qb: unknown, relationName: string, field: string, value: unknown): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const alias = queryBuilder.alias;
+    const relAlias = `${relationName}_auto`;
+
+    // Add join if not already present
+    const hasJoin = queryBuilder.expressionMap.joinAttributes.some(
+      (j) => j.alias.name === relAlias,
+    );
+    if (!hasJoin) {
+      queryBuilder.leftJoin(`${alias}.${relationName}`, relAlias);
+    }
+
+    if (Array.isArray(value)) {
+      applyOperator(queryBuilder, relAlias, { field, operator: 'in', value }, 'andWhere');
+    } else if (this.isOperatorObject(value)) {
+      for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
+        applyOperator(
+          queryBuilder,
+          relAlias,
+          {
+            field,
+            operator: op as import('@dudousxd/nestjs-filter').FilterOperator,
+            value: opVal,
+          },
+          'andWhere',
+        );
+      }
+    } else {
+      applyOperator(queryBuilder, relAlias, { field, operator: 'equals', value }, 'andWhere');
     }
   }
 

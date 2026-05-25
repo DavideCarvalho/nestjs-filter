@@ -111,6 +111,7 @@ export class FilterRunner {
 
         // Resolve auto-fields configuration
         const autoFieldSet = this.resolveAutoFields(FilterClass);
+        const filterableMeta = getFilterableMetadata(FilterClass);
 
         // Collect relation-bound keys for batched processing
         const relationBatches = new Map<
@@ -154,6 +155,28 @@ export class FilterRunner {
               );
             }
             continue;
+          }
+          // Check if this is a dot-notation relation field (e.g. 'posts.title')
+          if (
+            key.includes('.') &&
+            autoFieldSet &&
+            filterableMeta &&
+            adapter?.getEntityRelations &&
+            adapter?.applyAutoRelationField
+          ) {
+            const dotIndex = key.indexOf('.');
+            const relName = key.substring(0, dotIndex);
+            const fieldName = key.substring(dotIndex + 1);
+            if (fieldName.length > 0) {
+              const relations = adapter.getEntityRelations(filterableMeta.entity);
+              if (relations) {
+                const isRelation = relations.some((r) => r.name === relName);
+                if (isRelation) {
+                  adapter.applyAutoRelationField(qb, relName, fieldName, value);
+                  continue;
+                }
+              }
+            }
           }
           this.handleUnknownKey(key);
         }

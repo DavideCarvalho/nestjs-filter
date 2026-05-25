@@ -1,6 +1,7 @@
 import {
   type ColumnFilter,
   type EntityFieldInfo,
+  type EntityRelationInfo,
   FILTER_OPERATORS,
   type FilterAdapter,
 } from '@dudousxd/nestjs-filter';
@@ -66,6 +67,53 @@ export class MikroOrmAdapter implements FilterAdapter {
         }));
     } catch {
       return null;
+    }
+  }
+
+  getEntityRelations(entity: Type<unknown>): EntityRelationInfo[] | null {
+    try {
+      const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+      if (!meta?.properties) return null;
+
+      return Object.values(meta.properties)
+        .filter((prop) => prop.kind !== ReferenceKind.SCALAR)
+        .map((prop) => ({
+          name: prop.name as string,
+          targetEntity: prop.type,
+          type: this.mapRelationType(prop.kind),
+        }));
+    } catch {
+      return null;
+    }
+  }
+
+  applyAutoRelationField(qb: unknown, relationName: string, field: string, value: unknown): void {
+    const queryBuilder = qb as { andWhere: (condition: unknown) => void };
+    if (Array.isArray(value)) {
+      queryBuilder.andWhere({ [relationName]: { [field]: { $in: value } } });
+    } else if (this.isOperatorObject(value)) {
+      const ops: Record<string, unknown> = {};
+      for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
+        ops[`$${op}`] = opVal;
+      }
+      queryBuilder.andWhere({ [relationName]: { [field]: ops } });
+    } else {
+      queryBuilder.andWhere({ [relationName]: { [field]: value } });
+    }
+  }
+
+  private mapRelationType(kind: ReferenceKind): EntityRelationInfo['type'] {
+    switch (kind) {
+      case ReferenceKind.ONE_TO_ONE:
+        return 'one-to-one';
+      case ReferenceKind.MANY_TO_ONE:
+        return 'many-to-one';
+      case ReferenceKind.ONE_TO_MANY:
+        return 'one-to-many';
+      case ReferenceKind.MANY_TO_MANY:
+        return 'many-to-many';
+      default:
+        return 'many-to-one';
     }
   }
 

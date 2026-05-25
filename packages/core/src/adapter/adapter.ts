@@ -15,6 +15,20 @@ export interface EntityFieldInfo {
   type: 'string' | 'number' | 'boolean' | 'date' | 'json' | 'unknown';
 }
 
+/**
+ * Describes a relation on an entity, as reported by the ORM's metadata layer.
+ * Used by dot-notation relation filtering to auto-join and filter by related
+ * entity fields (e.g. `posts.title` joins `posts` and filters by `title`).
+ */
+export interface EntityRelationInfo {
+  /** Relation property name on the entity class (e.g. 'posts', 'author'). */
+  name: string;
+  /** Target entity name (e.g. 'Post', 'User'). */
+  targetEntity: string;
+  /** Relation cardinality type. */
+  type: 'one-to-one' | 'many-to-one' | 'one-to-many' | 'many-to-many';
+}
+
 export interface FilterAdapter {
   createQueryBuilder<E>(entity: Type<E>): unknown;
 
@@ -81,4 +95,40 @@ export interface FilterAdapter {
    * @returns Array of field descriptors, or `null` if metadata is unavailable.
    */
   getEntityFields?(entity: Type<unknown>): EntityFieldInfo[] | null;
+
+  /**
+   * Introspects the ORM's metadata for the given entity class and returns
+   * an array of relation descriptors.
+   *
+   * Used by dot-notation relation filtering (`posts.title`) to discover
+   * which input key prefixes correspond to real entity relations.
+   *
+   * Optional — when absent or when it returns `null`, dot-notation
+   * relation filtering is disabled.
+   *
+   * @param entity - The entity class to introspect.
+   * @returns Array of relation descriptors, or `null` if metadata is unavailable.
+   */
+  getEntityRelations?(entity: Type<unknown>): EntityRelationInfo[] | null;
+
+  /**
+   * Applies a dot-notation relation field filter to the query builder.
+   *
+   * Auto-joins the relation (if not already joined) and applies a WHERE
+   * condition on the related entity's field.
+   *
+   * The value follows the same shapes as `applyAutoField`:
+   * - Single value → equals
+   * - Array value → IN
+   * - Object with operator keys → apply those operators
+   *
+   * Optional — adapters that don't support dot-notation relation filtering
+   * should not implement this.
+   *
+   * @param qb - The query builder instance.
+   * @param relationName - The relation property name (e.g. 'posts').
+   * @param field - The field name on the related entity (e.g. 'title').
+   * @param value - The filter value (scalar, array, or operator object).
+   */
+  applyAutoRelationField?(qb: unknown, relationName: string, field: string, value: unknown): void;
 }

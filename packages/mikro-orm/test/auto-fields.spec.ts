@@ -1,9 +1,10 @@
 import 'reflect-metadata';
 import { FilterFor, FilterModule, FilterRunner, Filterable } from '@dudousxd/nestjs-filter';
-import { EntityManager, MikroORM } from '@mikro-orm/core';
+import { Collection, MikroORM } from '@mikro-orm/core';
 import {
   Entity,
   ManyToOne,
+  OneToMany,
   PrimaryKey,
   Property,
   ReflectMetadataProvider,
@@ -63,6 +64,42 @@ class ProductAutoAllFilter extends MikroOrmFilter<Product> {}
   allowed: ['status', 'category'],
 })
 class ProductAutoAllowedFilter extends MikroOrmFilter<Product> {}
+
+// ─── Dot-notation Entities ──────────────────────────────────────────────────────
+
+@Entity({ tableName: 'dot_users' })
+class DotUser {
+  @PrimaryKey()
+  id!: number;
+
+  @Property()
+  name!: string;
+
+  @OneToMany(
+    () => DotPost,
+    (post) => post.author,
+  )
+  posts = new Collection<DotPost>(this);
+}
+
+@Entity({ tableName: 'dot_posts' })
+class DotPost {
+  @PrimaryKey()
+  id!: number;
+
+  @Property()
+  title!: string;
+
+  @Property()
+  status!: string;
+
+  @ManyToOne(() => DotUser)
+  author!: DotUser;
+}
+
+@Injectable()
+@Filterable({ entity: DotUser, autoFields: true })
+class DotUserFilter extends MikroOrmFilter<DotUser> {}
 
 // ─── Test Suite ─────────────────────────────────────────────────────────────────
 
@@ -288,6 +325,104 @@ describe('MikroORM auto-fields', () => {
       // Only scalar properties: 'id' and 'title'
       expect(names).toEqual(['id', 'title']);
       await localOrm.close(true);
+    });
+  });
+
+  // ─── Dot-notation relation filtering ──────────────────────────────────────
+
+  describe('dot-notation relation filtering', () => {
+    let dotOrm: MikroORM;
+    let dotRunner: FilterRunner;
+
+    async function createDotModule() {
+      const mod = await Test.createTestingModule({
+        imports: [
+          MikroOrmModule.forRoot({
+            driver: SqliteDriver,
+            dbName: ':memory:',
+            entities: [DotUser, DotPost],
+            allowGlobalContext: true,
+            metadataProvider: ReflectMetadataProvider,
+          }),
+          FilterModule.forRoot({ validation: 'off' }),
+          MikroOrmFilterModule.forRoot(),
+          FilterModule.forFeature([DotUserFilter]),
+        ],
+      }).compile();
+
+      dotOrm = mod.get(MikroORM);
+      dotRunner = mod.get(FilterRunner);
+      await dotOrm.schema.create();
+      return mod;
+    }
+
+    async function seedDotData() {
+      const em = dotOrm.em.fork();
+      const alice = em.create(DotUser, { name: 'Alice' });
+      const bob = em.create(DotUser, { name: 'Bob' });
+      const charlie = em.create(DotUser, { name: 'Charlie' });
+      em.persist([alice, bob, charlie]);
+      await em.flush();
+
+      em.persist([
+        em.create(DotPost, { title: 'GraphQL Tips', status: 'published', author: alice }),
+        em.create(DotPost, { title: 'Draft Post', status: 'draft', author: alice }),
+        em.create(DotPost, { title: 'REST Guide', status: 'published', author: bob }),
+        em.create(DotPost, { title: 'MikroORM Intro', status: 'archived', author: charlie }),
+      ]);
+      await em.flush();
+      return em;
+    }
+
+    afterEach(async () => {
+      if (dotOrm) await dotOrm.close(true);
+    });
+
+    it('filters users by posts.title via dot-notation', async () => {
+      await createDotModule();
+      const em = await seedDotData();
+      const qb = em.createQueryBuilder(DotUser);
+      await dotRunner.apply(DotUserFilter, { 'posts.title': 'GraphQL Tips' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('filters users by posts.status via dot-notation', async () => {
+      await createDotModule();
+      const em = await seedDotData();
+      const qb = em.createQueryBuilder(DotUser);
+      await dotRunner.apply(DotUserFilter, { 'posts.status': 'published' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
+    });
+
+    it('combines dot-notation with regular auto-field', async () => {
+      await createDotModule();
+      const em = await seedDotData();
+      const qb = em.createQueryBuilder(DotUser);
+      await dotRunner.apply(DotUserFilter, { name: 'Alice', 'posts.status': 'published' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('filters with operator object on dot-notation field', async () => {
+      await createDotModule();
+      const em = await seedDotData();
+      const qb = em.createQueryBuilder(DotUser);
+      await dotRunner.apply(DotUserFilter, { 'posts.status': ['published', 'draft'] }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
+    });
+
+    it('getEntityRelations returns correct relation info', async () => {
+      await createDotModule();
+      const em = dotOrm.em as unknown as SqlEntityManager;
+      const adapter = new MikroOrmAdapter(em);
+      const relations = adapter.getEntityRelations(DotUser);
+      expect(relations).not.toBeNull();
+      expect(relations).toHaveLength(1);
+      expect(relations![0]!.name).toBe('posts');
+      expect(relations![0]!.type).toBe('one-to-many');
     });
   });
 });

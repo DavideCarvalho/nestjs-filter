@@ -1,7 +1,7 @@
 export const VERSION = '0.1.0-alpha.0';
 
 export { BaseFilter } from './base-filter.js';
-export type { FilterAdapter, EntityFieldInfo } from './adapter/adapter.js';
+export type { FilterAdapter, EntityFieldInfo, EntityRelationInfo } from './adapter/adapter.js';
 export { Filterable, getFilterableMetadata } from './decorator/filterable.decorator.js';
 export { FilterFor, getFilterForMap } from './decorator/filter-for.decorator.js';
 export { ApplyFilter, getApplyFilterMetadata } from './decorator/apply-filter.decorator.js';

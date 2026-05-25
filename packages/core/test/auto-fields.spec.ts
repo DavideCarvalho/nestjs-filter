@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
-import type { EntityFieldInfo, FilterAdapter } from '../src/adapter/adapter.js';
+import type { EntityFieldInfo, EntityRelationInfo, FilterAdapter } from '../src/adapter/adapter.js';
 import { BaseFilter } from '../src/base-filter.js';
 import { FilterFor } from '../src/decorator/filter-for.decorator.js';
 import { Filterable } from '../src/decorator/filterable.decorator.js';
@@ -368,6 +368,162 @@ describe('Auto-fields', () => {
       // 'status' has no @FilterFor and no autoFields — ignored
       await runner.apply(NoAutoFieldFilter, { status: 'active', name: 'foo' }, qb);
       expect(qb.calls).toEqual([['andWhere', { name: 'foo' }]]);
+    });
+  });
+
+  // ─── Dot-notation relation filtering ─────────────────────────────────────────
+
+  describe('dot-notation relation filtering', () => {
+    const entityFields: EntityFieldInfo[] = [
+      { name: 'id', columnName: 'id', type: 'number' },
+      { name: 'name', columnName: 'name', type: 'string' },
+    ];
+
+    const entityRelations: EntityRelationInfo[] = [
+      { name: 'posts', targetEntity: 'Post', type: 'one-to-many' },
+      { name: 'company', targetEntity: 'Company', type: 'many-to-one' },
+    ];
+
+    function applyAutoRelationFieldImpl(
+      qb: unknown,
+      relationName: string,
+      field: string,
+      value: unknown,
+    ): void {
+      const mockQb = qb as MockQB;
+      if (Array.isArray(value)) {
+        mockQb.andWhere({ [relationName]: { [field]: { $in: value } } });
+      } else if (value != null && typeof value === 'object' && !Array.isArray(value)) {
+        const ops: Record<string, unknown> = {};
+        for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
+          ops[`$${op}`] = opVal;
+        }
+        mockQb.andWhere({ [relationName]: { [field]: ops } });
+      } else {
+        mockQb.andWhere({ [relationName]: { [field]: value } });
+      }
+    }
+
+    function makeDotNotationAdapter(): FilterAdapter {
+      return {
+        createQueryBuilder: () => makeMockQB(),
+        applyAutoField: applyAutoFieldImpl,
+        getEntityFields: () => entityFields,
+        getEntityRelations: () => entityRelations,
+        applyAutoRelationField: applyAutoRelationFieldImpl,
+      };
+    }
+
+    it('auto-joins and filters related entity via posts.title', async () => {
+      const adapter = makeDotNotationAdapter();
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(MatchAllAutoFieldFilter, { 'posts.title': 'GraphQL' }, qb);
+      expect(qb.calls).toEqual([['andWhere', { posts: { title: 'GraphQL' } }]]);
+    });
+
+    it('handles operator object via dot-notation (posts.title with contains)', async () => {
+      const adapter = makeDotNotationAdapter();
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(MatchAllAutoFieldFilter, { 'posts.title': { contains: 'Hello' } }, qb);
+      expect(qb.calls).toEqual([['andWhere', { posts: { title: { $contains: 'Hello' } } }]]);
+    });
+
+    it('silently skips unknown relation in dot-notation', async () => {
+      const adapter = makeDotNotationAdapter();
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(MatchAllAutoFieldFilter, { 'unknownRelation.title': 'x' }, qb);
+      // No calls — unknown relation is silently skipped (handled by handleUnknownKey)
+      expect(qb.calls).toEqual([]);
+    });
+
+    it('handles multiple relation fields in same query', async () => {
+      const adapter = makeDotNotationAdapter();
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(
+        MatchAllAutoFieldFilter,
+        { 'posts.title': 'Hello', 'company.name': 'Acme' },
+        qb,
+      );
+      expect(qb.calls).toEqual([
+        ['andWhere', { posts: { title: 'Hello' } }],
+        ['andWhere', { company: { name: 'Acme' } }],
+      ]);
+    });
+
+    it('handles array value in dot-notation (IN query)', async () => {
+      const adapter = makeDotNotationAdapter();
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(MatchAllAutoFieldFilter, { 'posts.status': ['draft', 'published'] }, qb);
+      expect(qb.calls).toEqual([
+        ['andWhere', { posts: { status: { $in: ['draft', 'published'] } } }],
+      ]);
+    });
+
+    it('does not activate dot-notation when autoFields is not configured', async () => {
+      @Injectable()
+      @Filterable({ entity: FakeEntity })
+      class NoAutoFieldDotFilter extends BaseFilter<MockQB> {
+        @FilterFor()
+        name(v: string) {
+          this.$query.andWhere({ name: v });
+        }
+      }
+
+      const adapter = makeDotNotationAdapter();
+      const mod = await Test.createTestingModule({
+        providers: [
+          NoAutoFieldDotFilter,
+          FilterRunner,
+          {
+            provide: FILTER_MODULE_OPTIONS,
+            useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
+          },
+          { provide: FILTER_ADAPTER, useValue: adapter },
+        ],
+      }).compile();
+
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      // Without autoFields, dot-notation should not be triggered
+      await runner.apply(NoAutoFieldDotFilter, { 'posts.title': 'Hello' }, qb);
+      expect(qb.calls).toEqual([]);
+    });
+
+    it('does not activate dot-notation when adapter lacks getEntityRelations', async () => {
+      const adapterWithout: FilterAdapter = {
+        createQueryBuilder: () => makeMockQB(),
+        applyAutoField: applyAutoFieldImpl,
+        getEntityFields: () => entityFields,
+        // No getEntityRelations or applyAutoRelationField
+      };
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapterWithout);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(MatchAllAutoFieldFilter, { 'posts.title': 'Hello' }, qb);
+      // Should be silently skipped
+      expect(qb.calls).toEqual([]);
+    });
+
+    it('mixes regular auto-fields with dot-notation relation fields', async () => {
+      const adapter = makeDotNotationAdapter();
+      const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
+      const runner = mod.get(FilterRunner);
+      const qb = makeMockQB();
+      await runner.apply(MatchAllAutoFieldFilter, { name: 'Alice', 'posts.title': 'Hello' }, qb);
+      expect(qb.calls).toEqual([
+        ['andWhere', { name: 'Alice' }],
+        ['andWhere', { posts: { title: 'Hello' } }],
+      ]);
     });
   });
 });
