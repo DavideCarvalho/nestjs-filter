@@ -486,25 +486,6 @@
   }
 
   /* ============================================================
-     LANDING PAGE OVERRIDES
-     Starlight splash template: remove default constraints
-     ============================================================ */
-
-  /* On the landing page, let hero fill the width */
-  [data-page-type="splash"] .sl-container {
-    max-width: none;
-  }
-
-  [data-page-type="splash"] main {
-    padding: 0;
-  }
-
-  /* Hide the empty markdown content area on splash */
-  [data-page-type="splash"] .sl-markdown-content:empty {
-    display: none;
-  }
-
-  /* ============================================================
      BLOCKQUOTES
      ============================================================ */
   .sl-markdown-content blockquote {
