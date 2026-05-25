@@ -16,6 +16,8 @@ describe('typeorm example app — error / security paths (e2e)', () => {
   beforeEach(async () => {
     const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = mod.createNestApplication<NestExpressApplication>();
+    // Express 5 requires extended query parser for bracket notation
+    (app.getHttpAdapter().getInstance() as any).set('query parser', 'extended');
     app.useGlobalFilters(new FilterExceptionFilter());
     await app.init();
 
@@ -40,7 +42,7 @@ describe('typeorm example app — error / security paths (e2e)', () => {
 
   // 46. GET with validation error
   it('returns 400 for invalid minAge value (not a number)', async () => {
-    const res = await request(app.getHttpServer()).get('/users?minAge=notanumber');
+    const res = await request(app.getHttpServer()).get('/users?filter[minAge]=notanumber');
     expect(res.status).toBe(400);
     expect(res.body.message).toBe('Filter input validation failed.');
     expect(Array.isArray(res.body.errors)).toBe(true);
@@ -49,7 +51,9 @@ describe('typeorm example app — error / security paths (e2e)', () => {
 
   // 47. GET with unknown filter param
   it('ignores unknown query parameters and returns all results', async () => {
-    const res = await request(app.getHttpServer()).get('/users?foobar=123&unknownParam=xyz');
+    const res = await request(app.getHttpServer()).get(
+      '/users?filter[foobar]=123&filter[unknownParam]=xyz',
+    );
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(4);
   });
@@ -66,9 +70,9 @@ describe('typeorm example app — error / security paths (e2e)', () => {
   // 51. Very large input
   it('handles many query params without error', async () => {
     const params = new URLSearchParams();
-    params.set('name', 'Alice');
+    params.set('filter[name]', 'Alice');
     for (let i = 0; i < 50; i++) {
-      params.set(`param${i}`, `value${i}`);
+      params.set(`filter[param${i}]`, `value${i}`);
     }
 
     const res = await request(app.getHttpServer()).get(`/users?${params.toString()}`);
@@ -78,14 +82,16 @@ describe('typeorm example app — error / security paths (e2e)', () => {
 
   // 52. SQL injection attempt
   it('SQL injection attempt is safely parameterized', async () => {
-    const res = await request(app.getHttpServer()).get("/users?name='; DROP TABLE users; --");
+    const res = await request(app.getHttpServer()).get(
+      "/users?filter[name]='; DROP TABLE users; --",
+    );
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
 
   // Verify table intact after SQL injection
   it('table is intact after SQL injection attempt', async () => {
-    await request(app.getHttpServer()).get("/users?name='; DROP TABLE users; --");
+    await request(app.getHttpServer()).get("/users?filter[name]='; DROP TABLE users; --");
     const res = await request(app.getHttpServer()).get('/users');
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(4);
@@ -93,14 +99,16 @@ describe('typeorm example app — error / security paths (e2e)', () => {
 
   // 53. XSS attempt
   it('XSS attempt is treated as literal string', async () => {
-    const res = await request(app.getHttpServer()).get('/users?name=<script>alert(1)</script>');
+    const res = await request(app.getHttpServer()).get(
+      '/users?filter[name]=<script>alert(1)</script>',
+    );
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
 
   // Validation error response doesn't leak sensitive fields
   it('validation error response does not include target or value', async () => {
-    const res = await request(app.getHttpServer()).get('/users?minAge=notanumber');
+    const res = await request(app.getHttpServer()).get('/users?filter[minAge]=notanumber');
     expect(res.status).toBe(400);
     for (const err of res.body.errors) {
       expect(err).not.toHaveProperty('target');
@@ -110,21 +118,23 @@ describe('typeorm example app — error / security paths (e2e)', () => {
 
   // Empty string param is stripped
   it('empty string query param is stripped and returns all results', async () => {
-    const res = await request(app.getHttpServer()).get('/users?name=');
+    const res = await request(app.getHttpServer()).get('/users?filter[name]=');
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(4);
   });
 
   // "null" string in query param
   it('handles "null" string in query param as literal', async () => {
-    const res = await request(app.getHttpServer()).get('/users?name=null');
+    const res = await request(app.getHttpServer()).get('/users?filter[name]=null');
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
 
   // Repeated query params — Express parses as array, may trigger validation or pass through
   it('handles repeated query params without server error', async () => {
-    const res = await request(app.getHttpServer()).get('/users?role=admin&role=user');
+    const res = await request(app.getHttpServer()).get(
+      '/users?filter[role]=admin&filter[role]=user',
+    );
     // Express turns repeated params into an array, which may cause validation failure (400)
     // or may pass through — either way it should not be 500
     expect(res.status).toBeLessThan(500);
@@ -133,8 +143,8 @@ describe('typeorm example app — error / security paths (e2e)', () => {
   // 50. Concurrent requests (ALS isolation)
   it('concurrent requests with different filters return correct results', async () => {
     const [res1, res2] = await Promise.all([
-      request(app.getHttpServer()).get('/users?role=admin'),
-      request(app.getHttpServer()).get('/users?role=user'),
+      request(app.getHttpServer()).get('/users?filter[role]=admin'),
+      request(app.getHttpServer()).get('/users?filter[role]=user'),
     ]);
 
     expect(res1.status).toBe(200);
@@ -166,7 +176,7 @@ describe('typeorm example app — error / security paths (e2e)', () => {
   // Very long filter value
   it('handles very long filter value', async () => {
     const longName = 'A'.repeat(1000);
-    const res = await request(app.getHttpServer()).get(`/users?name=${longName}`);
+    const res = await request(app.getHttpServer()).get(`/users?filter[name]=${longName}`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
@@ -174,7 +184,7 @@ describe('typeorm example app — error / security paths (e2e)', () => {
   // Special URL characters in filter value
   it('handles special URL-encoded characters in filter values', async () => {
     const res = await request(app.getHttpServer()).get(
-      `/users?name=${encodeURIComponent('Alice & Bob')}`,
+      `/users?filter[name]=${encodeURIComponent('Alice & Bob')}`,
     );
     expect(res.status).toBe(200);
     // No user has literal "Alice & Bob" name

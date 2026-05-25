@@ -16,6 +16,8 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
   beforeEach(async () => {
     const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = mod.createNestApplication<NestExpressApplication>();
+    // Express 5 requires extended query parser for bracket notation
+    (app.getHttpAdapter().getInstance() as any).set('query parser', 'extended');
     app.useGlobalFilters(new FilterExceptionFilter());
     await app.init();
 
@@ -43,7 +45,7 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
 
   // 46. GET with validation error
   it('returns 400 for invalid minAge value (not a number)', async () => {
-    const res = await request(app.getHttpServer()).get('/users?minAge=notanumber');
+    const res = await request(app.getHttpServer()).get('/users?filter[minAge]=notanumber');
     expect(res.status).toBe(400);
     expect(res.body.message).toBe('Filter input validation failed.');
     expect(Array.isArray(res.body.errors)).toBe(true);
@@ -52,7 +54,9 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
 
   // 47. GET with unknown filter param — ignored, returns all
   it('ignores unknown query parameters and returns all results', async () => {
-    const res = await request(app.getHttpServer()).get('/users?foobar=123&unknownParam=xyz');
+    const res = await request(app.getHttpServer()).get(
+      '/users?filter[foobar]=123&filter[unknownParam]=xyz',
+    );
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(4);
   });
@@ -69,10 +73,10 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
   // 51. Very large input — many query params
   it('handles many query params without error', async () => {
     const params = new URLSearchParams();
-    params.set('name', 'Alice');
+    params.set('filter[name]', 'Alice');
     // Add many unknown params
     for (let i = 0; i < 50; i++) {
-      params.set(`param${i}`, `value${i}`);
+      params.set(`filter[param${i}]`, `value${i}`);
     }
 
     const res = await request(app.getHttpServer()).get(`/users?${params.toString()}`);
@@ -83,7 +87,9 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
 
   // 52. SQL injection attempt via filter value
   it('SQL injection attempt is safely parameterized', async () => {
-    const res = await request(app.getHttpServer()).get("/users?name='; DROP TABLE users; --");
+    const res = await request(app.getHttpServer()).get(
+      "/users?filter[name]='; DROP TABLE users; --",
+    );
     expect(res.status).toBe(200);
     // Should return empty array, not crash
     expect(res.body).toEqual([]);
@@ -91,7 +97,7 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
 
   // Verify table still exists after SQL injection attempt
   it('table is intact after SQL injection attempt', async () => {
-    await request(app.getHttpServer()).get("/users?name='; DROP TABLE users; --");
+    await request(app.getHttpServer()).get("/users?filter[name]='; DROP TABLE users; --");
     const res = await request(app.getHttpServer()).get('/users');
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(4);
@@ -99,7 +105,9 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
 
   // 53. XSS attempt in filter value
   it('XSS attempt is treated as literal string in filter', async () => {
-    const res = await request(app.getHttpServer()).get('/users?name=<script>alert(1)</script>');
+    const res = await request(app.getHttpServer()).get(
+      '/users?filter[name]=<script>alert(1)</script>',
+    );
     expect(res.status).toBe(200);
     // No user has that name, so empty results
     expect(res.body).toEqual([]);
@@ -107,7 +115,7 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
 
   // Validation error response doesn't leak sensitive fields
   it('validation error response does not include target or value', async () => {
-    const res = await request(app.getHttpServer()).get('/users?minAge=notanumber');
+    const res = await request(app.getHttpServer()).get('/users?filter[minAge]=notanumber');
     expect(res.status).toBe(400);
     for (const err of res.body.errors) {
       expect(err).not.toHaveProperty('target');
@@ -117,14 +125,14 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
 
   // Empty string param is stripped
   it('empty string query param is stripped and returns all results', async () => {
-    const res = await request(app.getHttpServer()).get('/users?name=');
+    const res = await request(app.getHttpServer()).get('/users?filter[name]=');
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(4);
   });
 
   // Null-like values in query string
   it('handles "null" string in query param', async () => {
-    const res = await request(app.getHttpServer()).get('/users?name=null');
+    const res = await request(app.getHttpServer()).get('/users?filter[name]=null');
     expect(res.status).toBe(200);
     // "null" is treated as the literal string "null"
     expect(res.body).toEqual([]);
@@ -132,7 +140,9 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
 
   // Multiple same-named params — Express parses as array, may trigger validation or pass through
   it('handles repeated query params without server error', async () => {
-    const res = await request(app.getHttpServer()).get('/users?role=admin&role=user');
+    const res = await request(app.getHttpServer()).get(
+      '/users?filter[role]=admin&filter[role]=user',
+    );
     // Express turns repeated params into an array, which may cause validation failure (400)
     // or may pass through if validation is off for that field — either way it should not be 500
     expect(res.status).toBeLessThan(500);
@@ -141,8 +151,8 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
   // Concurrent requests
   it('concurrent requests with different filters return correct results', async () => {
     const [res1, res2] = await Promise.all([
-      request(app.getHttpServer()).get('/users?role=admin'),
-      request(app.getHttpServer()).get('/users?role=user'),
+      request(app.getHttpServer()).get('/users?filter[role]=admin'),
+      request(app.getHttpServer()).get('/users?filter[role]=user'),
     ]);
 
     expect(res1.status).toBe(200);

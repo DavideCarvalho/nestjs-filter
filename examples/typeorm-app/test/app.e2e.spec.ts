@@ -16,6 +16,8 @@ describe('typeorm example app (e2e)', () => {
   beforeEach(async () => {
     const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = mod.createNestApplication<NestExpressApplication>();
+    // Express 5 requires extended query parser for bracket notation (filter[name]=value)
+    (app.getHttpAdapter().getInstance() as any).set('query parser', 'extended');
     app.useGlobalFilters(new FilterExceptionFilter());
     await app.init();
 
@@ -50,37 +52,39 @@ describe('typeorm example app (e2e)', () => {
     });
 
     it('2. filters by name LIKE', async () => {
-      const res = await request(app.getHttpServer()).get('/users?name=li');
+      const res = await request(app.getHttpServer()).get('/users?filter[name]=li');
       expect(res.status).toBe(200);
       expect(res.body.map((r: { name: string }) => r.name).sort()).toEqual(['Alice', 'Charlie']);
     });
 
     it('3. filters by exact role', async () => {
-      const res = await request(app.getHttpServer()).get('/users?role=admin');
+      const res = await request(app.getHttpServer()).get('/users?filter[role]=admin');
       expect(res.status).toBe(200);
       expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Alice']);
     });
 
     it('4. combined filters (name + minAge)', async () => {
-      const res = await request(app.getHttpServer()).get('/users?name=Al&minAge=25');
+      const res = await request(app.getHttpServer()).get(
+        '/users?filter[name]=Al&filter[minAge]=25',
+      );
       expect(res.status).toBe(200);
       expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Alice']);
     });
 
     it('5. no results returns empty array', async () => {
-      const res = await request(app.getHttpServer()).get('/users?name=zzzzz');
+      const res = await request(app.getHttpServer()).get('/users?filter[name]=zzzzz');
       expect(res.status).toBe(200);
       expect(res.body).toEqual([]);
     });
 
     it('6. filters by role=user returns multiple results', async () => {
-      const res = await request(app.getHttpServer()).get('/users?role=user');
+      const res = await request(app.getHttpServer()).get('/users?filter[role]=user');
       expect(res.status).toBe(200);
       expect(res.body.map((r: { name: string }) => r.name).sort()).toEqual(['Bob', 'Diana']);
     });
 
     it('7. filters by minAge returns users at or above threshold', async () => {
-      const res = await request(app.getHttpServer()).get('/users?minAge=30');
+      const res = await request(app.getHttpServer()).get('/users?filter[minAge]=30');
       expect(res.status).toBe(200);
       expect(res.body.map((r: { name: string }) => r.name).sort()).toEqual(['Alice', 'Charlie']);
     });
@@ -90,33 +94,41 @@ describe('typeorm example app (e2e)', () => {
 
   describe('POST /users/search', () => {
     it('8. POST with body only', async () => {
-      const res = await request(app.getHttpServer()).post('/users/search').send({ name: 'Bob' });
+      const res = await request(app.getHttpServer())
+        .post('/users/search')
+        .send({ filter: { name: 'Bob' } });
       expect(res.status).toBe(201);
       expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Bob']);
     });
 
     it('9. POST with query only', async () => {
-      const res = await request(app.getHttpServer()).post('/users/search?role=admin').send({});
+      const res = await request(app.getHttpServer())
+        .post('/users/search?filter[role]=admin')
+        .send({});
       expect(res.status).toBe(201);
       expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Alice']);
     });
 
     it('10. POST body wins over query on conflict', async () => {
       const res = await request(app.getHttpServer())
-        .post('/users/search?name=Al')
-        .send({ name: 'Bob' });
+        .post('/users/search?filter[name]=Al')
+        .send({ filter: { name: 'Bob' } });
       expect(res.status).toBe(201);
       expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Bob']);
     });
 
     it('11. POST with empty body uses query params', async () => {
-      const res = await request(app.getHttpServer()).post('/users/search?name=Diana').send({});
+      const res = await request(app.getHttpServer())
+        .post('/users/search?filter[name]=Diana')
+        .send({});
       expect(res.status).toBe(201);
       expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Diana']);
     });
 
     it('12. POST with boolean active=true in body', async () => {
-      const res = await request(app.getHttpServer()).post('/users/search').send({ active: true });
+      const res = await request(app.getHttpServer())
+        .post('/users/search')
+        .send({ filter: { active: true } });
       expect(res.status).toBe(201);
       expect(res.body.map((r: { name: string }) => r.name).sort()).toEqual([
         'Alice',
@@ -126,7 +138,9 @@ describe('typeorm example app (e2e)', () => {
     });
 
     it('13. POST with boolean active=false in body', async () => {
-      const res = await request(app.getHttpServer()).post('/users/search').send({ active: false });
+      const res = await request(app.getHttpServer())
+        .post('/users/search')
+        .send({ filter: { active: false } });
       expect(res.status).toBe(201);
       expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Charlie']);
     });
@@ -136,7 +150,7 @@ describe('typeorm example app (e2e)', () => {
 
   describe('Input edge cases', () => {
     it('14. unknown query param is silently ignored', async () => {
-      const res = await request(app.getHttpServer()).get('/users?unknownParam=whatever');
+      const res = await request(app.getHttpServer()).get('/users?filter[unknownParam]=whatever');
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(4);
     });
@@ -148,7 +162,7 @@ describe('typeorm example app (e2e)', () => {
     });
 
     it('16. special characters in filter value are escaped', async () => {
-      const res = await request(app.getHttpServer()).get('/users?name=%25');
+      const res = await request(app.getHttpServer()).get('/users?filter[name]=%25');
       expect(res.status).toBe(200);
       expect(res.body).toEqual([]);
     });
@@ -158,13 +172,13 @@ describe('typeorm example app (e2e)', () => {
 
   describe('Validation', () => {
     it('17. valid input returns 200 with results', async () => {
-      const res = await request(app.getHttpServer()).get('/users?minAge=30');
+      const res = await request(app.getHttpServer()).get('/users?filter[minAge]=30');
       expect(res.status).toBe(200);
       expect(res.body.map((r: { name: string }) => r.name).sort()).toEqual(['Alice', 'Charlie']);
     });
 
     it('18. invalid minAge type returns 400 with validation errors', async () => {
-      const res = await request(app.getHttpServer()).get('/users?minAge=notANumber');
+      const res = await request(app.getHttpServer()).get('/users?filter[minAge]=notANumber');
       expect(res.status).toBe(400);
       expect(res.body).toHaveProperty('message', 'Filter input validation failed.');
       expect(res.body.errors).toBeInstanceOf(Array);
@@ -176,7 +190,7 @@ describe('typeorm example app (e2e)', () => {
 
   describe('Response shape', () => {
     it('19. results are arrays of user objects with correct fields', async () => {
-      const res = await request(app.getHttpServer()).get('/users?role=admin');
+      const res = await request(app.getHttpServer()).get('/users?filter[role]=admin');
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
       const alice = res.body[0];
@@ -198,7 +212,7 @@ describe('typeorm example app (e2e)', () => {
     });
 
     it('21. count returns filtered count', async () => {
-      const res = await request(app.getHttpServer()).get('/users/count?role=user');
+      const res = await request(app.getHttpServer()).get('/users/count?filter[role]=user');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ count: 2 });
     });
@@ -208,7 +222,7 @@ describe('typeorm example app (e2e)', () => {
 
   describe('Relation filtering', () => {
     it('22. filters users by post status', async () => {
-      const res = await request(app.getHttpServer()).get('/users?postStatus=published');
+      const res = await request(app.getHttpServer()).get('/users?filter[postStatus]=published');
       expect(res.status).toBe(200);
       expect(res.body.map((r: { name: string }) => r.name).sort()).toEqual(['Alice', 'Bob']);
     });
