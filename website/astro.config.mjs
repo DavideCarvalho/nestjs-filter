@@ -21,6 +21,11 @@ export default defineConfig({
         baseUrl: 'https://github.com/DavideCarvalho/nestjs-filter/edit/main/website/',
       },
       customCss: ['./src/styles/global.css'],
+      components: {
+        Hero: './src/components/Hero.astro',
+        SiteTitle: './src/components/SiteTitle.astro',
+        PageTitle: './src/components/PageTitle.astro',
+      },
       sidebar: [
         {
           label: 'Getting Started',
