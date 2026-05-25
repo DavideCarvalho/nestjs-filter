@@ -1,4 +1,5 @@
 import starlight from '@astrojs/starlight';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'astro/config';
 
 export default defineConfig({
@@ -19,6 +20,7 @@ export default defineConfig({
       editLink: {
         baseUrl: 'https://github.com/DavideCarvalho/nestjs-filter/edit/main/website/',
       },
+      customCss: ['./src/styles/global.css'],
       sidebar: [
         {
           label: 'Getting Started',
@@ -39,4 +41,7 @@ export default defineConfig({
       ],
     }),
   ],
+  vite: {
+    plugins: [tailwindcss()],
+  },
 });
