@@ -140,7 +140,6 @@
    Component Overrides
    ============================================================ */
 @layer components {
-
   /* ── Global ── */
   body {
     -webkit-font-smoothing: antialiased;
