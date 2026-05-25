@@ -118,12 +118,12 @@ A filter is a regular NestJS injectable class that extends `MikroOrmFilter` or `
   The class-validator decorators (`@IsOptional`, `@IsString`, etc.) are optional. If you omit them, the filter works in **lean mode** -- no validation, just dispatch. See the [Filter Classes guide](/nestjs-filter/guides/filter-classes/) for details.
 </Aside>
 
-<Aside type="note" title="Even simpler with auto-fields">
-  If your filters are simple equality/contains checks, you can skip `@FilterFor` entirely and use **auto-fields**. The adapter applies the filter automatically:
+<Aside type="note" title="Zero-config auto-fields (enabled by default)">
+  Auto-fields are enabled by default. If your filters are simple equality/contains checks, you can skip `@FilterFor` entirely:
 
   ```ts
   @Injectable()
-  @Filterable({ entity: User, autoFields: true, allowed: ['name', 'email', 'status'] })
+  @Filterable({ entity: User })
   export class UserFilter extends MikroOrmFilter<User> {}
   ```
 

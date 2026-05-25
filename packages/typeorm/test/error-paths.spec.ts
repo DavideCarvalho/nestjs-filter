@@ -32,7 +32,7 @@ class User {
 // ─── Filters ────────────────────────────────────────────────────────────────────
 
 @Injectable()
-@Filterable({ entity: User })
+@Filterable({ entity: User, autoFields: false })
 class UserFilter extends TypeOrmFilter<User> {
   @FilterFor('name')
   applyName(v: string) {
@@ -46,7 +46,7 @@ class UserFilter extends TypeOrmFilter<User> {
 }
 
 @Injectable()
-@Filterable({ entity: User })
+@Filterable({ entity: User, autoFields: false })
 class ErrorFilter extends TypeOrmFilter<User> {
   @FilterFor('fail')
   applyFail(_v: string) {
@@ -100,7 +100,7 @@ describe('TypeORM adapter — error paths', () => {
   // 43. Invalid SQL in andWhere
   it('invalid SQL in andWhere propagates as FilterMethodException', async () => {
     @Injectable()
-    @Filterable({ entity: User })
+    @Filterable({ entity: User, autoFields: false })
     class InvalidSQLFilter extends TypeOrmFilter<User> {
       @FilterFor('test')
       applyTest(_v: string) {
@@ -237,7 +237,7 @@ describe('TypeORM adapter — error paths', () => {
   // entityAlias is accessible
   it('entityAlias returns correct alias from the query builder', async () => {
     @Injectable()
-    @Filterable({ entity: User })
+    @Filterable({ entity: User, autoFields: false })
     class AliasFilter extends TypeOrmFilter<User> {
       @FilterFor('test')
       applyTest(_v: string) {

@@ -77,13 +77,15 @@ You can also explicitly disable validation by setting `validation: 'off'` in `Fi
 
 ## Auto-fields
 
-When you enable `autoFields` in `@Filterable`, input keys that do not have a corresponding `@FilterFor` method are automatically applied by the ORM adapter. This means you can write zero-method filter classes for simple equality, array, and operator-based queries.
+By default, `@Filterable({ entity: User })` enables **auto-fields** — any input key matching an entity column is automatically applied as a WHERE condition. Dot-notation for relations (`posts.title`) also works automatically. This means you can write zero-method filter classes for simple equality, array, and operator-based queries.
 
-### Match all fields
+To opt out: `@Filterable({ entity: User, autoFields: false })`
+
+### Default behavior (auto-fields on)
 
 ```ts
 @Injectable()
-@Filterable({ entity: User, autoFields: true, allowed: ['name', 'email', 'status', 'age'] })
+@Filterable({ entity: User })
 export class UserFilter extends MikroOrmFilter<User> {
   // No @FilterFor methods needed for simple equality checks.
   // GET /users?name=Al&status=active  →  WHERE name = 'Al' AND status = 'active'
@@ -91,14 +93,20 @@ export class UserFilter extends MikroOrmFilter<User> {
 }
 ```
 
-When `autoFields` is `true`, every key in the `allowed` list that does not have a `@FilterFor` mapping is auto-applied. If there is no `allowed` list, the adapter introspects entity metadata (via `getEntityFields()`) to discover valid columns and **rejects unknown fields automatically**. This prevents unknown-column probing and SQL errors without requiring an explicit `allowed` list.
+The adapter introspects entity metadata (via `getEntityFields()`) to discover valid columns and **rejects unknown fields automatically**. This prevents unknown-column probing and SQL errors without requiring an explicit `allowed` list.
+
+You can restrict which fields are auto-applied by combining with `allowed`:
+
+```ts
+@Filterable({ entity: User, allowed: ['name', 'email', 'status', 'age'] })
+```
 
 <Aside type="note">
-  When `autoFields: true` is used without an `allowed` list, the adapter introspects the entity's ORM metadata to build the set of valid column names. Only keys matching real entity columns are accepted; all others are silently skipped. If the adapter does not support metadata introspection, it falls back to accepting all keys (legacy behavior) with a logged warning.
+  The adapter introspects the entity's ORM metadata to build the set of valid column names. Only keys matching real entity columns are accepted; all others are silently skipped. If the adapter does not support metadata introspection, it falls back to accepting all keys (legacy behavior) with a logged warning.
 </Aside>
 
 <Aside type="caution">
-  If your adapter does not implement `getEntityFields()`, using `autoFields: true` without an `allowed` list means any column name the client sends will be accepted. Always combine with `allowed` to restrict which fields are queryable, or ensure your adapter supports metadata introspection.
+  If your adapter does not implement `getEntityFields()`, using auto-fields without an `allowed` list means any column name the client sends will be accepted. Always combine with `allowed` to restrict which fields are queryable, or ensure your adapter supports metadata introspection.
 </Aside>
 
 ### Explicit field list
@@ -111,13 +119,23 @@ You can also pass an explicit array of field names to auto-apply:
 
 Only `name` and `email` will be auto-applied. Other keys still need `@FilterFor` methods.
 
+### Opting out
+
+To disable auto-fields entirely, set `autoFields: false`:
+
+```ts
+@Filterable({ entity: User, autoFields: false })
+```
+
+With this setting, only keys with `@FilterFor` methods are dispatched. Unknown keys are handled by the `onUnknownKey` policy.
+
 ### Mixing auto-fields with `@FilterFor`
 
 You can combine auto-fields with explicit `@FilterFor` methods. Any key that has a `@FilterFor` mapping is dispatched to the method; only unmatched keys fall through to the auto-field handler.
 
 ```ts
 @Injectable()
-@Filterable({ entity: User, autoFields: true, allowed: ['name', 'status', 'role'] })
+@Filterable({ entity: User, allowed: ['name', 'status', 'role'] })
 export class UserFilter extends MikroOrmFilter<User> {
   @FilterFor('name')
   applyName(value: string) {

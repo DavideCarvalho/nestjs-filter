@@ -12,7 +12,7 @@ import type { FilterModuleOptions, FilterModuleOptionsFactory } from '../src/typ
 class FakeEntity {}
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class UserFilter extends BaseFilter<unknown> {}
 
 describe('FilterModule', () => {
@@ -106,7 +106,7 @@ describe('FilterModule', () => {
 
   it('forFeatureAsync registers filter classes as providers when passed via filters option', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class AsyncRegisteredFilter extends BaseFilter<unknown> {}
 
     const mod = await Test.createTestingModule({
@@ -130,7 +130,7 @@ describe('FilterModule', () => {
     const CONFIG_TOKEN = 'CONFIG_TOKEN';
 
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class DynamicFilter extends BaseFilter<unknown> {}
 
     const configModule = {

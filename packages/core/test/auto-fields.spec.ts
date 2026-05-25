@@ -340,10 +340,10 @@ describe('Auto-fields', () => {
     });
   });
 
-  describe('no autoFields configured', () => {
-    it('does not auto-apply when autoFields is absent', async () => {
+  describe('autoFields: false (opt-out)', () => {
+    it('does not auto-apply when autoFields is false', async () => {
       @Injectable()
-      @Filterable({ entity: FakeEntity })
+      @Filterable({ entity: FakeEntity, autoFields: false })
       class NoAutoFieldFilter extends BaseFilter<MockQB> {
         @FilterFor()
         name(v: string) {
@@ -365,7 +365,7 @@ describe('Auto-fields', () => {
 
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      // 'status' has no @FilterFor and no autoFields — ignored
+      // 'status' has no @FilterFor and autoFields is false — ignored
       await runner.apply(NoAutoFieldFilter, { status: 'active', name: 'foo' }, qb);
       expect(qb.calls).toEqual([['andWhere', { name: 'foo' }]]);
     });
@@ -469,9 +469,9 @@ describe('Auto-fields', () => {
       ]);
     });
 
-    it('does not activate dot-notation when autoFields is not configured', async () => {
+    it('does not activate dot-notation when autoFields is false', async () => {
       @Injectable()
-      @Filterable({ entity: FakeEntity })
+      @Filterable({ entity: FakeEntity, autoFields: false })
       class NoAutoFieldDotFilter extends BaseFilter<MockQB> {
         @FilterFor()
         name(v: string) {
@@ -494,7 +494,7 @@ describe('Auto-fields', () => {
 
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      // Without autoFields, dot-notation should not be triggered
+      // With autoFields: false, dot-notation should not be triggered
       await runner.apply(NoAutoFieldDotFilter, { 'posts.title': 'Hello' }, qb);
       expect(qb.calls).toEqual([]);
     });

@@ -5,7 +5,7 @@ import { FilterMissingEntityException } from '../../src/errors/exceptions.js';
 
 class FakeEntity {}
 
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class FakeFilter {}
 
 class NotDecorated {}

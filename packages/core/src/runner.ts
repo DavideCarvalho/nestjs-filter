@@ -328,13 +328,13 @@ export class FilterRunner {
    * Resolves the set of auto-field names from @Filterable metadata.
    *
    * Returns:
-   * - null if autoFields is not configured
+   * - null if autoFields is `false` (opt-out)
    * - Set of all possible keys when autoFields is `true` (represented as a "match-all" set)
    * - Set of explicit field names when autoFields is a string array
    *
-   * When autoFields is `true`, the set contains all possible keys from the
-   * `allowed` list if present; otherwise it introspects entity metadata via
-   * the adapter's `getEntityFields()` to restrict to real columns.
+   * When autoFields is `true` (the default), the set contains all possible
+   * keys from the `allowed` list if present; otherwise it introspects entity
+   * metadata via the adapter's `getEntityFields()` to restrict to real columns.
    *
    * When metadata introspection is unavailable (adapter doesn't implement
    * `getEntityFields` or returns null), falls back to accept-all with a
@@ -342,9 +342,11 @@ export class FilterRunner {
    */
   private resolveAutoFields(FilterClass: Function): AutoFieldSet | null {
     const meta = getFilterableMetadata(FilterClass);
-    if (!meta?.autoFields) return null;
+    if (!meta) return null;
+    const autoFieldsConfig = meta.autoFields ?? true;
+    if (autoFieldsConfig === false) return null;
 
-    if (meta.autoFields === true) {
+    if (autoFieldsConfig === true) {
       // When autoFields is true with an allowed list, only allowed keys are auto-applicable
       if (meta.allowed) {
         // Remove keys that already have @FilterFor mappings
@@ -378,7 +380,7 @@ export class FilterRunner {
     }
 
     // Explicit list of auto-field names
-    return new Set(meta.autoFields);
+    return new Set(autoFieldsConfig);
   }
 
   private handleUnknownKey(key: string): void {

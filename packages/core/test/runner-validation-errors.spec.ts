@@ -29,7 +29,7 @@ function makeMockQB(): MockQB {
 
 // 11-12: Validation error scenarios
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class MultiFieldFilter extends BaseFilter<MockQB> {
   @IsOptional()
   @IsNumber()
@@ -53,7 +53,7 @@ class MultiFieldFilter extends BaseFilter<MockQB> {
 
 // 35: Filter class with wrong validator decorators
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class WrongTypeFilter extends BaseFilter<MockQB> {
   @IsOptional()
   @IsNumber()

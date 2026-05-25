@@ -6,7 +6,7 @@ import { resolveDispatchTarget } from '../../src/input/dispatcher.js';
 
 class FakeEntity {}
 
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class F {
   @FilterFor('companyId')
   applyCompany(_v: number) {}
@@ -17,7 +17,7 @@ class F {
   protected secret(_v: string) {}
 }
 
-@Filterable({ entity: FakeEntity, allowed: ['name'] })
+@Filterable({ entity: FakeEntity, allowed: ['name'], autoFields: false })
 class FAllowed {
   @FilterFor()
   name(_v: string) {}
@@ -26,7 +26,7 @@ class FAllowed {
   role(_v: string) {}
 }
 
-@Filterable({ entity: FakeEntity, blocked: ['role'] })
+@Filterable({ entity: FakeEntity, blocked: ['role'], autoFields: false })
 class FBlocked {
   @FilterFor()
   name(_v: string) {}

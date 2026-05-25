@@ -29,7 +29,7 @@ function makeMockQB(): MockQB {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class UserFilter extends BaseFilter<MockQB> {
   @FilterFor()
   name(value: string) {

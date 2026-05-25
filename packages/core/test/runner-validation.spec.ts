@@ -29,7 +29,7 @@ function makeMockQB(): MockQB {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class ValidatedFilter extends BaseFilter<MockQB> {
   @IsOptional()
   @IsNumber()
@@ -51,7 +51,7 @@ class ValidatedFilter extends BaseFilter<MockQB> {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class FilterWithDefault extends BaseFilter<MockQB> {
   @IsOptional()
   @IsString()
@@ -114,7 +114,7 @@ describe('FilterRunner — class-validator', () => {
 
   it('returns class-transformer transformed values', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class TransformedFilter extends BaseFilter<MockQB> {
       @IsOptional()
       @IsNumber()

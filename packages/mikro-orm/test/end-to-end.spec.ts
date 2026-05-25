@@ -86,7 +86,7 @@ class Post {
 // ─── Filters ────────────────────────────────────────────────────────────────────
 
 @Injectable()
-@Filterable({ entity: User })
+@Filterable({ entity: User, autoFields: false })
 class UserFilter extends MikroOrmFilter<User> {
   @FilterFor('name')
   applyName(v: string) {

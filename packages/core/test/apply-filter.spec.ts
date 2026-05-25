@@ -40,7 +40,7 @@ const fakeAdapter: FilterAdapter = {
 };
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class UserFilter extends BaseFilter<FakeQB> {
   @FilterFor('name')
   applyName(v: string) {
@@ -64,7 +64,7 @@ class UsersController {
 class AnotherEntity {}
 
 @Injectable()
-@Filterable({ entity: AnotherEntity })
+@Filterable({ entity: AnotherEntity, autoFields: false })
 class AnotherFilter extends BaseFilter<FakeQB> {
   @FilterFor('status')
   applyStatus(v: string) {
@@ -83,7 +83,7 @@ class AnotherFilter extends BaseFilter<FakeQB> {
 class TestAppModule {}
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class AdminFilter extends BaseFilter<FakeQB> {
   @FilterFor('name')
   applyName(v: string) {

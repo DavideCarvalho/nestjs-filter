@@ -42,7 +42,7 @@ const fakeAdapter: FilterAdapter = {
 };
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class ValidatedUserFilter extends BaseFilter<FakeQB> {
   @IsOptional()
   @IsNumber()

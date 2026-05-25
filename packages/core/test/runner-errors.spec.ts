@@ -50,7 +50,7 @@ async function makeModule(options = {}, extraProviders: any[] = []) {
 // ─── Filter classes for error scenarios ────────────────────────────────────────
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class SyncThrowFilter extends BaseFilter<MockQB> {
   @FilterFor()
   dbField(_v: string) {
@@ -59,7 +59,7 @@ class SyncThrowFilter extends BaseFilter<MockQB> {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class AsyncThrowFilter extends BaseFilter<MockQB> {
   @FilterFor()
   async timeout(_v: string) {
@@ -68,7 +68,7 @@ class AsyncThrowFilter extends BaseFilter<MockQB> {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class StringThrowFilter extends BaseFilter<MockQB> {
   @FilterFor()
   fail(_v: string) {
@@ -77,7 +77,7 @@ class StringThrowFilter extends BaseFilter<MockQB> {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class NullThrowFilter extends BaseFilter<MockQB> {
   @FilterFor()
   fail(_v: string) {
@@ -86,7 +86,7 @@ class NullThrowFilter extends BaseFilter<MockQB> {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class AsyncSetupThrowFilter extends BaseFilter<MockQB> {
   override async setup() {
     await Promise.reject(new Error('async setup failure'));
@@ -99,7 +99,7 @@ class AsyncSetupThrowFilter extends BaseFilter<MockQB> {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class GoodFilter extends BaseFilter<MockQB> {
   @FilterFor()
   name(v: string) {
@@ -113,7 +113,7 @@ class GoodFilter extends BaseFilter<MockQB> {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity, blocked: ['secret'] })
+@Filterable({ entity: FakeEntity, blocked: ['secret'], autoFields: false })
 class WhitelistNonExistentFilter extends BaseFilter<MockQB> {
   override setup() {
     this.whitelistMethod('nonExistentKey');
@@ -126,7 +126,7 @@ class WhitelistNonExistentFilter extends BaseFilter<MockQB> {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class BlacklistOverrideFilter extends BaseFilter<MockQB> {
   override setup() {
     this.blacklistMethod('name');
@@ -150,7 +150,7 @@ describe('FilterRunner — error paths', () => {
   describe('filter not registered', () => {
     it('throws FilterNotRegisteredException for an unregistered filter class', async () => {
       @Injectable()
-      @Filterable({ entity: FakeEntity })
+      @Filterable({ entity: FakeEntity, autoFields: false })
       class Unregistered extends BaseFilter<MockQB> {}
 
       const mod = await makeModule();
@@ -162,7 +162,7 @@ describe('FilterRunner — error paths', () => {
 
     it('FilterNotRegisteredException message includes the class name', async () => {
       @Injectable()
-      @Filterable({ entity: FakeEntity })
+      @Filterable({ entity: FakeEntity, autoFields: false })
       class SpecialFilter extends BaseFilter<MockQB> {}
 
       const mod = await makeModule();
@@ -177,7 +177,7 @@ describe('FilterRunner — error paths', () => {
       const MISSING_TOKEN = 'MISSING_SERVICE_TOKEN';
 
       @Injectable()
-      @Filterable({ entity: FakeEntity })
+      @Filterable({ entity: FakeEntity, autoFields: false })
       class BrokenDIFilter extends BaseFilter<MockQB> {
         constructor(@Inject(MISSING_TOKEN) private readonly _missing: any) {
           super();
@@ -384,7 +384,7 @@ describe('FilterRunner — error paths', () => {
   describe('partial failure — earlier keys dispatch before error', () => {
     it('earlier keys dispatch their methods before a later key throws', async () => {
       @Injectable()
-      @Filterable({ entity: FakeEntity })
+      @Filterable({ entity: FakeEntity, autoFields: false })
       class PartialFilter extends BaseFilter<MockQB> {
         @FilterFor()
         good(v: string) {
@@ -414,7 +414,7 @@ describe('FilterRunner — error paths', () => {
   describe('push() to non-existent key with onUnknownKey: throw', () => {
     it('throws UnknownFilterKeyException for pushed key that has no @FilterFor', async () => {
       @Injectable()
-      @Filterable({ entity: FakeEntity })
+      @Filterable({ entity: FakeEntity, autoFields: false })
       class PushUnknownFilter extends BaseFilter<MockQB> {
         @FilterFor()
         trigger(v: string) {
@@ -435,7 +435,7 @@ describe('FilterRunner — error paths', () => {
   describe('push() to non-existent key with onUnknownKey: ignore', () => {
     it('silently skips pushed key that has no @FilterFor', async () => {
       @Injectable()
-      @Filterable({ entity: FakeEntity })
+      @Filterable({ entity: FakeEntity, autoFields: false })
       class PushIgnoreFilter extends BaseFilter<MockQB> {
         @FilterFor()
         trigger(v: string) {
@@ -456,7 +456,7 @@ describe('FilterRunner — error paths', () => {
   describe('error in pushed handler', () => {
     it('wraps error from pushed handler in FilterMethodException', async () => {
       @Injectable()
-      @Filterable({ entity: FakeEntity })
+      @Filterable({ entity: FakeEntity, autoFields: false })
       class PushErrorFilter extends BaseFilter<MockQB> {
         @FilterFor()
         trigger(v: string) {
@@ -490,7 +490,7 @@ describe('FilterRunner — error paths', () => {
   describe('context parameter', () => {
     it('provides $context to filter methods via ALS', async () => {
       @Injectable()
-      @Filterable({ entity: FakeEntity })
+      @Filterable({ entity: FakeEntity, autoFields: false })
       class ContextFilter extends BaseFilter<MockQB> {
         @FilterFor()
         name(v: string) {

@@ -34,7 +34,7 @@ function makeMockQB(): MockQB {
 }
 
 @Injectable()
-@Filterable({ entity: FakeEntity })
+@Filterable({ entity: FakeEntity, autoFields: false })
 class UserFilter extends BaseFilter<MockQB> {
   setupCalled = 0;
 
@@ -107,7 +107,7 @@ describe('FilterRunner.apply', () => {
     const mod = await makeModule();
     const runner = mod.get(FilterRunner);
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class NotRegistered extends BaseFilter<MockQB> {}
     await expect(runner.apply(NotRegistered, {}, makeMockQB())).rejects.toThrow(
       FilterNotRegisteredException,
@@ -140,7 +140,7 @@ describe('FilterRunner.apply', () => {
 
   it('wraps setup() errors in FilterMethodException with key "setup"', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class SetupBoomFilter extends BaseFilter<MockQB> {
       override setup() {
         throw new Error('setup went wrong');
@@ -208,7 +208,7 @@ describe('FilterRunner.apply', () => {
 
   it('setup() can whitelist a normally-blocked method via whitelistMethod', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity, blocked: ['secret'] })
+    @Filterable({ entity: FakeEntity, blocked: ['secret'], autoFields: false })
     class WhitelistFilter extends BaseFilter<MockQB> {
       override setup() {
         // Dynamically whitelist 'secret' which is statically blocked
@@ -249,7 +249,7 @@ describe('FilterRunner.apply', () => {
 
   it('setup() can blacklist a normally-allowed method via blacklistMethod', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class BlacklistFilter extends BaseFilter<MockQB> {
       override setup() {
         // Dynamically blacklist 'name'
@@ -288,7 +288,7 @@ describe('FilterRunner.apply', () => {
 
   it('push() dispatches additional keys after the current method', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class PushFilter extends BaseFilter<MockQB> {
       @FilterFor()
       trigger(v: string) {
@@ -325,7 +325,7 @@ describe('FilterRunner.apply', () => {
 
   it('push(object) dispatches multiple keys', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class PushObjectFilter extends BaseFilter<MockQB> {
       @FilterFor()
       trigger(v: string) {
@@ -368,7 +368,7 @@ describe('FilterRunner.apply', () => {
 
   it('push() skips undefined values', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class PushUndefinedFilter extends BaseFilter<MockQB> {
       @FilterFor()
       trigger(v: string) {
@@ -403,7 +403,7 @@ describe('FilterRunner.apply', () => {
 
   it('push() chains: pushed handler can push more entries', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class PushChainFilter extends BaseFilter<MockQB> {
       @FilterFor()
       first(v: string) {
@@ -447,7 +447,7 @@ describe('FilterRunner.apply', () => {
 
   it('push() respects blacklisted keys', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class PushBlacklistFilter extends BaseFilter<MockQB> {
       override setup() {
         this.blacklistMethod('blocked');
@@ -486,7 +486,7 @@ describe('FilterRunner.apply', () => {
 
   it('push() uses consistent whitelist resolution', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity, blocked: ['secret'] })
+    @Filterable({ entity: FakeEntity, blocked: ['secret'], autoFields: false })
     class PushWhitelistFilter extends BaseFilter<MockQB> {
       override setup() {
         this.whitelistMethod('secret');
@@ -528,7 +528,7 @@ describe('FilterRunner.apply', () => {
 
   it('throws after MAX_PUSH_ITERATIONS to prevent infinite loops', async () => {
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     class InfiniteLoopFilter extends BaseFilter<MockQB> {
       @FilterFor()
       looper(v: string) {
@@ -564,7 +564,7 @@ describe('FilterRunner.apply', () => {
     class PostEntity {}
 
     @Injectable()
-    @Filterable({ entity: PostEntity })
+    @Filterable({ entity: PostEntity, autoFields: false })
     class PostFilter extends BaseFilter<MockQB> {
       @FilterFor()
       postTitle(v: string) {
@@ -578,7 +578,7 @@ describe('FilterRunner.apply', () => {
     }
 
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     @Relations({
       posts: { filter: PostFilter, keys: ['postTitle', 'postStatus'] },
     })
@@ -633,7 +633,7 @@ describe('FilterRunner.apply', () => {
     class PostEntity {}
 
     @Injectable()
-    @Filterable({ entity: PostEntity })
+    @Filterable({ entity: PostEntity, autoFields: false })
     class PostFilter2 extends BaseFilter<MockQB> {
       @FilterFor()
       postTitle(v: string) {
@@ -642,7 +642,7 @@ describe('FilterRunner.apply', () => {
     }
 
     @Injectable()
-    @Filterable({ entity: FakeEntity })
+    @Filterable({ entity: FakeEntity, autoFields: false })
     @Relations({
       posts: { filter: PostFilter2, keys: ['postTitle'] },
     })

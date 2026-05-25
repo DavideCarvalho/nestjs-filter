@@ -18,13 +18,17 @@ export interface FilterableOptions {
   allowed?: readonly string[];
   blocked?: readonly string[];
   /**
-   * Enable auto-field behavior for declared fields without @FilterFor.
+   * Control auto-field behavior for declared fields without @FilterFor.
    *
-   * - `true` — all input keys without @FilterFor are auto-applied
+   * Defaults to `true` when omitted — any input key matching an entity
+   * column (or in the `allowed` list) is auto-applied as a WHERE condition.
+   *
+   * - `true` (default) — all input keys without @FilterFor are auto-applied
    *   (use with `allowed` to restrict which fields are accepted)
+   * - `false` — opt-out, no auto-field behavior
    * - `string[]` — only the listed field names get auto-applied
    */
-  autoFields?: true | readonly string[];
+  autoFields?: boolean | readonly string[];
 }
 
 export type InputNormalizer = 'camelCase' | 'snakeCase' | ((key: string) => string);
@@ -64,7 +68,7 @@ export interface FilterMetadata {
   entity: Type<unknown>;
   allowed?: readonly string[];
   blocked?: readonly string[];
-  autoFields?: true | readonly string[];
+  autoFields?: boolean | readonly string[];
 }
 
 /**

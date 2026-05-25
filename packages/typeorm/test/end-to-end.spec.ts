@@ -89,7 +89,7 @@ class Post {
 // ─── Filters ────────────────────────────────────────────────────────────────────
 
 @Injectable()
-@Filterable({ entity: User })
+@Filterable({ entity: User, autoFields: false })
 class UserFilter extends TypeOrmFilter<User> {
   @FilterFor('name')
   applyName(v: string) {

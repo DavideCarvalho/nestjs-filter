@@ -6,7 +6,7 @@ import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 import { User } from './user.entity.js';
 
 @Injectable()
-@Filterable({ entity: User })
+@Filterable({ entity: User, autoFields: false })
 export class UserFilter extends TypeOrmFilter<User> {
   @IsOptional()
   @IsString()

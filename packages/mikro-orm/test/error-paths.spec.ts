@@ -38,7 +38,7 @@ class User {
 // ─── Filters ────────────────────────────────────────────────────────────────────
 
 @Injectable()
-@Filterable({ entity: User })
+@Filterable({ entity: User, autoFields: false })
 class UserFilter extends MikroOrmFilter<User> {
   @FilterFor('name')
   applyName(v: string) {
@@ -52,7 +52,7 @@ class UserFilter extends MikroOrmFilter<User> {
 }
 
 @Injectable()
-@Filterable({ entity: User })
+@Filterable({ entity: User, autoFields: false })
 class ErrorFilter extends MikroOrmFilter<User> {
   @FilterFor('fail')
   applyFail(_v: string) {
@@ -109,7 +109,7 @@ describe('MikroORM adapter — error paths', () => {
   // 40. Invalid MikroORM query operator
   it('invalid query operator propagates as FilterMethodException', async () => {
     @Injectable()
-    @Filterable({ entity: User })
+    @Filterable({ entity: User, autoFields: false })
     class InvalidOpFilter extends MikroOrmFilter<User> {
       @FilterFor('test')
       applyTest(_v: string) {
