@@ -1,14 +1,21 @@
 # nestjs-filter
 
-Declarative, ORM-agnostic filter classes for NestJS -- inspired by `adonis-lucid-filter` and `eloquent-filter`, redesigned for NestJS idioms.
+Declarative, ORM-agnostic filter classes for NestJS. Inspired by `adonis-lucid-filter` and `eloquent-filter`, redesigned for NestJS idioms.
 
-![Status: alpha](https://img.shields.io/badge/status-alpha-orange) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
+[![CI](https://github.com/DavideCarvalho/nestjs-filter/actions/workflows/ci.yml/badge.svg)](https://github.com/DavideCarvalho/nestjs-filter/actions/workflows/ci.yml)
+[![Integration Tests](https://github.com/DavideCarvalho/nestjs-filter/actions/workflows/integration.yml/badge.svg)](https://github.com/DavideCarvalho/nestjs-filter/actions/workflows/integration.yml)
+[![npm version](https://img.shields.io/npm/v/@dudousxd/nestjs-filter.svg)](https://www.npmjs.com/package/@dudousxd/nestjs-filter)
+[![npm downloads](https://img.shields.io/npm/dm/@dudousxd/nestjs-filter.svg)](https://www.npmjs.com/package/@dudousxd/nestjs-filter)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/DavideCarvalho/nestjs-filter/blob/main/LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.4+-blue.svg)](https://www.typescriptlang.org/)
+[![NestJS](https://img.shields.io/badge/NestJS-10%2B-e0234e.svg)](https://nestjs.com/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/DavideCarvalho/nestjs-filter/blob/main/CONTRIBUTING.md)
 
-> **Alpha status:** This is an alpha -- the API is stabilising and breaking changes may occur before `1.0`. Not recommended for production use yet.
+> **Alpha status:** API is stabilising. Breaking changes may occur before `1.0`.
 
 ## Docs
 
-Full documentation: **https://davidecarvalho.github.io/nestjs-filter/**
+Full documentation: **[davidecarvalho.github.io/nestjs-filter](https://davidecarvalho.github.io/nestjs-filter/)**
 
 ## Packages
 
