@@ -76,40 +76,24 @@ const feat2Code = `<span class="hl-dec">@Filterable</span>({
 <span class="hl-cm">// GET /users?name[contains]=Al&amp;age[gte]=18</span>
 <span class="hl-cm">// =&gt; WHERE name LIKE '%Al%' AND age &gt;= 18</span>`;
 
-const feat3Code = `<span class="hl-cm">// Equality</span>
-<span class="hl-str">?status=active</span>
+const feat4Code = `<span class="hl-kw">import</span> { filterQuery } <span class="hl-kw">from</span> <span class="hl-str">'@dudousxd/nestjs-filter-client'</span>;
 
-<span class="hl-cm">// Contains (LIKE)</span>
-<span class="hl-str">?name[contains]=Al</span>
-
-<span class="hl-cm">// Greater-than-or-equal</span>
-<span class="hl-str">?age[gte]=18</span>
-
-<span class="hl-cm">// IN list</span>
-<span class="hl-str">?role[in]=admin,editor</span>
-
-<span class="hl-cm">// Between</span>
-<span class="hl-str">?createdAt[between]=2024-01-01,2024-12-31</span>
-
-<span class="hl-cm">// NULL check</span>
-<span class="hl-str">?deletedAt[isNull]=true</span>
-
-<span class="hl-cm">// AND/OR composition</span>
-<span class="hl-str">?or[0][name][contains]=Al&amp;or[0][age][gte]=18</span>`;
-
-const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span class="hl-kw">from</span> <span class="hl-str">'@dudousxd/nestjs-filter-client'</span>;
-
-<span class="hl-kw">const</span> query = <span class="hl-fn">createFilter</span>&lt;<span class="hl-type">User</span>&gt;()
-  .<span class="hl-fn">where</span>(<span class="hl-str">'name'</span>).<span class="hl-fn">contains</span>(<span class="hl-str">'Al'</span>)
-  .<span class="hl-fn">where</span>(<span class="hl-str">'age'</span>).<span class="hl-fn">gte</span>(<span class="hl-kw">18</span>)
-  .<span class="hl-fn">where</span>(<span class="hl-str">'status'</span>).<span class="hl-fn">in</span>([<span class="hl-str">'active'</span>, <span class="hl-str">'pending'</span>])
+<span class="hl-kw">const</span> query = <span class="hl-fn">filterQuery</span>()
+  .<span class="hl-fn">contains</span>(<span class="hl-str">'name'</span>, <span class="hl-str">'Al'</span>)
+  .<span class="hl-fn">gte</span>(<span class="hl-str">'age'</span>, <span class="hl-kw">18</span>)
+  .<span class="hl-fn">in</span>(<span class="hl-str">'status'</span>, [<span class="hl-str">'active'</span>, <span class="hl-str">'pending'</span>])
   .<span class="hl-fn">build</span>();
 
-<span class="hl-cm">// =&gt; { "name[contains]": "Al",</span>
-<span class="hl-cm">//      "age[gte]": 18,</span>
-<span class="hl-cm">//      "status[in]": "active,pending" }</span>
+<span class="hl-cm">// =&gt; { where: [</span>
+<span class="hl-cm">//   { field: 'name', operator: 'contains', value: 'Al' },</span>
+<span class="hl-cm">//   { field: 'age', operator: 'gte', value: 18 },</span>
+<span class="hl-cm">//   { field: 'status', operator: 'in', value: ['active','pending'] }</span>
+<span class="hl-cm">// ]}</span>
 
-<span class="hl-kw">await</span> fetch(<span class="hl-str">\`/api/users?\${</span><span class="hl-kw">new</span> <span class="hl-type">URLSearchParams</span>(query)<span class="hl-str">}\`</span>);`;
+<span class="hl-kw">const</span> qs = <span class="hl-fn">filterQuery</span>()
+  .<span class="hl-fn">contains</span>(<span class="hl-str">'name'</span>, <span class="hl-str">'Al'</span>)
+  .<span class="hl-fn">toQueryString</span>();
+<span class="hl-cm">// =&gt; "name[contains]=Al"</span>`;
 ---
 
 <!doctype html>
@@ -117,9 +101,9 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>nestjs-filter — Declarative query filters for NestJS</title>
+    <title>nestjs-filter: Declarative query filters for NestJS</title>
     <meta name="description" content="Stop writing if/if/if chains. Declarative, ORM-agnostic filter classes for NestJS with MikroORM and TypeORM support." />
-    <meta property="og:title" content="nestjs-filter — Declarative query filters for NestJS" />
+    <meta property="og:title" content="nestjs-filter: Declarative query filters for NestJS" />
     <meta property="og:description" content="Stop writing if/if/if chains. Declarative, ORM-agnostic filter classes for NestJS." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -160,6 +144,9 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
       :root {
         --font-sans: "Geist Sans", ui-sans-serif, system-ui, sans-serif;
         --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
+
+        /* Easing */
+        --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
 
         /* Dark mode (default) */
         --bg: #09090b;
@@ -230,7 +217,7 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
 
       .animate-in {
         opacity: 0;
-        animation: fadeInUp 0.6s ease-out forwards;
+        animation: fadeInUp 0.5s var(--ease-out) forwards;
       }
 
       .delay-1 { animation-delay: 0.1s; }
@@ -242,11 +229,24 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
       .reveal {
         opacity: 0;
         transform: translateY(16px);
-        transition: opacity 0.5s ease, transform 0.5s ease;
+        transition: opacity 0.5s var(--ease-out), transform 0.5s var(--ease-out);
       }
       .reveal.visible {
         opacity: 1;
         transform: translateY(0);
+      }
+
+      /* Reduced motion */
+      @media (prefers-reduced-motion: reduce) {
+        .animate-in {
+          opacity: 1;
+          animation: none;
+        }
+        .reveal {
+          opacity: 1;
+          transform: none;
+          transition: none;
+        }
       }
 
       /* ============================================================
@@ -304,7 +304,7 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
         color: var(--text-muted);
         padding: 0.4rem 0.75rem;
         border-radius: 0.375rem;
-        transition: color 0.15s ease, background-color 0.15s ease;
+        transition: color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
       }
 
       .nav-link:hover {
@@ -328,41 +328,14 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
         .hero { padding: 3.5rem 0 3rem; }
       }
 
-      .hero-eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-family: var(--font-mono);
-        font-size: 0.8rem;
-        color: var(--text-muted);
-        background: var(--bg-elevated);
-        padding: 0.3rem 0.75rem;
-        border-radius: 999px;
-        border: 1px solid var(--border);
-        margin-bottom: 2.5rem;
-      }
-
-      .eyebrow-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--text-muted);
-        animation: pulse 2s infinite;
-      }
-
-      @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.3; }
-      }
-
       .hero-title {
-        font-size: clamp(2.75rem, 7vw, 4.5rem);
+        font-size: clamp(3.5rem, 9vw, 6rem);
         font-family: var(--font-mono);
-        font-weight: 700;
+        font-weight: 800;
         line-height: 1.0;
         letter-spacing: -0.04em;
         color: var(--text);
-        margin-bottom: 1.25rem;
+        margin-bottom: 1rem;
       }
 
       .hero-subtitle {
@@ -371,14 +344,6 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
         max-width: 48ch;
         line-height: 1.5;
         margin-bottom: 2.5rem;
-      }
-
-      .hero-subtitle code {
-        font-size: 0.9em;
-        background: var(--bg-elevated);
-        padding: 0.1em 0.35em;
-        border-radius: 3px;
-        color: var(--text);
       }
 
       /* Hero actions */
@@ -401,7 +366,7 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
         border-radius: 0.375rem;
         border: 1px solid var(--border);
         color: var(--text-muted);
-        transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
         cursor: pointer;
         background: transparent;
       }
@@ -420,10 +385,9 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
       }
 
       .btn-primary:hover {
-        opacity: 0.85;
-        background: var(--invert-bg);
+        background: transparent;
         border-color: var(--invert-bg);
-        color: var(--invert-text);
+        color: var(--invert-bg);
       }
 
       /* Install bar */
@@ -473,7 +437,7 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
         font-family: var(--font-mono);
         font-size: 0.65rem;
         cursor: pointer;
-        transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
         white-space: nowrap;
         flex-shrink: 0;
       }
@@ -576,8 +540,46 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
       }
 
       /* ============================================================
-         FEATURES (alternating rows)
+         FEATURES
          ============================================================ */
+
+      /* -- Feature: full-width (code on top, caption below) -- */
+      .feature-full {
+        margin-bottom: 4rem;
+      }
+
+      .feature-full:last-child {
+        margin-bottom: 0;
+      }
+
+      .feature-full .feature-text {
+        margin-top: 1rem;
+        max-width: 56ch;
+      }
+
+      .feature-full .feature-text h3 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text);
+        margin-bottom: 0.5rem;
+        letter-spacing: -0.01em;
+      }
+
+      .feature-full .feature-text p {
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        line-height: 1.65;
+      }
+
+      .feature-full .feature-text p code {
+        font-size: 0.85em;
+        background: var(--bg-elevated);
+        padding: 0.1em 0.3em;
+        border-radius: 3px;
+        color: var(--text);
+      }
+
+      /* -- Feature: 50/50 grid row -- */
       .feature-row {
         display: grid;
         grid-template-columns: 1fr;
@@ -595,11 +597,12 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
           grid-template-columns: 1fr 1fr;
           gap: 3rem;
         }
-        .feature-row.reverse .feature-text {
+        .feature-row .feature-text {
           order: -1;
         }
       }
 
+      .feature-row .feature-text h3,
       .feature-text h3 {
         font-size: 1.25rem;
         font-weight: 700;
@@ -608,12 +611,14 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
         letter-spacing: -0.01em;
       }
 
+      .feature-row .feature-text p,
       .feature-text p {
         font-size: 0.95rem;
         color: var(--text-muted);
         line-height: 1.65;
       }
 
+      .feature-row .feature-text p code,
       .feature-text p code {
         font-size: 0.85em;
         background: var(--bg-elevated);
@@ -622,6 +627,43 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
         color: var(--text);
       }
 
+      /* -- Feature: operator chips -- */
+      .feature-operators {
+        margin-bottom: 4rem;
+      }
+
+      .feature-operators .feature-text {
+        margin-bottom: 1.25rem;
+      }
+
+      .operator-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        line-height: 1;
+      }
+
+      .operator-chip {
+        display: inline-block;
+        padding: 0.35rem 0.65rem;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 0.375rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+
+      .operator-chip-sep {
+        display: inline-flex;
+        align-items: center;
+        color: var(--text-ghost);
+        font-size: 0.7rem;
+        user-select: none;
+      }
+
+      /* -- Shared feature code block -- */
       .feature-code {
         border: 1px solid var(--border);
         border-radius: 0.5rem;
@@ -653,59 +695,43 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
       }
 
       /* ============================================================
-         PACKAGES TABLE
+         PACKAGES (inline list)
          ============================================================ */
-      .packages-wrap {
-        overflow-x: auto;
+      .packages-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
       }
 
-      .packages-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.9rem;
+      @media (min-width: 56rem) {
+        .packages-list {
+          flex-direction: row;
+          flex-wrap: wrap;
+          gap: 0.75rem 1.5rem;
+        }
       }
 
-      .packages-table th {
-        text-align: left;
+      .pkg-item {
         font-family: var(--font-mono);
-        font-size: 0.7rem;
-        font-weight: 600;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: var(--text-dim);
-        padding: 0.75rem 1rem;
-        border-bottom: 1px solid var(--border);
-      }
-
-      .packages-table td {
-        padding: 0.75rem 1rem;
-        border-bottom: 1px solid var(--border-light);
+        font-size: 0.85rem;
         color: var(--text);
-        vertical-align: top;
+        display: inline-flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        transition: color 0.15s var(--ease-out);
       }
 
-      .packages-table tr:last-child td {
-        border-bottom: none;
-      }
-
-      .packages-table tbody tr {
-        transition: background-color 0.1s ease;
-      }
-
-      .packages-table tbody tr:hover {
-        background: var(--surface-hover);
-      }
-
-      .packages-table code {
-        font-size: 0.85em;
-        background: var(--bg-elevated);
-        padding: 0.15em 0.35em;
-        border-radius: 3px;
-        white-space: nowrap;
-      }
-
-      .pkg-desc {
+      .pkg-item:hover {
         color: var(--text-muted);
+      }
+
+      .pkg-item .pkg-sep {
+        color: var(--text-ghost);
+      }
+
+      .pkg-item .pkg-desc {
+        color: var(--text-muted);
+        font-size: 0.8rem;
       }
 
       /* ============================================================
@@ -738,7 +764,7 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
 
       .footer a {
         color: var(--text-muted);
-        transition: color 0.15s ease;
+        transition: color 0.15s var(--ease-out);
       }
 
       .footer a:hover {
@@ -799,17 +825,10 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
     {/* ──────────── HERO ──────────── */}
     <section class="hero">
       <div class="container">
-        <div class="hero-eyebrow animate-in">
-          <span class="eyebrow-dot"></span>
-          <span>Alpha &mdash; API stabilising</span>
-        </div>
+        <h1 class="hero-title animate-in">nestjs-filter</h1>
+        <p class="hero-subtitle animate-in delay-1">Declarative query filters for NestJS.</p>
 
-        <h1 class="hero-title animate-in delay-1">nestjs-filter</h1>
-        <p class="hero-subtitle animate-in delay-2">
-          Declarative query filters for NestJS. Stop writing <code>if/if/if</code> chains — define filter classes, decorate methods, let the library build your WHERE clauses.
-        </p>
-
-        <div class="hero-actions animate-in delay-3">
+        <div class="hero-actions animate-in delay-2">
           <a href={docsHref} class="btn btn-primary">
             Get Started
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -820,7 +839,7 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
           </a>
         </div>
 
-        <div class="install-bar animate-in delay-4">
+        <div class="install-bar animate-in delay-3">
           <span class="install-label">Install</span>
           <div class="install-cmd" id="install-cmd">
             <code>pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-mikro-orm</code>
@@ -854,11 +873,9 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
     {/* ──────────── FEATURES ──────────── */}
     <section class="section">
       <div class="container">
-        <p class="section-label reveal">Features</p>
-        <h2 class="section-title reveal">Code over configuration</h2>
 
-        {/* Feature 1: @ApplyFilter decorator */}
-        <div class="feature-row reveal">
+        {/* Feature 1: @ApplyFilter decorator — full-width code on top, caption below */}
+        <div class="feature-full reveal">
           <div class="feature-code">
             <div class="feature-code-header">
               <span>users.controller.ts</span>
@@ -872,8 +889,8 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
           </div>
         </div>
 
-        {/* Feature 2: Auto-fields */}
-        <div class="feature-row reverse reveal">
+        {/* Feature 2: Auto-fields — text on left, code on right */}
+        <div class="feature-row reveal">
           <div class="feature-code">
             <div class="feature-code-header">
               <span>user.filter.ts</span>
@@ -887,23 +904,40 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
           </div>
         </div>
 
-        {/* Feature 3: 22 operators */}
-        <div class="feature-row reveal">
-          <div class="feature-code">
-            <div class="feature-code-header">
-              <span>Query format</span>
-              <span>HTTP</span>
-            </div>
-            <pre><code set:html={feat3Code} /></pre>
-          </div>
+        {/* Feature 3: Operators — horizontal chip list */}
+        <div class="feature-operators reveal">
           <div class="feature-text">
             <h3>22 built-in operators</h3>
-            <p><code>equals</code>, <code>contains</code>, <code>startsWith</code>, <code>endsWith</code>, <code>in</code>, <code>notIn</code>, <code>between</code>, <code>gt</code>, <code>gte</code>, <code>lt</code>, <code>lte</code>, <code>isNull</code>, <code>not</code>, and more. Compose with AND/OR logic via bracket notation. Works with both auto-fields and custom <code>@FilterFor</code> methods.</p>
+            <p>Compose with AND/OR logic via bracket notation. Works with both auto-fields and custom <code>@FilterFor</code> methods.</p>
+          </div>
+          <div class="operator-chips">
+            <span class="operator-chip">equals</span>
+            <span class="operator-chip">contains</span>
+            <span class="operator-chip">startsWith</span>
+            <span class="operator-chip">endsWith</span>
+            <span class="operator-chip">gte</span>
+            <span class="operator-chip">lte</span>
+            <span class="operator-chip">gt</span>
+            <span class="operator-chip">lt</span>
+            <span class="operator-chip">between</span>
+            <span class="operator-chip">in</span>
+            <span class="operator-chip">notIn</span>
+            <span class="operator-chip">isNull</span>
+            <span class="operator-chip">isNotNull</span>
+            <span class="operator-chip">isEmpty</span>
+            <span class="operator-chip">isNotEmpty</span>
+            <span class="operator-chip">iContains</span>
+            <span class="operator-chip">notContains</span>
+            <span class="operator-chip">notEquals</span>
+            <span class="operator-chip">notBetween</span>
+            <span class="operator-chip">exists</span>
+            <span class="operator-chip">notExists</span>
+            <span class="operator-chip">isAnyOf</span>
           </div>
         </div>
 
-        {/* Feature 4: Client builder */}
-        <div class="feature-row reverse reveal">
+        {/* Feature 4: Client builder — full-width */}
+        <div class="feature-full reveal">
           <div class="feature-code">
             <div class="feature-code-header">
               <span>client.ts</span>
@@ -913,7 +947,7 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
           </div>
           <div class="feature-text">
             <h3>Client-side query builder</h3>
-            <p>A fluent, type-safe API for building filter queries in the browser or Node. Zero dependencies. Generates the exact query string format the server expects. Ship it to your frontend team.</p>
+            <p>A fluent, type-safe API for building filter queries in the browser or Node. Zero dependencies. Generates the exact query format the server expects. Ship it to your frontend team.</p>
           </div>
         </div>
       </div>
@@ -924,33 +958,19 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
       <div class="container">
         <p class="section-label reveal">Ecosystem</p>
         <h2 class="section-title reveal">Packages</h2>
-        <div class="packages-wrap reveal">
-          <table class="packages-table">
-            <thead>
-              <tr>
-                <th>Package</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>@dudousxd/nestjs-filter</code></td>
-                <td class="pkg-desc">Core: decorators, FilterRunner, FilterModule, validation</td>
-              </tr>
-              <tr>
-                <td><code>@dudousxd/nestjs-filter-mikro-orm</code></td>
-                <td class="pkg-desc">MikroORM 7 adapter</td>
-              </tr>
-              <tr>
-                <td><code>@dudousxd/nestjs-filter-typeorm</code></td>
-                <td class="pkg-desc">TypeORM 0.3+ adapter</td>
-              </tr>
-              <tr>
-                <td><code>@dudousxd/nestjs-filter-client</code></td>
-                <td class="pkg-desc">Client-side query builder (browser + Node, zero deps)</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="packages-list reveal">
+          <a href={`${githubHref}/tree/main/packages/core`} class="pkg-item" target="_blank" rel="noopener">
+            @dudousxd/nestjs-filter <span class="pkg-sep">&middot;</span> <span class="pkg-desc">core</span>
+          </a>
+          <a href={`${githubHref}/tree/main/packages/mikro-orm`} class="pkg-item" target="_blank" rel="noopener">
+            @dudousxd/nestjs-filter-mikro-orm <span class="pkg-sep">&middot;</span> <span class="pkg-desc">MikroORM 7</span>
+          </a>
+          <a href={`${githubHref}/tree/main/packages/typeorm`} class="pkg-item" target="_blank" rel="noopener">
+            @dudousxd/nestjs-filter-typeorm <span class="pkg-sep">&middot;</span> <span class="pkg-desc">TypeORM</span>
+          </a>
+          <a href={`${githubHref}/tree/main/packages/client`} class="pkg-item" target="_blank" rel="noopener">
+            @dudousxd/nestjs-filter-client <span class="pkg-sep">&middot;</span> <span class="pkg-desc">client builder</span>
+          </a>
         </div>
       </div>
     </section>
@@ -970,7 +990,7 @@ const feat4Code = `<span class="hl-kw">import</span> { createFilter } <span clas
     <footer class="footer">
       <div class="container">
         <p>
-          <a href={githubHref} target="_blank" rel="noopener">nestjs-filter</a> &mdash; MIT License
+          MIT &middot; <a href={githubHref} target="_blank" rel="noopener">GitHub</a>
         </p>
       </div>
     </footer>
