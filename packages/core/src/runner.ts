@@ -532,6 +532,126 @@ export class FilterRunner {
     }
   }
 
+  /**
+   * Applies filters dynamically against an entity without requiring a filter class.
+   *
+   * Uses entity metadata (via adapter) for auto-fields, operators from structured
+   * input, includes, and search. No @FilterFor methods, no setup() hook, no
+   * whitelist/blacklist — intended for admin endpoints that query any table.
+   *
+   * @param entity - The entity class to query against.
+   * @param input - Raw input (structured or flat).
+   * @param qb - The query builder instance.
+   * @param context - Optional filter context.
+   * @returns The query builder with filters applied.
+   */
+  async applyDynamic<Q>(
+    entity: Type<unknown>,
+    input: unknown,
+    qb: Q,
+    context: FilterContext = {},
+  ): Promise<Q> {
+    const adapter = this.resolveAdapter();
+
+    // Extract structured input: { filter, include, search }
+    const rawInput = this.extractStructuredInput(input);
+    const filterInput = rawInput.filter;
+    const rawInclude = rawInput.include;
+    const rawSearch = rawInput.search;
+
+    // Extract column filters before normalization
+    const { columnFilters, remainingInput } = this.extractColumnFilters(filterInput);
+
+    const normalized = normalizeInput(remainingInput, {
+      normalizer: this.options.inputNormalizer ?? 'camelCase',
+      dropId: this.options.dropId ?? true,
+      ...(this.options.stripEmpty !== undefined && { stripEmpty: this.options.stripEmpty }),
+    });
+
+    // Apply column filters via adapter
+    if (columnFilters.length > 0 && adapter?.applyColumnFilters) {
+      validateColumnFilters(columnFilters);
+      adapter.applyColumnFilters(qb, columnFilters);
+    } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
+      this.logger.warn(
+        'Column filters (where) provided but adapter does not support applyColumnFilters. Skipping.',
+      );
+    }
+
+    // Auto-fields: all entity columns (no filter class = no @FilterFor to check)
+    if (adapter?.getEntityFields && adapter?.applyAutoField) {
+      const fields = adapter.getEntityFields(entity);
+      if (fields) {
+        const fieldNames = new Set(fields.map((f) => f.name));
+        for (const [key, value] of Object.entries(normalized)) {
+          if (value === undefined) continue;
+          if (key.includes('.')) {
+            // Dot-notation relation
+            const dotIndex = key.indexOf('.');
+            const relName = key.substring(0, dotIndex);
+            const fieldName = key.substring(dotIndex + 1);
+            if (
+              fieldName.length > 0 &&
+              adapter.getEntityRelations &&
+              adapter.applyAutoRelationField
+            ) {
+              const rels = adapter.getEntityRelations(entity);
+              if (rels?.some((r) => r.name === relName)) {
+                adapter.applyAutoRelationField(qb as unknown, relName, fieldName, value);
+              }
+              // Unknown relation: silently skipped
+            }
+          } else if (fieldNames.has(key)) {
+            adapter.applyAutoField(qb as unknown, key, value);
+          }
+          // Unknown keys silently skipped
+        }
+      }
+    }
+
+    // Includes — no allowlist (no filter class), validate against entity metadata only
+    const includes = this.parseIncludes(rawInclude);
+    if (includes.length > 0 && adapter?.applyIncludes) {
+      const validIncludes = this.validateIncludes(includes, undefined, adapter, entity);
+      if (validIncludes.length > 0) {
+        adapter.applyIncludes(qb as unknown, validIncludes, entity);
+      }
+    }
+
+    // Search — auto-detect all string columns from entity metadata
+    if (rawSearch && typeof rawSearch === 'string' && rawSearch.trim()) {
+      this.applyGlobalSearchDynamic(qb, rawSearch.trim(), entity, adapter);
+    }
+
+    return qb;
+  }
+
+  /**
+   * Applies global search for dynamic mode: auto-detects all string columns
+   * from entity metadata (no filter class with static search config).
+   */
+  private applyGlobalSearchDynamic<Q>(
+    qb: Q,
+    searchTerm: string,
+    entity: Type<unknown>,
+    adapter: FilterAdapter | null,
+  ): void {
+    if (!adapter) return;
+
+    const fields = adapter.getEntityFields?.(entity);
+    const columns = fields?.filter((f) => f.type === 'string').map((f) => f.name) ?? [];
+
+    if (columns.length > 10) {
+      this.logger.warn(
+        `Global search on ${columns.length} columns may be slow. Consider using a filter class with static search = [...]`,
+      );
+    }
+
+    if (columns.length > 0 && adapter.applySearch) {
+      adapter.applySearch(qb, searchTerm, columns, entity);
+    }
+  }
+
   private handleUnknownKey(key: string): void {
     const policy = this.options.onUnknownKey ?? 'ignore';
     if (policy === 'throw') throw new UnknownFilterKeyException(key);

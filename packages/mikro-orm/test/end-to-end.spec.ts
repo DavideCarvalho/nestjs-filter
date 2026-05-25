@@ -555,4 +555,72 @@ describe('MikroORM end-to-end filter', () => {
       expect(rows).toHaveLength(4); // no filter, but includes loaded
     });
   });
+
+  // ─── applyDynamic ─────────────────────────────────────────────────────────
+
+  describe('applyDynamic (no filter class)', () => {
+    it('31. filters by auto-detected entity column', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.applyDynamic(User, { filter: { name: 'Alice' } }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('32. filters by operator object (age gte/lte)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.applyDynamic(User, { filter: { age: { gte: 25, lte: 30 } } }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
+    });
+
+    it('33. applies includes without filter class allowlist', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.applyDynamic(User, { filter: { name: 'Alice' }, include: ['posts'] }, qb);
+      const rows = await qb.getResultList();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.name).toBe('Alice');
+    });
+
+    it('34. empty input returns all rows', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.applyDynamic(User, { filter: {} }, qb);
+      const rows = await qb.getResultList();
+      expect(rows).toHaveLength(4);
+    });
+
+    it('35. silently skips unknown fields', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.applyDynamic(User, { filter: { nonExistent: 'x', name: 'Alice' } }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('36. dot-notation relation filtering', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.applyDynamic(User, { filter: { 'posts.status': 'published' } }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
+    });
+
+    it('37. array value filters as IN', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(User);
+      await runner.applyDynamic(User, { filter: { role: ['admin', 'moderator'] } }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Charlie']);
+    });
+  });
 });

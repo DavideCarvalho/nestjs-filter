@@ -569,4 +569,87 @@ describe('TypeORM end-to-end filter', () => {
       await mod.close();
     });
   });
+
+  // ─── applyDynamic ─────────────────────────────────────────────────────────
+
+  describe('applyDynamic (no filter class)', () => {
+    it('30. filters by auto-detected entity column', async () => {
+      const mod = await createModule();
+      await seed();
+      const repo = ds.getRepository(User);
+      const qb = repo.createQueryBuilder('user');
+      await runner.applyDynamic(User, { filter: { name: 'Alice' } }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+      await mod.close();
+    });
+
+    it('31. filters by operator object (age gte/lte)', async () => {
+      const mod = await createModule();
+      await seed();
+      const repo = ds.getRepository(User);
+      const qb = repo.createQueryBuilder('user');
+      await runner.applyDynamic(User, { filter: { age: { gte: 25, lte: 30 } } }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
+      await mod.close();
+    });
+
+    it('32. applies includes without filter class allowlist', async () => {
+      const mod = await createModule();
+      await seed();
+      const repo = ds.getRepository(User);
+      const qb = repo.createQueryBuilder('user');
+      await runner.applyDynamic(User, { filter: { name: 'Alice' }, include: ['posts'] }, qb);
+      const rows = await qb.getMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.posts).toBeDefined();
+      expect(rows[0]!.posts.length).toBeGreaterThan(0);
+      await mod.close();
+    });
+
+    it('33. empty input returns all rows', async () => {
+      const mod = await createModule();
+      await seed();
+      const repo = ds.getRepository(User);
+      const qb = repo.createQueryBuilder('user');
+      await runner.applyDynamic(User, { filter: {} }, qb);
+      const rows = await qb.getMany();
+      expect(rows).toHaveLength(4);
+      await mod.close();
+    });
+
+    it('34. silently skips unknown fields', async () => {
+      const mod = await createModule();
+      await seed();
+      const repo = ds.getRepository(User);
+      const qb = repo.createQueryBuilder('user');
+      await runner.applyDynamic(User, { filter: { nonExistent: 'x', name: 'Alice' } }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name)).toEqual(['Alice']);
+      await mod.close();
+    });
+
+    it('35. dot-notation relation filtering', async () => {
+      const mod = await createModule();
+      await seed();
+      const repo = ds.getRepository(User);
+      const qb = repo.createQueryBuilder('user');
+      await runner.applyDynamic(User, { filter: { 'posts.status': 'published' } }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Bob']);
+      await mod.close();
+    });
+
+    it('36. array value filters as IN', async () => {
+      const mod = await createModule();
+      await seed();
+      const repo = ds.getRepository(User);
+      const qb = repo.createQueryBuilder('user');
+      await runner.applyDynamic(User, { filter: { role: ['admin', 'moderator'] } }, qb);
+      const rows = await qb.getMany();
+      expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Charlie']);
+      await mod.close();
+    });
+  });
 });
