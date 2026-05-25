@@ -490,6 +490,18 @@ describe('FilterQueryBuilder', () => {
       expect(result).toEqual({ where: [] });
     });
 
+    it('clear() resets groups (OR/AND)', () => {
+      const q = filterQuery()
+        .equals('a', 1)
+        .or((sub) => sub.equals('b', 2))
+        .clear()
+        .equals('c', 3);
+      const result = q.build();
+      // Should only have 'c', no 'b' from the OR group
+      expect(result.where).toHaveLength(1);
+      expect(result.where[0]!.field).toBe('c');
+    });
+
     it('clear() allows rebuilding from scratch', () => {
       const builder = filterQuery()
         .where('status', 'COMPLETED')

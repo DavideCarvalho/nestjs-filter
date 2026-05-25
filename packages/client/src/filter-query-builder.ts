@@ -171,6 +171,7 @@ export class FilterQueryBuilder {
    */
   clear(): this {
     this.conditions = [];
+    this.groups.length = 0;
     this.extra = {};
     return this;
   }
