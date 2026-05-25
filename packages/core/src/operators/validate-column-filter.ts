@@ -79,6 +79,13 @@ export function validateColumnFilter(filter: ColumnFilter, depth = 0): void {
 
   const op = filter.operator as FilterOperator;
 
+  // Reject null for non-unary operators (point to isNull instead)
+  if (!UNARY_OPERATORS.has(op) && filter.value === null) {
+    throw new InvalidColumnFilterError(
+      `Operator "${op}" received null. Use "isNull" for NULL checks.`,
+    );
+  }
+
   // Validate value
   if (UNARY_OPERATORS.has(op)) {
     // Unary operators don't need a value — ignore any provided value
