@@ -182,6 +182,32 @@ describe('TypeORM auto-fields', () => {
     await mod.close();
   });
 
+  // ─── Field Name Validation ─────────────────────────────────────────────────
+
+  describe('field name validation in applyAutoField', () => {
+    it('rejects field names with SQL injection characters', async () => {
+      const mod = await createModule([ProductAutoAllFilter]);
+      const repo = await seed();
+      const qb = repo.createQueryBuilder('product');
+      // Send unsafe field name via autoFields — should be silently skipped
+      await runner.apply(ProductAutoAllFilter, { 'evil; DROP TABLE': 'x' }, qb);
+      const rows = await qb.getMany();
+      // All rows returned since the unsafe field was skipped
+      expect(rows).toHaveLength(4);
+      await mod.close();
+    });
+
+    it('skips field names with quotes', async () => {
+      const mod = await createModule([ProductAutoAllFilter]);
+      const repo = await seed();
+      const qb = repo.createQueryBuilder('product');
+      await runner.apply(ProductAutoAllFilter, { "name'--": 'x' }, qb);
+      const rows = await qb.getMany();
+      expect(rows).toHaveLength(4);
+      await mod.close();
+    });
+  });
+
   // ─── Entity Metadata Introspection ─────────────────────────────────────────
 
   describe('entity metadata introspection', () => {

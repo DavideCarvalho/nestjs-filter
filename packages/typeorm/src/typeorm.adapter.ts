@@ -11,6 +11,12 @@ import { applyColumnFiltersTypeOrm, applyOperator } from './operator-resolver.js
 
 const OPERATOR_SET = new Set<string>(FILTER_OPERATORS);
 
+/**
+ * Regex for safe SQL field names: starts with letter or underscore,
+ * followed by letters, digits, or underscores.
+ */
+const SAFE_FIELD = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
 export class TypeOrmAdapter implements FilterAdapter {
   constructor(private readonly dataSource: DataSource) {}
 
@@ -39,6 +45,7 @@ export class TypeOrmAdapter implements FilterAdapter {
   }
 
   applyAutoField(qb: unknown, field: string, value: unknown): void {
+    if (!SAFE_FIELD.test(field)) return; // silently skip unsafe field names
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = queryBuilder.alias;
     if (Array.isArray(value)) {
@@ -86,6 +93,7 @@ export class TypeOrmAdapter implements FilterAdapter {
   }
 
   applyAutoRelationField(qb: unknown, relationName: string, field: string, value: unknown): void {
+    if (!SAFE_FIELD.test(relationName) || !SAFE_FIELD.test(field)) return; // silently skip unsafe names
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = queryBuilder.alias;
     const relAlias = `${relationName}_auto`;
