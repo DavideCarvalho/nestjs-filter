@@ -84,8 +84,8 @@ export class ApplyFilterInterceptor implements NestInterceptor {
 
       const qb = adapter.createQueryBuilder(filterableMeta.entity);
       const source = entry.options.source ?? 'auto';
-      const input = resolveInputFromRequest(req, source);
-      await runner.apply(FilterClass as Type<object>, input, qb, { req });
+      const rawInput = resolveInputFromRequest(req, source);
+      await runner.apply(FilterClass as Type<object>, rawInput, qb, { req });
       slot[entry.paramIndex] = qb;
     }
   }

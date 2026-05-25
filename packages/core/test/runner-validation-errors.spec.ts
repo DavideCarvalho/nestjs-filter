@@ -86,7 +86,7 @@ describe('FilterRunner — validation error paths', () => {
     const runner = mod.get(FilterRunner);
 
     try {
-      await runner.apply(MultiFieldFilter, { age: 'not-a-number' }, makeMockQB());
+      await runner.apply(MultiFieldFilter, { filter: { age: 'not-a-number' } }, makeMockQB());
       expect.unreachable('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(FilterValidationException);
@@ -103,7 +103,7 @@ describe('FilterRunner — validation error paths', () => {
     try {
       await runner.apply(
         MultiFieldFilter,
-        { age: 'bad', name: 'x' }, // age not a number, name too short (minLength 2)
+        { filter: { age: 'bad', name: 'x' } }, // age not a number, name too short (minLength 2)
         makeMockQB(),
       );
       expect.unreachable('should have thrown');
@@ -120,7 +120,7 @@ describe('FilterRunner — validation error paths', () => {
     const runner = mod.get(FilterRunner);
 
     await expect(
-      runner.apply(WrongTypeFilter, { age: 'not-numeric' }, makeMockQB()),
+      runner.apply(WrongTypeFilter, { filter: { age: 'not-numeric' } }, makeMockQB()),
     ).rejects.toThrow(FilterValidationException);
   });
 
@@ -129,9 +129,9 @@ describe('FilterRunner — validation error paths', () => {
     const mod = await makeModule({}, [WrongTypeFilter]);
     const runner = mod.get(FilterRunner);
 
-    await expect(runner.apply(WrongTypeFilter, { age: 'bad' }, makeMockQB())).rejects.toThrow(
-      /validation/i,
-    );
+    await expect(
+      runner.apply(WrongTypeFilter, { filter: { age: 'bad' } }, makeMockQB()),
+    ).rejects.toThrow(/validation/i);
   });
 
   // Valid input passes validation
@@ -140,7 +140,7 @@ describe('FilterRunner — validation error paths', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
 
-    await runner.apply(MultiFieldFilter, { age: 25, name: 'Alice' }, qb);
+    await runner.apply(MultiFieldFilter, { filter: { age: 25, name: 'Alice' } }, qb);
     expect(qb.calls).toEqual([
       ['andWhere', { age: 25 }],
       ['andWhere', { name: 'Alice' }],
@@ -153,7 +153,7 @@ describe('FilterRunner — validation error paths', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
 
-    await runner.apply(MultiFieldFilter, {}, qb);
+    await runner.apply(MultiFieldFilter, { filter: {} }, qb);
     expect(qb.calls).toEqual([]);
   });
 });

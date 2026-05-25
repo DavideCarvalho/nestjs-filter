@@ -92,7 +92,7 @@ describe('FilterRunner — class-validator', () => {
     const mod = await makeModule();
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
-    await runner.apply(ValidatedFilter, { companyId: 5 }, qb);
+    await runner.apply(ValidatedFilter, { filter: { companyId: 5 } }, qb);
     expect(qb.calls).toEqual([['andWhere', { company: 5 }]]);
   });
 
@@ -100,7 +100,7 @@ describe('FilterRunner — class-validator', () => {
     const mod = await makeModule();
     const runner = mod.get(FilterRunner);
     await expect(
-      runner.apply(ValidatedFilter, { companyId: 'not-a-number' }, makeMockQB()),
+      runner.apply(ValidatedFilter, { filter: { companyId: 'not-a-number' } }, makeMockQB()),
     ).rejects.toThrow(FilterValidationException);
   });
 
@@ -108,7 +108,7 @@ describe('FilterRunner — class-validator', () => {
     const mod = await makeModule({ validation: 'off' });
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
-    await runner.apply(ValidatedFilter, { companyId: 'x' as unknown as number }, qb);
+    await runner.apply(ValidatedFilter, { filter: { companyId: 'x' as unknown as number } }, qb);
     expect(qb.calls.length).toBe(1);
   });
 
@@ -130,7 +130,7 @@ describe('FilterRunner — class-validator', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
     // Send age as string (as it would come from a query string)
-    await runner.apply(TransformedFilter, { age: '25' }, qb);
+    await runner.apply(TransformedFilter, { filter: { age: '25' } }, qb);
     // The value should have been transformed to a number by class-transformer
     expect(qb.calls).toEqual([['andWhere', { age: 25 }]]);
   });
@@ -140,7 +140,7 @@ describe('FilterRunner — class-validator', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
     // Send only "name", NOT "status" — the default "active" should NOT be dispatched
-    await runner.apply(FilterWithDefault, { name: 'Alice' }, qb);
+    await runner.apply(FilterWithDefault, { filter: { name: 'Alice' } }, qb);
     expect(qb.calls).toEqual([['andWhere', { name: 'Alice' }]]);
   });
 });

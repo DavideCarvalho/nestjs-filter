@@ -127,26 +127,28 @@ class TestAppModuleDoubleFeature {}
 class TestAppModuleResolve {}
 
 describe('@ApplyFilter via Express interceptor', () => {
-  it('GET uses query string', async () => {
+  it('GET with structured query string (requires extended query parser)', async () => {
     const mod = await Test.createTestingModule({ imports: [TestAppModule] }).compile();
     const app = mod.createNestApplication<NestExpressApplication>();
+    // Express 5 needs 'extended' query parser for bracket notation
+    (app.getHttpAdapter().getInstance() as any).set('query parser', 'extended');
     await app.init();
 
-    const res = await request(app.getHttpServer()).get('/users?name=foo');
+    const res = await request(app.getHttpServer()).get('/users?filter[name]=foo');
     expect(res.status).toBe(200);
     expect(res.body.result.calls).toEqual([['andWhere', { name: 'foo' }]]);
 
     await app.close();
   });
 
-  it('POST merges query + body, body wins', async () => {
+  it('POST uses structured body format', async () => {
     const mod = await Test.createTestingModule({ imports: [TestAppModule] }).compile();
     const app = mod.createNestApplication<NestExpressApplication>();
     await app.init();
 
     const res = await request(app.getHttpServer())
-      .post('/users/search?name=fromQuery')
-      .send({ name: 'fromBody' });
+      .post('/users/search')
+      .send({ filter: { name: 'fromBody' } });
 
     expect(res.status).toBe(201);
     expect(res.body.result.calls).toEqual([['andWhere', { name: 'fromBody' }]]);
@@ -157,15 +159,16 @@ describe('@ApplyFilter via Express interceptor', () => {
   it('resolve option picks filter dynamically', async () => {
     const mod = await Test.createTestingModule({ imports: [TestAppModuleResolve] }).compile();
     const app = mod.createNestApplication<NestExpressApplication>();
+    (app.getHttpAdapter().getInstance() as any).set('query parser', 'extended');
     await app.init();
 
     // Without admin flag -> UserFilter
-    const res1 = await request(app.getHttpServer()).get('/resolve?name=foo');
+    const res1 = await request(app.getHttpServer()).get('/resolve?filter[name]=foo');
     expect(res1.status).toBe(200);
     expect(res1.body.result.calls).toEqual([['andWhere', { name: 'foo' }]]);
 
     // With admin flag -> AdminFilter
-    const res2 = await request(app.getHttpServer()).get('/resolve?name=foo&admin=true');
+    const res2 = await request(app.getHttpServer()).get('/resolve?filter[name]=foo&admin=true');
     expect(res2.status).toBe(200);
     expect(res2.body.result.calls).toEqual([['andWhere', { name: 'foo', role: 'admin' }]]);
 
@@ -177,9 +180,10 @@ describe('@ApplyFilter via Express interceptor', () => {
       imports: [TestAppModuleDoubleFeature],
     }).compile();
     const app = mod.createNestApplication<NestExpressApplication>();
+    (app.getHttpAdapter().getInstance() as any).set('query parser', 'extended');
     await app.init();
 
-    const res = await request(app.getHttpServer()).get('/users?name=bar');
+    const res = await request(app.getHttpServer()).get('/users?filter[name]=bar');
     expect(res.status).toBe(200);
     // Should have exactly 1 andWhere call, not 2 (which would happen if interceptor ran twice)
     expect(res.body.result.calls).toEqual([['andWhere', { name: 'bar' }]]);

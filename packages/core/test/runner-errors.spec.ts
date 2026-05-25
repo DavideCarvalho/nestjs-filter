@@ -155,7 +155,7 @@ describe('FilterRunner — error paths', () => {
 
       const mod = await makeModule();
       const runner = mod.get(FilterRunner);
-      await expect(runner.apply(Unregistered, {}, makeMockQB())).rejects.toThrow(
+      await expect(runner.apply(Unregistered, { filter: {} }, makeMockQB())).rejects.toThrow(
         FilterNotRegisteredException,
       );
     });
@@ -167,7 +167,9 @@ describe('FilterRunner — error paths', () => {
 
       const mod = await makeModule();
       const runner = mod.get(FilterRunner);
-      await expect(runner.apply(SpecialFilter, {}, makeMockQB())).rejects.toThrow(/SpecialFilter/);
+      await expect(runner.apply(SpecialFilter, { filter: {} }, makeMockQB())).rejects.toThrow(
+        /SpecialFilter/,
+      );
     });
   });
 
@@ -207,7 +209,7 @@ describe('FilterRunner — error paths', () => {
 
         // If compile succeeds (it might with lazy resolution), try apply
         const runner = mod.get(FilterRunner);
-        await runner.apply(BrokenDIFilter, { name: 'x' }, makeMockQB());
+        await runner.apply(BrokenDIFilter, { filter: { name: 'x' } }, makeMockQB());
       } catch (err) {
         // The error should reference the missing dependency, not FilterNotRegisteredException
         expect(err).not.toBeInstanceOf(FilterNotRegisteredException);
@@ -224,7 +226,7 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
 
       try {
-        await runner.apply(SyncThrowFilter, { dbField: 'test' }, makeMockQB());
+        await runner.apply(SyncThrowFilter, { filter: { dbField: 'test' } }, makeMockQB());
         expect.unreachable('should have thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(FilterMethodException);
@@ -244,7 +246,7 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
 
       try {
-        await runner.apply(AsyncThrowFilter, { timeout: 'request' }, makeMockQB());
+        await runner.apply(AsyncThrowFilter, { filter: { timeout: 'request' } }, makeMockQB());
         expect.unreachable('should have thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(FilterMethodException);
@@ -264,7 +266,7 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
 
       try {
-        await runner.apply(StringThrowFilter, { fail: 'x' }, makeMockQB());
+        await runner.apply(StringThrowFilter, { filter: { fail: 'x' } }, makeMockQB());
         expect.unreachable('should have thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(FilterMethodException);
@@ -284,7 +286,7 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
 
       try {
-        await runner.apply(NullThrowFilter, { fail: 'x' }, makeMockQB());
+        await runner.apply(NullThrowFilter, { filter: { fail: 'x' } }, makeMockQB());
         expect.unreachable('should have thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(FilterMethodException);
@@ -304,7 +306,7 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
 
       try {
-        await runner.apply(AsyncSetupThrowFilter, { name: 'x' }, makeMockQB());
+        await runner.apply(AsyncSetupThrowFilter, { filter: { name: 'x' } }, makeMockQB());
         expect.unreachable('should have thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(FilterMethodException);
@@ -324,7 +326,7 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
 
       try {
-        await runner.apply(GoodFilter, { unknownField: 'value' }, makeMockQB());
+        await runner.apply(GoodFilter, { filter: { unknownField: 'value' } }, makeMockQB());
         expect.unreachable('should have thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(UnknownFilterKeyException);
@@ -335,9 +337,9 @@ describe('FilterRunner — error paths', () => {
     it('UnknownFilterKeyException message includes the key name', async () => {
       const mod = await makeModule({ onUnknownKey: 'throw' }, [GoodFilter]);
       const runner = mod.get(FilterRunner);
-      await expect(runner.apply(GoodFilter, { fooBarBaz: 1 }, makeMockQB())).rejects.toThrow(
-        /fooBarBaz/,
-      );
+      await expect(
+        runner.apply(GoodFilter, { filter: { fooBarBaz: 1 } }, makeMockQB()),
+      ).rejects.toThrow(/fooBarBaz/);
     });
   });
 
@@ -348,7 +350,7 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
 
-      await runner.apply(GoodFilter, { unknownField: 'value', name: 'Alice' }, qb);
+      await runner.apply(GoodFilter, { filter: { unknownField: 'value', name: 'Alice' } }, qb);
       // Only known key dispatched
       expect(qb.calls).toEqual([['andWhere', { name: 'Alice' }]]);
     });
@@ -362,7 +364,11 @@ describe('FilterRunner — error paths', () => {
       const qb = makeMockQB();
 
       // nonExistentKey is whitelisted but has no @FilterFor, so it should be skipped
-      await runner.apply(WhitelistNonExistentFilter, { nonExistentKey: 'x', name: 'foo' }, qb);
+      await runner.apply(
+        WhitelistNonExistentFilter,
+        { filter: { nonExistentKey: 'x', name: 'foo' } },
+        qb,
+      );
       expect(qb.calls).toEqual([['andWhere', { name: 'foo' }]]);
     });
   });
@@ -374,7 +380,7 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
 
-      await runner.apply(BlacklistOverrideFilter, { name: 'foo', companyId: 5 }, qb);
+      await runner.apply(BlacklistOverrideFilter, { filter: { name: 'foo', companyId: 5 } }, qb);
       // name is blacklisted at runtime, only companyId should be dispatched
       expect(qb.calls).toEqual([['andWhere', { company: 5 }]]);
     });
@@ -401,9 +407,9 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
 
-      await expect(runner.apply(PartialFilter, { good: 'ok', bad: 'fail' }, qb)).rejects.toThrow(
-        FilterMethodException,
-      );
+      await expect(
+        runner.apply(PartialFilter, { filter: { good: 'ok', bad: 'fail' } }, qb),
+      ).rejects.toThrow(FilterMethodException);
 
       // 'good' should have already been dispatched before 'bad' threw
       expect(qb.calls).toEqual([['andWhere', { good: 'ok' }]]);
@@ -426,7 +432,7 @@ describe('FilterRunner — error paths', () => {
       const mod = await makeModule({ onUnknownKey: 'throw' }, [PushUnknownFilter]);
       const runner = mod.get(FilterRunner);
       await expect(
-        runner.apply(PushUnknownFilter, { trigger: 'go' }, makeMockQB()),
+        runner.apply(PushUnknownFilter, { filter: { trigger: 'go' } }, makeMockQB()),
       ).rejects.toThrow(UnknownFilterKeyException);
     });
   });
@@ -447,7 +453,7 @@ describe('FilterRunner — error paths', () => {
       const mod = await makeModule({ onUnknownKey: 'ignore' }, [PushIgnoreFilter]);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(PushIgnoreFilter, { trigger: 'go' }, qb);
+      await runner.apply(PushIgnoreFilter, { filter: { trigger: 'go' } }, qb);
       expect(qb.calls).toEqual([['andWhere', { trigger: 'go' }]]);
     });
   });
@@ -474,7 +480,7 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
 
       try {
-        await runner.apply(PushErrorFilter, { trigger: 'go' }, makeMockQB());
+        await runner.apply(PushErrorFilter, { filter: { trigger: 'go' } }, makeMockQB());
         expect.unreachable('should have thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(FilterMethodException);
@@ -503,7 +509,7 @@ describe('FilterRunner — error paths', () => {
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
       const context = { userId: 42, role: 'admin' };
-      await runner.apply(ContextFilter, { name: 'test' }, qb, context);
+      await runner.apply(ContextFilter, { filter: { name: 'test' } }, qb, context);
       expect(qb.calls).toEqual([['andWhere', { name: 'test', ctx: context }]]);
     });
   });

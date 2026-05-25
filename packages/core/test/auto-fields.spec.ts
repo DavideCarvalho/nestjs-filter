@@ -135,7 +135,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(ExplicitAutoFieldFilter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(ExplicitAutoFieldFilter, { status: 'active' }, qb);
+      await runner.apply(ExplicitAutoFieldFilter, { filter: { status: 'active' } }, qb);
       expect(qb.calls).toEqual([['andWhere', { status: 'active' }]]);
     });
 
@@ -143,7 +143,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(ExplicitAutoFieldFilter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(ExplicitAutoFieldFilter, { status: ['A', 'B'] }, qb);
+      await runner.apply(ExplicitAutoFieldFilter, { filter: { status: ['A', 'B'] } }, qb);
       expect(qb.calls).toEqual([['andWhere', { status: { $in: ['A', 'B'] } }]]);
     });
 
@@ -151,7 +151,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(ExplicitAutoFieldFilter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(ExplicitAutoFieldFilter, { age: { gte: 25 } }, qb);
+      await runner.apply(ExplicitAutoFieldFilter, { filter: { age: { gte: 25 } } }, qb);
       expect(qb.calls).toEqual([['andWhere', { age: { $gte: 25 } }]]);
     });
 
@@ -159,7 +159,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(ExplicitAutoFieldFilter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(ExplicitAutoFieldFilter, { age: { gte: 20, lte: 30 } }, qb);
+      await runner.apply(ExplicitAutoFieldFilter, { filter: { age: { gte: 20, lte: 30 } } }, qb);
       expect(qb.calls).toEqual([['andWhere', { age: { $gte: 20, $lte: 30 } }]]);
     });
 
@@ -168,7 +168,7 @@ describe('Auto-fields', () => {
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
       // 'email' is not in autoFields list
-      await runner.apply(ExplicitAutoFieldFilter, { email: 'test@test.com' }, qb);
+      await runner.apply(ExplicitAutoFieldFilter, { filter: { email: 'test@test.com' } }, qb);
       expect(qb.calls).toEqual([]);
     });
 
@@ -178,7 +178,7 @@ describe('Auto-fields', () => {
       });
       const runner = mod.get(FilterRunner);
       await expect(
-        runner.apply(ExplicitAutoFieldFilter, { email: 'test@test.com' }, makeMockQB()),
+        runner.apply(ExplicitAutoFieldFilter, { filter: { email: 'test@test.com' } }, makeMockQB()),
       ).rejects.toThrow('Unknown filter key');
     });
   });
@@ -188,7 +188,11 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { status: 'active', email: 'a@b.c' }, qb);
+      await runner.apply(
+        MatchAllAutoFieldFilter,
+        { filter: { status: 'active', email: 'a@b.c' } },
+        qb,
+      );
       expect(qb.calls).toEqual([
         ['andWhere', { status: 'active' }],
         ['andWhere', { email: 'a@b.c' }],
@@ -199,7 +203,11 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { role: 'admin', status: 'active' }, qb);
+      await runner.apply(
+        MatchAllAutoFieldFilter,
+        { filter: { role: 'admin', status: 'active' } },
+        qb,
+      );
       // role goes through @FilterFor, status goes through auto-field
       expect(qb.calls).toEqual([
         ['andWhere', { role: 'admin' }],
@@ -221,7 +229,11 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { status: 'active', nonExistentField: 'x' }, qb);
+      await runner.apply(
+        MatchAllAutoFieldFilter,
+        { filter: { status: 'active', nonExistentField: 'x' } },
+        qb,
+      );
       // status is a real column — applied; nonExistentField is not — silently skipped
       expect(qb.calls).toEqual([['andWhere', { status: 'active' }]]);
     });
@@ -233,7 +245,7 @@ describe('Auto-fields', () => {
       const qb = makeMockQB();
       await runner.apply(
         MatchAllAutoFieldFilter,
-        { hackerField: 'DROP TABLE users', sqlInjection: '1=1' },
+        { filter: { hackerField: 'DROP TABLE users', sqlInjection: '1=1' } },
         qb,
       );
       // Neither field exists on entity — nothing applied
@@ -245,7 +257,11 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { role: 'admin', status: 'active' }, qb);
+      await runner.apply(
+        MatchAllAutoFieldFilter,
+        { filter: { role: 'admin', status: 'active' } },
+        qb,
+      );
       // role dispatched via @FilterFor; status dispatched via auto-field (it's a real column)
       expect(qb.calls).toEqual([
         ['andWhere', { role: 'admin' }],
@@ -264,7 +280,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { role: 'admin' }, qb);
+      await runner.apply(MatchAllAutoFieldFilter, { filter: { role: 'admin' } }, qb);
       // role goes through @FilterFor method, not auto-field
       expect(qb.calls).toEqual([['andWhere', { role: 'admin' }]]);
     });
@@ -278,7 +294,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { anyKey: 'value' }, qb);
+      await runner.apply(MatchAllAutoFieldFilter, { filter: { anyKey: 'value' } }, qb);
       // Fallback — any key accepted
       expect(qb.calls).toEqual([['andWhere', { anyKey: 'value' }]]);
     });
@@ -289,7 +305,11 @@ describe('Auto-fields', () => {
       const mod = await makeModule(AutoFieldWithAllowedFilter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(AutoFieldWithAllowedFilter, { status: 'active', email: 'a@b.c' }, qb);
+      await runner.apply(
+        AutoFieldWithAllowedFilter,
+        { filter: { status: 'active', email: 'a@b.c' } },
+        qb,
+      );
       // status is allowed and auto-applied; email is NOT allowed, ignored
       expect(qb.calls).toEqual([['andWhere', { status: 'active' }]]);
     });
@@ -298,7 +318,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(AutoFieldWithAllowedFilter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(AutoFieldWithAllowedFilter, { role: 'admin' }, qb);
+      await runner.apply(AutoFieldWithAllowedFilter, { filter: { role: 'admin' } }, qb);
       // role has @FilterFor so dispatched via method, not auto-field
       expect(qb.calls).toEqual([['andWhere', { role: 'admin' }]]);
     });
@@ -309,7 +329,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MixedAutoFieldFilter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MixedAutoFieldFilter, { name: 'Alice', status: 'active' }, qb);
+      await runner.apply(MixedAutoFieldFilter, { filter: { name: 'Alice', status: 'active' } }, qb);
       // name via @FilterFor, status via auto-field
       expect(qb.calls).toEqual([
         ['andWhere', { name: 'Alice' }],
@@ -327,7 +347,7 @@ describe('Auto-fields', () => {
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
       // Should not throw, just warn and skip
-      await runner.apply(ExplicitAutoFieldFilter, { status: 'active' }, qb);
+      await runner.apply(ExplicitAutoFieldFilter, { filter: { status: 'active' } }, qb);
       expect(qb.calls).toEqual([]);
     });
 
@@ -335,7 +355,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(ExplicitAutoFieldFilter, null);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(ExplicitAutoFieldFilter, { status: 'active' }, qb);
+      await runner.apply(ExplicitAutoFieldFilter, { filter: { status: 'active' } }, qb);
       expect(qb.calls).toEqual([]);
     });
   });
@@ -366,7 +386,7 @@ describe('Auto-fields', () => {
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
       // 'status' has no @FilterFor and autoFields is false — ignored
-      await runner.apply(NoAutoFieldFilter, { status: 'active', name: 'foo' }, qb);
+      await runner.apply(NoAutoFieldFilter, { filter: { status: 'active', name: 'foo' } }, qb);
       expect(qb.calls).toEqual([['andWhere', { name: 'foo' }]]);
     });
   });
@@ -419,7 +439,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { 'posts.title': 'GraphQL' }, qb);
+      await runner.apply(MatchAllAutoFieldFilter, { filter: { 'posts.title': 'GraphQL' } }, qb);
       expect(qb.calls).toEqual([['andWhere', { posts: { title: 'GraphQL' } }]]);
     });
 
@@ -428,7 +448,11 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { 'posts.title': { contains: 'Hello' } }, qb);
+      await runner.apply(
+        MatchAllAutoFieldFilter,
+        { filter: { 'posts.title': { contains: 'Hello' } } },
+        qb,
+      );
       expect(qb.calls).toEqual([['andWhere', { posts: { title: { $contains: 'Hello' } } }]]);
     });
 
@@ -437,7 +461,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { 'unknownRelation.title': 'x' }, qb);
+      await runner.apply(MatchAllAutoFieldFilter, { filter: { 'unknownRelation.title': 'x' } }, qb);
       // No calls — unknown relation is silently skipped (handled by handleUnknownKey)
       expect(qb.calls).toEqual([]);
     });
@@ -449,7 +473,7 @@ describe('Auto-fields', () => {
       const qb = makeMockQB();
       await runner.apply(
         MatchAllAutoFieldFilter,
-        { 'posts.title': 'Hello', 'company.name': 'Acme' },
+        { filter: { 'posts.title': 'Hello', 'company.name': 'Acme' } },
         qb,
       );
       expect(qb.calls).toEqual([
@@ -463,7 +487,11 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { 'posts.status': ['draft', 'published'] }, qb);
+      await runner.apply(
+        MatchAllAutoFieldFilter,
+        { filter: { 'posts.status': ['draft', 'published'] } },
+        qb,
+      );
       expect(qb.calls).toEqual([
         ['andWhere', { posts: { status: { $in: ['draft', 'published'] } } }],
       ]);
@@ -495,7 +523,7 @@ describe('Auto-fields', () => {
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
       // With autoFields: false, dot-notation should not be triggered
-      await runner.apply(NoAutoFieldDotFilter, { 'posts.title': 'Hello' }, qb);
+      await runner.apply(NoAutoFieldDotFilter, { filter: { 'posts.title': 'Hello' } }, qb);
       expect(qb.calls).toEqual([]);
     });
 
@@ -509,7 +537,7 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter, adapterWithout);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { 'posts.title': 'Hello' }, qb);
+      await runner.apply(MatchAllAutoFieldFilter, { filter: { 'posts.title': 'Hello' } }, qb);
       // Should be silently skipped
       expect(qb.calls).toEqual([]);
     });
@@ -519,7 +547,11 @@ describe('Auto-fields', () => {
       const mod = await makeModule(MatchAllAutoFieldFilter, adapter);
       const runner = mod.get(FilterRunner);
       const qb = makeMockQB();
-      await runner.apply(MatchAllAutoFieldFilter, { name: 'Alice', 'posts.title': 'Hello' }, qb);
+      await runner.apply(
+        MatchAllAutoFieldFilter,
+        { filter: { name: 'Alice', 'posts.title': 'Hello' } },
+        qb,
+      );
       expect(qb.calls).toEqual([
         ['andWhere', { name: 'Alice' }],
         ['andWhere', { posts: { title: 'Hello' } }],

@@ -109,7 +109,7 @@ describe('Query string bracket notation', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
     // Simulates: ?name=foo
-    await runner.apply(BracketFilter, { name: 'foo' }, qb);
+    await runner.apply(BracketFilter, { filter: { name: 'foo' } }, qb);
     expect(qb.calls).toEqual([['andWhere', { name: 'foo' }]]);
   });
 
@@ -118,7 +118,7 @@ describe('Query string bracket notation', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
     // Simulates: ?status[]=A&status[]=B → { status: ['A', 'B'] }
-    await runner.apply(BracketFilter, { status: ['A', 'B'] }, qb);
+    await runner.apply(BracketFilter, { filter: { status: ['A', 'B'] } }, qb);
     expect(qb.calls).toEqual([['andWhere', { status: { $in: ['A', 'B'] } }]]);
   });
 
@@ -127,7 +127,7 @@ describe('Query string bracket notation', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
     // Simulates: ?name[contains]=fleet → { name: { contains: 'fleet' } }
-    await runner.apply(BracketFilter, { name: { contains: 'fleet' } }, qb);
+    await runner.apply(BracketFilter, { filter: { name: { contains: 'fleet' } } }, qb);
     expect(qb.calls).toEqual([['andWhere', { name: { $contains: 'fleet' } }]]);
   });
 
@@ -136,7 +136,11 @@ describe('Query string bracket notation', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
     // Simulates: ?createdAt[gte]=2026-01-01&createdAt[lte]=2026-12-31
-    await runner.apply(BracketFilter, { createdAt: { gte: '2026-01-01', lte: '2026-12-31' } }, qb);
+    await runner.apply(
+      BracketFilter,
+      { filter: { createdAt: { gte: '2026-01-01', lte: '2026-12-31' } } },
+      qb,
+    );
     expect(qb.calls).toEqual([
       ['andWhere', { createdAt: { $gte: '2026-01-01', $lte: '2026-12-31' } }],
     ]);
@@ -149,7 +153,7 @@ describe('Query string bracket notation', () => {
     // Simulates: ?where[0][field]=name&where[0][operator]=contains&where[0][value]=fleet
     await runner.apply(
       BracketFilter,
-      { where: [{ field: 'name', operator: 'contains', value: 'fleet' }] },
+      { filter: { where: [{ field: 'name', operator: 'contains', value: 'fleet' }] } },
       qb,
     );
     expect(qb.calls).toEqual([
@@ -161,7 +165,11 @@ describe('Query string bracket notation', () => {
     const mod = await makeModule();
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
-    await runner.apply(BracketFilter, { role: 'admin', status: ['A', 'B'], age: { gte: 18 } }, qb);
+    await runner.apply(
+      BracketFilter,
+      { filter: { role: 'admin', status: ['A', 'B'], age: { gte: 18 } } },
+      qb,
+    );
     expect(qb.calls).toEqual([
       ['andWhere', { role: 'admin' }],
       ['andWhere', { status: { $in: ['A', 'B'] } }],
@@ -176,8 +184,10 @@ describe('Query string bracket notation', () => {
     await runner.apply(
       BracketFilter,
       {
-        where: [{ field: 'email', operator: 'contains', value: '@test' }],
-        status: 'active',
+        filter: {
+          where: [{ field: 'email', operator: 'contains', value: '@test' }],
+          status: 'active',
+        },
       },
       qb,
     );
@@ -193,7 +203,7 @@ describe('Query string bracket notation', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
     // Verify that { name: { startsWith: 'A' } } passes through normalization unchanged
-    await runner.apply(BracketFilter, { name: { startsWith: 'A' } }, qb);
+    await runner.apply(BracketFilter, { filter: { name: { startsWith: 'A' } } }, qb);
     expect(qb.calls).toEqual([['andWhere', { name: { $startsWith: 'A' } }]]);
   });
 
@@ -202,7 +212,7 @@ describe('Query string bracket notation', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
     // { name: { foo: 'bar' } } — 'foo' is not a known operator, treated as plain value
-    await runner.apply(BracketFilter, { name: { foo: 'bar' } }, qb);
+    await runner.apply(BracketFilter, { filter: { name: { foo: 'bar' } } }, qb);
     // The adapter receives the object as-is since it doesn't match operator keys
     expect(qb.calls).toEqual([['andWhere', { name: { foo: 'bar' } }]]);
   });

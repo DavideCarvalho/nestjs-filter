@@ -131,4 +131,43 @@ export interface FilterAdapter {
    * @param value - The filter value (scalar, array, or operator object).
    */
   applyAutoRelationField?(qb: unknown, relationName: string, field: string, value: unknown): void;
+
+  /**
+   * Applies eager loading for the given relation paths.
+   *
+   * Each include path is a dot-separated relation name (e.g. 'posts', 'posts.comments').
+   * The adapter should left-join-and-select these relations on the query builder.
+   *
+   * Optional — adapters that don't support includes should not implement this.
+   *
+   * @param qb - The query builder instance.
+   * @param includes - Array of relation paths to eagerly load.
+   * @param entity - The root entity class.
+   */
+  applyIncludes?(qb: unknown, includes: string[], entity: Type<unknown>): void;
+
+  /**
+   * Applies a global ILIKE search across the given columns.
+   *
+   * Generates an OR condition: `col1 ILIKE '%term%' OR col2 ILIKE '%term%' OR ...`
+   *
+   * Optional — adapters that don't support search should not implement this.
+   *
+   * @param qb - The query builder instance.
+   * @param term - The search term (already trimmed).
+   * @param columns - Column names to search across.
+   * @param entity - The root entity class.
+   */
+  applySearch?(qb: unknown, term: string, columns: string[], entity: Type<unknown>): void;
+
+  /**
+   * Applies a full-text vector search using a tsvector column.
+   *
+   * Optional — adapters that don't support vector search should not implement this.
+   *
+   * @param qb - The query builder instance.
+   * @param term - The search term.
+   * @param vectorColumn - The tsvector column name.
+   */
+  applyVectorSearch?(qb: unknown, term: string, vectorColumn: string): void;
 }

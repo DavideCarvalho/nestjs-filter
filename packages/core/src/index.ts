@@ -44,6 +44,7 @@ export type {
   InputNormalizer,
   InputSource,
   OnUnknownKey,
+  StructuredInput,
   ValidationMode,
 } from './types.js';
 export { resolveInputFromRequest } from './input/source-resolver.js';

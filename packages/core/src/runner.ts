@@ -69,8 +69,14 @@ export class FilterRunner {
     const filter = await this.resolveFilter(FilterClass);
     const adapter = this.resolveAdapter();
 
-    // Extract column filters from input before normalization
-    const { columnFilters, remainingInput } = this.extractColumnFilters(input);
+    // Extract structured input: { filter, include, search }
+    const rawInput = this.extractStructuredInput(input);
+    const filterInput = rawInput.filter;
+    const rawInclude = rawInput.include;
+    const rawSearch = rawInput.search;
+
+    // Extract column filters from the filter portion before normalization
+    const { columnFilters, remainingInput } = this.extractColumnFilters(filterInput);
 
     const normalized = normalizeInput(remainingInput, {
       normalizer: this.options.inputNormalizer ?? 'camelCase',
@@ -222,6 +228,28 @@ export class FilterRunner {
             throw new FilterMethodException(key, value, cause);
           }
         }
+
+        // Apply includes (eager loading)
+        const includes = this.parseIncludes(rawInclude);
+        if (includes.length > 0 && adapter?.applyIncludes && filterableMeta) {
+          const allowedIncludes = (FilterClass as unknown as { includes?: readonly string[] })
+            .includes;
+          const validIncludes = this.validateIncludes(
+            includes,
+            allowedIncludes as string[] | undefined,
+            adapter,
+            filterableMeta.entity,
+          );
+          if (validIncludes.length > 0) {
+            adapter.applyIncludes(qb, validIncludes, filterableMeta.entity);
+          }
+        }
+
+        // Apply global search
+        if (rawSearch && typeof rawSearch === 'string' && rawSearch.trim()) {
+          this.applyGlobalSearch(qb, rawSearch.trim(), FilterClass, adapter, filterableMeta);
+        }
+
         return qb;
       },
     );
@@ -287,8 +315,36 @@ export class FilterRunner {
       inputObj[key] = value;
     }
     await this.adapter.applyRelationConstraint(qb, relationName, async (relationQb: unknown) => {
-      await this.apply(RelatedFilterClass, inputObj, relationQb, context);
+      await this.apply(RelatedFilterClass, { filter: inputObj }, relationQb, context);
     });
+  }
+
+  /**
+   * Extracts the structured input shape from raw input.
+   *
+   * Supports:
+   * - `{ filter: {...}, include: [...], search: '...' }` (new structured format)
+   * - Any other shape is treated as the filter portion directly (backward compat for internal calls)
+   */
+  private extractStructuredInput(input: unknown): {
+    filter: unknown;
+    include: unknown;
+    search: unknown;
+  } {
+    if (input == null || typeof input !== 'object') {
+      return { filter: input, include: undefined, search: undefined };
+    }
+    const inputObj = input as Record<string, unknown>;
+    // Detect structured format: must have a 'filter' key (even if undefined/null)
+    if ('filter' in inputObj) {
+      return {
+        filter: inputObj.filter ?? undefined,
+        include: inputObj.include ?? undefined,
+        search: inputObj.search ?? undefined,
+      };
+    }
+    // Not structured — treat entire input as the filter portion
+    return { filter: input, include: undefined, search: undefined };
   }
 
   /**
@@ -381,6 +437,99 @@ export class FilterRunner {
 
     // Explicit list of auto-field names
     return new Set(autoFieldsConfig);
+  }
+
+  /**
+   * Parses raw include input into an array of string paths.
+   *
+   * Supports:
+   * - comma-separated string: `'role,posts'` → `['role', 'posts']`
+   * - string array: `['role', 'posts']` → `['role', 'posts']`
+   * - falsy values: `undefined`, `null`, `''` → `[]`
+   */
+  parseIncludes(raw: unknown): string[] {
+    if (!raw) return [];
+    if (typeof raw === 'string')
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    if (Array.isArray(raw)) return raw.filter((s) => typeof s === 'string');
+    return [];
+  }
+
+  /**
+   * Validates include paths against the allowlist (if defined) or entity relations.
+   * Silently skips invalid paths.
+   */
+  private validateIncludes(
+    includes: string[],
+    allowlist: string[] | undefined,
+    adapter: FilterAdapter,
+    entity: Type<unknown>,
+  ): string[] {
+    const maxDepth = this.options.maxIncludeDepth ?? 3;
+    return includes.filter((path) => {
+      const segments = path.split('.');
+      if (segments.length > maxDepth) return false;
+      if (segments.some((s) => !s)) return false;
+      if (allowlist) {
+        return allowlist.includes(path);
+      }
+      // Validate first segment against entity relations
+      if (adapter.getEntityRelations) {
+        const relations = adapter.getEntityRelations(entity);
+        if (relations) {
+          return relations.some((r) => r.name === segments[0]);
+        }
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Applies global search across string columns or a tsvector column.
+   */
+  private applyGlobalSearch<Q>(
+    qb: Q,
+    searchTerm: string,
+    FilterClass: Type<unknown>,
+    adapter: FilterAdapter | null,
+    filterableMeta: { entity: Type<unknown> } | undefined,
+  ): void {
+    if (!adapter || !filterableMeta) return;
+
+    const searchConfig = (
+      FilterClass as unknown as { search?: readonly string[] | { vector: string } }
+    ).search;
+
+    if (searchConfig && typeof searchConfig === 'object' && 'vector' in searchConfig) {
+      // tsvector search
+      if (adapter.applyVectorSearch) {
+        adapter.applyVectorSearch(qb, searchTerm, searchConfig.vector);
+      }
+      return;
+    }
+
+    // ILIKE search
+    let columns: string[];
+    if (Array.isArray(searchConfig)) {
+      columns = searchConfig as string[];
+    } else {
+      // Auto-detect: get all string columns from entity metadata
+      const fields = adapter.getEntityFields?.(filterableMeta.entity);
+      columns = fields?.filter((f) => f.type === 'string').map((f) => f.name) ?? [];
+    }
+
+    if (columns.length > 10) {
+      this.logger.warn(
+        `Global search on ${columns.length} columns may be slow. Consider declaring static search = [...] on ${FilterClass.name}`,
+      );
+    }
+
+    if (columns.length > 0 && adapter.applySearch) {
+      adapter.applySearch(qb, searchTerm, columns, filterableMeta.entity);
+    }
   }
 
   private handleUnknownKey(key: string): void {

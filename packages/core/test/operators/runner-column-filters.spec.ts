@@ -90,7 +90,9 @@ describe('FilterRunner with column filters', () => {
     await runner.apply(
       UserFilter,
       {
-        where: [{ field: 'age', operator: 'gte', value: 18 }],
+        filter: {
+          where: [{ field: 'age', operator: 'gte', value: 18 }],
+        },
       },
       qb,
     );
@@ -109,8 +111,10 @@ describe('FilterRunner with column filters', () => {
     await runner.apply(
       UserFilter,
       {
-        where: [{ field: 'age', operator: 'gte', value: 18 }],
-        name: 'Alice',
+        filter: {
+          where: [{ field: 'age', operator: 'gte', value: 18 }],
+          name: 'Alice',
+        },
       },
       qb,
     );
@@ -128,7 +132,7 @@ describe('FilterRunner with column filters', () => {
     const runner = mod.get(FilterRunner);
     const qb = makeMockQB();
 
-    await runner.apply(UserFilter, { name: 'Alice', companyId: 5 }, qb);
+    await runner.apply(UserFilter, { filter: { name: 'Alice', companyId: 5 } }, qb);
 
     expect(qb.calls).toEqual([
       ['andWhere', { name: 'Alice' }],
@@ -145,10 +149,12 @@ describe('FilterRunner with column filters', () => {
     await runner.apply(
       UserFilter,
       {
-        where: [
-          { field: 'age', operator: 'gte', value: 18 },
-          { field: 'status', operator: 'equals', value: 'active' },
-        ],
+        filter: {
+          where: [
+            { field: 'age', operator: 'gte', value: 18 },
+            { field: 'status', operator: 'equals', value: 'active' },
+          ],
+        },
       },
       qb,
     );
@@ -169,8 +175,10 @@ describe('FilterRunner with column filters', () => {
     await runner.apply(
       UserFilter,
       {
-        where: [{ field: 'age', operator: 'gte', value: 18 }],
-        name: 'Alice',
+        filter: {
+          where: [{ field: 'age', operator: 'gte', value: 18 }],
+          name: 'Alice',
+        },
       },
       qb,
     );
@@ -187,8 +195,10 @@ describe('FilterRunner with column filters', () => {
     await runner.apply(
       UserFilter,
       {
-        where: [{ field: 'age', operator: 'gte', value: 18 }],
-        name: 'Alice',
+        filter: {
+          where: [{ field: 'age', operator: 'gte', value: 18 }],
+          name: 'Alice',
+        },
       },
       qb,
     );
@@ -205,8 +215,10 @@ describe('FilterRunner with column filters', () => {
     await runner.apply(
       UserFilter,
       {
-        where: [],
-        name: 'Alice',
+        filter: {
+          where: [],
+          name: 'Alice',
+        },
       },
       qb,
     );
@@ -225,7 +237,9 @@ describe('FilterRunner with column filters', () => {
       runner.apply(
         UserFilter,
         {
-          where: [{ field: '', operator: 'equals', value: 1 }],
+          filter: {
+            where: [{ field: '', operator: 'equals', value: 1 }],
+          },
         },
         qb,
       ),
@@ -242,7 +256,9 @@ describe('FilterRunner with column filters', () => {
       runner.apply(
         UserFilter,
         {
-          where: [{ field: 'name', operator: 'badOp', value: 1 }],
+          filter: {
+            where: [{ field: 'name', operator: 'badOp', value: 1 }],
+          },
         },
         qb,
       ),
@@ -257,7 +273,7 @@ describe('FilterRunner with column filters', () => {
 
     // where is a string, not an array — should be treated as a regular @FilterFor key
     // (which will be unknown and ignored with default onUnknownKey: 'ignore')
-    await runner.apply(UserFilter, { where: 'something', name: 'Alice' }, qb);
+    await runner.apply(UserFilter, { filter: { where: 'something', name: 'Alice' } }, qb);
 
     // 'where' is dispatched as a regular key (unknown, ignored)
     // 'name' is dispatched via @FilterFor

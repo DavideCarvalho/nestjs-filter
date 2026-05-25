@@ -44,6 +44,21 @@ export interface FilterModuleOptions {
   validation?: ValidationMode;
   /** When true (default), null, undefined and empty string values are stripped from input. */
   stripEmpty?: boolean;
+  /** Maximum depth for nested include paths (e.g. 'posts.comments.author'). Default: 3. */
+  maxIncludeDepth?: number;
+}
+
+/**
+ * Structured input format for the filter pipeline.
+ *
+ * Query string: `GET /users?filter[name]=Al&include=role,posts&search=fleet`
+ * POST body: `{ "filter": { "name": "Al" }, "include": ["role"], "search": "fleet" }`
+ */
+export interface StructuredInput {
+  filter?: Record<string, unknown>;
+  include?: string[] | string;
+  search?: string;
+  [key: string]: unknown;
 }
 
 export interface FilterModuleOptionsFactory {
