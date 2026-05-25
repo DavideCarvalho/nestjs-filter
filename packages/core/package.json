@@ -25,11 +25,7 @@
   "bin": {
     "nestjs-filter": "./dist/cli/generate.js"
   },
-  "files": [
-    "dist/",
-    "README.md",
-    "CHANGELOG.md"
-  ],
+  "files": ["dist/", "README.md", "CHANGELOG.md"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
@@ -72,11 +68,5 @@
   "engines": {
     "node": ">=20"
   },
-  "keywords": [
-    "nestjs",
-    "filter",
-    "query",
-    "mikro-orm",
-    "typeorm"
-  ]
+  "keywords": ["nestjs", "filter", "query", "mikro-orm", "typeorm"]
 }
