@@ -1,6 +1,7 @@
 ---
 /**
  * Custom PageTitle with monospace treatment for technical titles.
+ * Monochromatic — uses accent-high (white in dark, near-black in light).
  */
 const PAGE_TITLE_ID = '_top';
 const title = Astro.locals.starlightRoute.entry.data.title;
@@ -19,7 +20,7 @@ const isTechnical = /[@.\-\/]/.test(title) || /^[a-z]/.test(title);
     font-size: var(--sl-text-h1);
     line-height: var(--sl-line-height-headings);
     font-weight: 700;
-    color: var(--sl-color-white);
+    color: var(--sl-color-accent-high);
     letter-spacing: -0.02em;
   }
 

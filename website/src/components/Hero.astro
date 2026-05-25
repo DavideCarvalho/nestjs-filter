@@ -1,15 +1,15 @@
 ---
 /**
  * Custom Hero component for nestjs-filter landing page.
- * Replaces the default Starlight Hero with a code-first,
- * opinionated layout inspired by Drizzle/TanStack/Tailwind docs.
+ * Monochromatic zinc palette — Effect.website inspired.
+ * White on near-black, typography as personality.
  */
 const PAGE_TITLE_ID = '_top';
 
 const { data } = Astro.locals.starlightRoute.entry;
 const isLanding = Astro.locals.starlightRoute.id === '';
 
-// Code snippets as raw HTML strings to avoid JSX parsing issues
+// Code snippets as raw HTML strings
 const heroCode = `<span class="hl-kw">import</span> { BaseFilter, FilterFor } <span class="hl-kw">from</span> <span class="hl-str">'@dudousxd/nestjs-filter'</span>;
 <span class="hl-kw">import</span> { User } <span class="hl-kw">from</span> <span class="hl-str">'./user.entity'</span>;
 
@@ -62,7 +62,7 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
         <span class="badge-dot"></span>
         <span>Alpha &mdash; API stabilising</span>
       </div>
-      <p class="hero-tagline">Declarative filters for NestJS</p>
+      <p class="hero-tagline">Declarative filters<br />for NestJS</p>
       <p class="hero-sub">
         Stop writing <code>if/if/if</code> chains. Define filter classes, decorate methods, let the library build your WHERE clauses.
       </p>
@@ -106,7 +106,7 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
 
     {/* Section 2: Before/After */}
     <section class="hero-compare">
-      <h2 class="section-heading">Before <span class="heading-accent">&rarr;</span> After</h2>
+      <h2 class="section-heading">Before <span class="heading-arrow">&rarr;</span> After</h2>
       <div class="compare-grid">
         <div class="compare-card compare-before">
           <div class="compare-label">
@@ -248,8 +248,8 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
 
   /* Section 1: Top hero */
   .hero-top {
-    padding-top: 3rem;
-    padding-bottom: 3rem;
+    padding-top: 4rem;
+    padding-bottom: 4rem;
     border-bottom: 1px solid var(--sl-color-hairline);
   }
 
@@ -259,43 +259,42 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
     gap: 0.5rem;
     font-family: var(--sl-font-mono);
     font-size: 0.8rem;
-    color: var(--sl-color-accent);
-    background: var(--sl-color-accent-low);
+    color: var(--sl-color-text-accent);
+    background: var(--sl-color-bg-inline-code);
     padding: 0.3rem 0.75rem;
     border-radius: 999px;
-    margin-bottom: 1.5rem;
-    border: 1px solid var(--sl-color-accent);
-    opacity: 0.9;
+    margin-bottom: 2rem;
+    border: 1px solid var(--sl-color-hairline);
   }
 
   .badge-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--sl-color-accent);
+    background: var(--sl-color-text-accent);
     animation: pulse-dot 2s infinite;
   }
 
   @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    50% { opacity: 0.3; }
   }
 
   .hero-tagline {
-    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-size: clamp(2.5rem, 6vw, 4rem);
     font-weight: 700;
-    line-height: 1.1;
-    color: var(--sl-color-white);
-    margin: 0 0 1rem;
-    letter-spacing: -0.02em;
+    line-height: 1.05;
+    color: var(--sl-color-accent-high);
+    margin: 0 0 1.5rem;
+    letter-spacing: -0.03em;
   }
 
   .hero-sub {
-    font-size: 1.1rem;
+    font-size: 1.15rem;
     color: var(--sl-color-text-accent);
     max-width: 50ch;
-    margin: 0 0 2rem;
-    line-height: 1.5;
+    margin: 0 0 2.5rem;
+    line-height: 1.6;
   }
 
   .hero-sub code {
@@ -311,7 +310,7 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
     background: var(--sl-color-bg-inline-code);
     border: 1px solid var(--sl-color-hairline);
     border-radius: 0.5rem;
-    margin-bottom: 1.5rem;
+    margin-bottom: 2rem;
     max-width: 44rem;
     overflow: hidden;
   }
@@ -332,13 +331,13 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
   }
 
   .code-lang {
-    color: var(--sl-color-accent);
-    opacity: 0.7;
+    color: var(--sl-color-text-accent);
+    opacity: 0.5;
   }
 
   .hero-code-block pre {
     margin: 0;
-    padding: 1.25rem 1.5rem;
+    padding: 1.5rem 1.5rem;
     overflow-x: auto;
     background: transparent;
     border: none;
@@ -347,33 +346,33 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
   .hero-code-block code {
     font-family: var(--sl-font-mono);
     font-size: 0.875rem;
-    line-height: 1.6;
+    line-height: 1.7;
     color: var(--sl-color-text);
   }
 
-  /* Syntax highlighting */
-  :global(.hl-kw) { color: #c586c0; }
-  :global(.hl-str) { color: #ce9178; }
-  :global(.hl-type) { color: #4ec9b0; }
-  :global(.hl-fn) { color: #dcdcaa; }
-  :global(.hl-dec) { color: #d4922a; }
-  :global(.hl-param) { color: #9cdcfe; }
-  :global(.hl-prop) { color: #9cdcfe; }
-  :global(.hl-cm) { color: #6a9955; }
+  /* Syntax highlighting — monochromatic-friendly tones */
+  :global(.hl-kw) { color: #a1a1aa; font-weight: 500; }
+  :global(.hl-str) { color: #d4d4d8; }
+  :global(.hl-type) { color: #fafafa; font-weight: 500; }
+  :global(.hl-fn) { color: #e4e4e7; }
+  :global(.hl-dec) { color: #fafafa; font-weight: 600; }
+  :global(.hl-param) { color: #a1a1aa; }
+  :global(.hl-prop) { color: #d4d4d8; }
+  :global(.hl-cm) { color: #52525b; font-style: italic; }
 
-  :root[data-theme="light"] :global(.hl-kw) { color: #af00db; }
-  :root[data-theme="light"] :global(.hl-str) { color: #a31515; }
-  :root[data-theme="light"] :global(.hl-type) { color: #267f99; }
-  :root[data-theme="light"] :global(.hl-fn) { color: #795e26; }
-  :root[data-theme="light"] :global(.hl-dec) { color: #b87520; }
-  :root[data-theme="light"] :global(.hl-param) { color: #001080; }
-  :root[data-theme="light"] :global(.hl-prop) { color: #001080; }
-  :root[data-theme="light"] :global(.hl-cm) { color: #008000; }
+  :root[data-theme="light"] :global(.hl-kw) { color: #52525b; font-weight: 500; }
+  :root[data-theme="light"] :global(.hl-str) { color: #3f3f46; }
+  :root[data-theme="light"] :global(.hl-type) { color: #18181b; font-weight: 500; }
+  :root[data-theme="light"] :global(.hl-fn) { color: #27272a; }
+  :root[data-theme="light"] :global(.hl-dec) { color: #18181b; font-weight: 600; }
+  :root[data-theme="light"] :global(.hl-param) { color: #52525b; }
+  :root[data-theme="light"] :global(.hl-prop) { color: #3f3f46; }
+  :root[data-theme="light"] :global(.hl-cm) { color: #a1a1aa; font-style: italic; }
 
   /* Install bar */
   .hero-install {
     max-width: 44rem;
-    margin-bottom: 1.5rem;
+    margin-bottom: 2rem;
   }
 
   .install-tabs {
@@ -384,7 +383,7 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
     font-family: var(--sl-font-mono);
     font-size: 0.75rem;
     color: var(--sl-color-text-accent);
-    opacity: 0.7;
+    opacity: 0.6;
   }
 
   .install-cmd {
@@ -421,15 +420,15 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
     font-family: var(--sl-font-mono);
     font-size: 0.7rem;
     cursor: pointer;
-    transition: background-color 0.15s ease, border-color 0.15s ease;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .copy-btn:hover {
     background: var(--sl-color-accent-low);
-    border-color: var(--sl-color-accent);
-    color: var(--sl-color-accent);
+    border-color: var(--sl-color-accent-high);
+    color: var(--sl-color-accent-high);
   }
 
   /* Hero links */
@@ -457,40 +456,41 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
 
   .hero-link:hover {
     background: var(--sl-color-accent-low);
-    border-color: var(--sl-color-accent);
-    color: var(--sl-color-accent);
+    border-color: var(--sl-color-accent-high);
+    color: var(--sl-color-accent-high);
   }
 
   .hero-link-primary {
-    background: var(--sl-color-accent);
-    border-color: var(--sl-color-accent);
+    background: var(--sl-color-accent-high);
+    border-color: var(--sl-color-accent-high);
     color: var(--sl-color-black);
     font-weight: 600;
   }
 
   .hero-link-primary:hover {
-    opacity: 0.9;
+    opacity: 0.85;
     color: var(--sl-color-black);
-    background: var(--sl-color-accent);
-    border-color: var(--sl-color-accent);
+    background: var(--sl-color-accent-high);
+    border-color: var(--sl-color-accent-high);
   }
 
   /* Section 2: Compare */
   .hero-compare {
-    padding: 3rem 0;
+    padding: 4rem 0;
     border-bottom: 1px solid var(--sl-color-hairline);
   }
 
   .section-heading {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--sl-color-white);
-    margin: 0 0 1.5rem;
-    letter-spacing: -0.01em;
+    color: var(--sl-color-accent-high);
+    margin: 0 0 2rem;
+    letter-spacing: -0.02em;
   }
 
-  .heading-accent {
-    color: var(--sl-color-accent);
+  .heading-arrow {
+    color: var(--sl-color-text-accent);
+    font-weight: 400;
   }
 
   .compare-grid {
@@ -529,12 +529,12 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
     font-weight: 700;
   }
 
-  .label-icon-bad { color: #e55; }
-  .label-icon-good { color: #5a5; }
+  .label-icon-bad { color: #71717a; }
+  .label-icon-good { color: var(--sl-color-accent-high); }
 
   .compare-card pre {
     margin: 0;
-    padding: 1rem 1.25rem;
+    padding: 1.25rem 1.5rem;
     overflow-x: auto;
     background: var(--sl-color-bg-inline-code);
     border: none;
@@ -543,17 +543,17 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
   .compare-card code {
     font-family: var(--sl-font-mono);
     font-size: 0.8rem;
-    line-height: 1.55;
+    line-height: 1.6;
     color: var(--sl-color-text);
   }
 
   .compare-before pre {
-    opacity: 0.7;
+    opacity: 0.6;
   }
 
   /* Section 3: Features */
   .hero-features {
-    padding: 3rem 0;
+    padding: 4rem 0;
     border-bottom: 1px solid var(--sl-color-hairline);
   }
 
@@ -576,14 +576,14 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
   }
 
   .feature {
-    padding: 1.25rem;
+    padding: 1.5rem;
     border: 1px solid var(--sl-color-hairline);
     border-radius: 0.5rem;
     transition: border-color 0.15s ease;
   }
 
   .feature:hover {
-    border-color: var(--sl-color-accent);
+    border-color: var(--sl-color-text-accent);
   }
 
   .feature-code {
@@ -593,8 +593,8 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
   .feature-code code {
     font-family: var(--sl-font-mono);
     font-size: 0.8rem;
-    background: var(--sl-color-accent-low);
-    color: var(--sl-color-accent);
+    background: var(--sl-color-bg-inline-code);
+    color: var(--sl-color-accent-high);
     padding: 0.2em 0.5em;
     border-radius: 0.25rem;
     font-weight: 500;
@@ -603,14 +603,14 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
   .feature h3 {
     font-size: 1rem;
     font-weight: 600;
-    color: var(--sl-color-white);
+    color: var(--sl-color-accent-high);
     margin: 0 0 0.4rem;
   }
 
   .feature p {
     font-size: 0.875rem;
     color: var(--sl-color-text-accent);
-    line-height: 1.5;
+    line-height: 1.6;
     margin: 0;
   }
 
@@ -624,7 +624,7 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
 
   /* Section 4: Packages */
   .hero-packages {
-    padding: 3rem 0;
+    padding: 4rem 0;
     border-bottom: 1px solid var(--sl-color-hairline);
   }
 
@@ -683,15 +683,15 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
 
   /* Section 5: CTA */
   .hero-cta {
-    padding: 3rem 0 2rem;
+    padding: 4rem 0 3rem;
     text-align: center;
   }
 
   .cta-text {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--sl-color-white);
-    margin: 0 0 1.25rem;
+    color: var(--sl-color-accent-high);
+    margin: 0 0 1.5rem;
   }
 
   .hero-cta .hero-link-primary {
@@ -715,13 +715,14 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
 
   .hero-fallback h1 {
     font-size: var(--sl-text-h1);
-    font-weight: 600;
-    color: var(--sl-color-white);
+    font-weight: 700;
+    color: var(--sl-color-accent-high);
     line-height: var(--sl-line-height-headings);
+    letter-spacing: -0.02em;
   }
 
   .hero-fallback .tagline {
     font-size: var(--sl-text-lg);
-    color: var(--sl-color-gray-2);
+    color: var(--sl-color-text-accent);
   }
 </style>

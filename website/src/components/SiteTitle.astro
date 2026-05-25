@@ -1,7 +1,7 @@
 ---
 /**
  * Custom SiteTitle component.
- * Monospace font with a subtle version badge.
+ * Monospace font with a subtle version badge — monochromatic zinc palette.
  */
 const { siteTitle, siteTitleHref } = Astro.locals.starlightRoute;
 ---
@@ -28,7 +28,7 @@ const { siteTitle, siteTitleHref } = Astro.locals.starlightRoute;
   }
 
   .site-title:hover {
-    color: var(--sl-color-accent);
+    color: var(--sl-color-text-accent);
   }
 
   .title-text {
@@ -42,11 +42,11 @@ const { siteTitle, siteTitleHref } = Astro.locals.starlightRoute;
     font-weight: 500;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--sl-color-accent);
-    background: var(--sl-color-accent-low);
+    color: var(--sl-color-text-accent);
+    background: var(--sl-color-bg-inline-code);
     padding: 0.15em 0.45em;
     border-radius: 3px;
-    border: 1px solid var(--sl-color-accent);
+    border: 1px solid var(--sl-color-hairline);
     opacity: 0.8;
     flex-shrink: 0;
   }

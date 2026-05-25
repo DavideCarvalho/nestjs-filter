@@ -34,42 +34,42 @@
     format("woff2");
 }
 
-/* === Tailwind v4 @theme: Accent + Gray + Fonts === */
+/* === Tailwind v4 @theme: Zinc monochromatic + Fonts === */
 @theme {
   /* Fonts */
   --font-sans: "Geist Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
 
   /*
-   * Accent: Warm amber/orange
-   * oklch(70% 0.15 70) ~ #d4922a (warm amber)
+   * Accent: Monochromatic zinc — NO chromatic accent
+   * White/light gray for emphasis, zinc for muted states
    */
-  --color-accent-50: #fdf8ef;
-  --color-accent-100: #faedcf;
-  --color-accent-200: #f5d99e;
-  --color-accent-300: #efc06a;
-  --color-accent-400: #e9a53d;
-  --color-accent-500: #d4922a;
-  --color-accent-600: #b87520;
-  --color-accent-700: #99571d;
-  --color-accent-800: #7d451e;
-  --color-accent-900: #673a1d;
-  --color-accent-950: #3b1c0c;
+  --color-accent-50: #fafafa;
+  --color-accent-100: #f4f4f5;
+  --color-accent-200: #e4e4e7;
+  --color-accent-300: #d4d4d8;
+  --color-accent-400: #a1a1aa;
+  --color-accent-500: #71717a;
+  --color-accent-600: #52525b;
+  --color-accent-700: #3f3f46;
+  --color-accent-800: #27272a;
+  --color-accent-900: #18181b;
+  --color-accent-950: #09090b;
 
   /*
-   * Gray: Warm-tinted neutrals (toward amber hue)
+   * Gray: Cool zinc neutrals — no warm tint
    */
-  --color-gray-50: #faf9f7;
-  --color-gray-100: #f0eeea;
-  --color-gray-200: #e1ddd6;
-  --color-gray-300: #cec8be;
-  --color-gray-400: #b0a898;
-  --color-gray-500: #9a907e;
-  --color-gray-600: #837868;
-  --color-gray-700: #6b6256;
-  --color-gray-800: #3d3832;
-  --color-gray-900: #292520;
-  --color-gray-950: #1a1714;
+  --color-gray-50: #fafafa;
+  --color-gray-100: #f4f4f5;
+  --color-gray-200: #e4e4e7;
+  --color-gray-300: #d4d4d8;
+  --color-gray-400: #a1a1aa;
+  --color-gray-500: #71717a;
+  --color-gray-600: #52525b;
+  --color-gray-700: #3f3f46;
+  --color-gray-800: #27272a;
+  --color-gray-900: #18181b;
+  --color-gray-950: #09090b;
 }
 
 /* ============================================================
@@ -83,8 +83,8 @@
 
     /* Body text */
     --sl-text-body: 1rem;
-    --sl-line-height: 1.6;
-    --sl-line-height-headings: 1.2;
+    --sl-line-height: 1.7;
+    --sl-line-height-headings: 1.15;
 
     /* Remove all shadows (The No-Shadow Rule) */
     --sl-shadow-sm: none;
@@ -92,50 +92,47 @@
     --sl-shadow-lg: none;
   }
 
+  /* ---- Dark mode (primary) ---- */
+  :root[data-theme="dark"] {
+    --sl-color-bg: #09090b;
+    --sl-color-bg-nav: #09090b;
+    --sl-color-bg-sidebar: #09090b;
+    --sl-color-bg-inline-code: #18181b;
+
+    --sl-color-text: #fafafa;
+    --sl-color-text-accent: #a1a1aa;
+
+    --sl-color-accent-high: #fafafa;
+    --sl-color-accent: #a1a1aa;
+    --sl-color-accent-low: #18181b;
+
+    --sl-color-hairline: #27272a;
+    --sl-color-hairline-light: #18181b;
+
+    --sl-color-black: #09090b;
+    --sl-color-white: #fafafa;
+  }
+
   /* ---- Light mode ---- */
   :root[data-theme="light"],
   :root:not([data-theme="dark"]) {
-    --sl-color-bg: #faf9f7;
-    --sl-color-bg-nav: #f0eeea;
-    --sl-color-bg-sidebar: #f5f3ef;
-    --sl-color-bg-inline-code: #eae7e1;
+    --sl-color-bg: #fafafa;
+    --sl-color-bg-nav: #fafafa;
+    --sl-color-bg-sidebar: #fafafa;
+    --sl-color-bg-inline-code: #f4f4f5;
 
-    --sl-color-text: #292520;
-    --sl-color-text-accent: #3d3832;
+    --sl-color-text: #18181b;
+    --sl-color-text-accent: #52525b;
 
-    --sl-color-accent-high: #7d451e;
-    --sl-color-accent: #b87520;
-    --sl-color-accent-low: #faedcf;
+    --sl-color-accent-high: #18181b;
+    --sl-color-accent: #52525b;
+    --sl-color-accent-low: #f4f4f5;
 
-    --sl-color-hairline: #e1ddd6;
-    --sl-color-hairline-light: #eae7e1;
+    --sl-color-hairline: #e4e4e7;
+    --sl-color-hairline-light: #f4f4f5;
 
-    --sl-color-black: #1a1714;
-    --sl-color-white: #292520;
-
-    /* Sidebar */
-    --sl-color-bg-sidebar: #f2f0eb;
-  }
-
-  /* ---- Dark mode ---- */
-  :root[data-theme="dark"] {
-    --sl-color-bg: #1a1714;
-    --sl-color-bg-nav: #221f1a;
-    --sl-color-bg-sidebar: #1f1c17;
-    --sl-color-bg-inline-code: #2e2a24;
-
-    --sl-color-text: #f0eeea;
-    --sl-color-text-accent: #cec8be;
-
-    --sl-color-accent-high: #efc06a;
-    --sl-color-accent: #d4922a;
-    --sl-color-accent-low: #3b1c0c;
-
-    --sl-color-hairline: #3d3832;
-    --sl-color-hairline-light: #2e2a24;
-
-    --sl-color-black: #1a1714;
-    --sl-color-white: #f0eeea;
+    --sl-color-black: #09090b;
+    --sl-color-white: #fafafa;
   }
 }
 
@@ -157,7 +154,7 @@
 
   /* ── Focus rings ── */
   :focus-visible {
-    outline: 2px solid var(--sl-color-accent);
+    outline: 2px solid var(--sl-color-accent-high);
     outline-offset: 2px;
   }
 
@@ -203,16 +200,16 @@
   /* Sidebar hover */
   nav.sidebar a:hover {
     background: var(--sl-color-bg-inline-code);
-    color: var(--sl-color-white);
+    color: var(--sl-color-accent-high);
   }
 
   /* Sidebar active item */
   nav.sidebar a[aria-current="page"],
   nav.sidebar a[aria-current="true"] {
     background: var(--sl-color-accent-low);
-    color: var(--sl-color-accent);
+    color: var(--sl-color-accent-high);
     font-weight: 600;
-    border-left: 2px solid var(--sl-color-accent);
+    border-left: 2px solid var(--sl-color-accent-high);
   }
 
   /* Remove default sidebar shadow */
@@ -308,14 +305,14 @@
      LINKS
      ============================================================ */
   .sl-markdown-content a {
-    color: var(--sl-color-accent);
+    color: var(--sl-color-accent-high);
     text-decoration: none;
     border-bottom: 1px solid transparent;
     transition: border-color 0.15s ease, color 0.15s ease;
   }
 
   .sl-markdown-content a:hover {
-    border-bottom-color: var(--sl-color-accent);
+    border-bottom-color: var(--sl-color-accent-high);
   }
 
   /* ============================================================
@@ -377,15 +374,15 @@
   }
 
   .starlight-aside--tip {
-    border-color: var(--sl-color-accent) !important;
+    border-color: var(--sl-color-accent-high) !important;
   }
 
   .starlight-aside--caution {
-    border-color: #e9a53d !important;
+    border-color: #a1a1aa !important;
   }
 
   .starlight-aside--danger {
-    border-color: #e55 !important;
+    border-color: #71717a !important;
   }
 
   .starlight-aside .starlight-aside__title {
@@ -416,7 +413,7 @@
   }
 
   .card:hover {
-    border-color: var(--sl-color-accent);
+    border-color: var(--sl-color-accent-high);
   }
 
   /* ============================================================
@@ -444,12 +441,12 @@
   }
 
   starlight-tabs [role="tab"][aria-selected="true"] {
-    color: var(--sl-color-accent);
-    border-bottom-color: var(--sl-color-accent);
+    color: var(--sl-color-accent-high);
+    border-bottom-color: var(--sl-color-accent-high);
   }
 
   starlight-tabs [role="tab"]:hover {
-    color: var(--sl-color-accent);
+    color: var(--sl-color-accent-high);
   }
 
   /* ============================================================
@@ -464,7 +461,7 @@
   }
 
   .pagination-links a:hover {
-    border-color: var(--sl-color-accent);
+    border-color: var(--sl-color-accent-high);
     background: var(--sl-color-accent-low);
   }
 
@@ -481,11 +478,11 @@
   }
 
   starlight-toc a:hover {
-    color: var(--sl-color-accent);
+    color: var(--sl-color-accent-high);
   }
 
   starlight-toc a[aria-current="true"] {
-    color: var(--sl-color-accent);
+    color: var(--sl-color-accent-high);
     font-weight: 600;
   }
 
@@ -512,7 +509,7 @@
      BLOCKQUOTES
      ============================================================ */
   .sl-markdown-content blockquote {
-    border-left: 2px solid var(--sl-color-accent);
+    border-left: 2px solid var(--sl-color-hairline);
     padding: 0.5rem 1rem;
     margin: 1.5rem 0;
     background: var(--sl-color-bg-inline-code);
