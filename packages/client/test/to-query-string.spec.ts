@@ -94,19 +94,19 @@ describe('columnFiltersToQueryString', () => {
 });
 
 describe('FilterQueryBuilder.toQueryString()', () => {
-  it('simple equals produces flat format', () => {
+  it('simple equals produces filter[field]=value format', () => {
     const qs = filterQuery().where('name', 'foo').toQueryString();
-    expect(qs).toBe('name=foo');
+    expect(qs).toBe('filter%5Bname%5D=foo');
   });
 
-  it('array produces flat bracket format', () => {
+  it('array produces filter[field][]=value format', () => {
     const qs = filterQuery().where('status', ['A', 'B']).toQueryString();
-    expect(qs).toBe('status[]=A&status[]=B');
+    expect(qs).toBe('filter%5Bstatus%5D[]=A&filter%5Bstatus%5D[]=B');
   });
 
-  it('operator produces flat bracket format', () => {
+  it('operator produces filter[field][op]=value format', () => {
     const qs = filterQuery().where('name', 'contains', 'fleet').toQueryString();
-    expect(qs).toBe('name[contains]=fleet');
+    expect(qs).toBe('filter%5Bname%5D[contains]=fleet');
   });
 
   it('multiple operators on same field merge in flat format via add()', () => {
@@ -114,7 +114,7 @@ describe('FilterQueryBuilder.toQueryString()', () => {
       .add('createdAt', 'gte', '2026-01-01')
       .add('createdAt', 'lte', '2026-12-31')
       .toQueryString();
-    expect(qs).toBe('createdAt[gte]=2026-01-01&createdAt[lte]=2026-12-31');
+    expect(qs).toBe('filter%5BcreatedAt%5D[gte]=2026-01-01&filter%5BcreatedAt%5D[lte]=2026-12-31');
   });
 
   it('mixed simple + operator', () => {
@@ -122,7 +122,9 @@ describe('FilterQueryBuilder.toQueryString()', () => {
       .where('name', 'contains', 'fleet')
       .where('status', ['COMPLETED', 'FAILED'])
       .toQueryString();
-    expect(qs).toBe('name[contains]=fleet&status[]=COMPLETED&status[]=FAILED');
+    expect(qs).toBe(
+      'filter%5Bname%5D[contains]=fleet&filter%5Bstatus%5D[]=COMPLETED&filter%5Bstatus%5D[]=FAILED',
+    );
   });
 
   it('with OR group falls back to where[] format', () => {
@@ -146,5 +148,26 @@ describe('FilterQueryBuilder.toQueryString()', () => {
 
   it('empty builder returns empty string', () => {
     expect(filterQuery().toQueryString()).toBe('');
+  });
+
+  it('include produces include=rel1,rel2 format', () => {
+    const qs = filterQuery().include('role', 'posts').toQueryString();
+    expect(qs).toBe('include=role%2Cposts');
+  });
+
+  it('search produces search=term format', () => {
+    const qs = filterQuery().search('fleet').toQueryString();
+    expect(qs).toBe('search=fleet');
+  });
+
+  it('combined filter + include + search', () => {
+    const qs = filterQuery()
+      .where('name', 'Alice')
+      .include('posts')
+      .search('fleet')
+      .toQueryString();
+    expect(qs).toContain('filter%5Bname%5D=Alice');
+    expect(qs).toContain('include=posts');
+    expect(qs).toContain('search=fleet');
   });
 });

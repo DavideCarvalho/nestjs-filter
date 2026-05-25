@@ -21,9 +21,16 @@ interface Group {
 
 /**
  * The result shape returned by `build()`.
+ *
+ * Uses the structured input format: `{ filter, include, search }`.
  */
 export interface FilterQueryResult {
-  where: ColumnFilter[];
+  filter: {
+    where: ColumnFilter[];
+    [key: string]: unknown;
+  };
+  include?: string[];
+  search?: string;
   [key: string]: unknown;
 }
 
@@ -35,6 +42,8 @@ export class FilterQueryBuilder {
   private conditions: Condition[] = [];
   private readonly groups: Group[] = [];
   private extra: Record<string, unknown> = {};
+  private includes: string[] = [];
+  private searchTerm: string | undefined;
 
   /**
    * Adds a filter condition, **replacing** any existing filter(s) for the same field.
@@ -173,6 +182,8 @@ export class FilterQueryBuilder {
     this.conditions = [];
     this.groups.length = 0;
     this.extra = {};
+    this.includes = [];
+    this.searchTerm = undefined;
     return this;
   }
 
@@ -327,10 +338,44 @@ export class FilterQueryBuilder {
     return this;
   }
 
+  // ─── Include & Search ────────────────────────────────────────────────────
+
+  /**
+   * Adds relation paths to eagerly load.
+   *
+   * @example
+   * filterQuery().include('role', 'posts').build()
+   * // → { filter: { where: [] }, include: ['role', 'posts'] }
+   */
+  include(...relations: string[]): this {
+    for (const rel of relations) {
+      if (typeof rel !== 'string') continue;
+      if (!this.includes.includes(rel)) {
+        this.includes.push(rel);
+      }
+    }
+    return this;
+  }
+
+  /**
+   * Sets the global search term.
+   *
+   * @example
+   * filterQuery().search('fleet').build()
+   * // → { filter: { where: [] }, search: 'fleet' }
+   */
+  search(term: string): this {
+    if (typeof term !== 'string') return this;
+    this.searchTerm = term;
+    return this;
+  }
+
   // ─── Build ──────────────────────────────────────────────────────────────
 
   /**
    * Builds the query as a `FilterQueryResult` object.
+   *
+   * Returns the structured format: `{ filter: { where: [...] }, include: [...], search: '...' }`
    */
   build(): FilterQueryResult {
     const filters: ColumnFilter[] = [];
@@ -367,29 +412,58 @@ export class FilterQueryBuilder {
       }
     }
 
-    return { ...this.extra, where: filters };
+    const result: FilterQueryResult = {
+      ...this.extra,
+      filter: { where: filters },
+    };
+    if (this.includes.length > 0) {
+      result.include = [...this.includes];
+    }
+    if (this.searchTerm !== undefined) {
+      result.search = this.searchTerm;
+    }
+    return result;
   }
 
   /**
    * Serializes to a query string suitable for GET requests.
    *
-   * If the builder has only simple conditions (no OR/AND groups),
-   * uses the flat format: `field=value&field[op]=value`.
-   *
-   * If the builder has groups, uses the `where[i]` array format.
+   * Uses the structured format:
+   * - Simple conditions → `filter[field]=value&filter[field][op]=value`
+   * - OR/AND groups → `filter[where][i][field]=...`
+   * - Includes → `include=role,posts`
+   * - Search → `search=term`
    */
   toQueryString(): string {
-    const extraQs = flatObjectToQueryString(this.extra);
-    let filterQs: string;
+    const parts: string[] = [];
 
+    // Build filter portion
+    let filterQs: string;
     if (this.groups.length === 0) {
-      filterQs = flatObjectToQueryString(this.toFlatObject());
+      const flat = this.toFlatObject();
+      filterQs = flatObjectToQueryString(
+        Object.fromEntries(Object.entries(flat).map(([k, v]) => [`filter[${k}]`, v])),
+      );
     } else {
-      filterQs = columnFiltersToQueryString(this.build().where);
+      filterQs = columnFiltersToQueryString(this.build().filter.where);
+    }
+    if (filterQs) parts.push(filterQs);
+
+    // Build include
+    if (this.includes.length > 0) {
+      parts.push(`include=${encodeURIComponent(this.includes.join(','))}`);
     }
 
-    if (filterQs && extraQs) return `${filterQs}&${extraQs}`;
-    return filterQs || extraQs;
+    // Build search
+    if (this.searchTerm !== undefined) {
+      parts.push(`search=${encodeURIComponent(this.searchTerm)}`);
+    }
+
+    // Build extra keys
+    const extraQs = flatObjectToQueryString(this.extra);
+    if (extraQs) parts.push(extraQs);
+
+    return parts.join('&');
   }
 
   /**
