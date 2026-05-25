@@ -1,4 +1,4 @@
-import { escapeLike } from '@dudousxd/nestjs-filter';
+import { escapeLike, MAX_FILTER_DEPTH } from '@dudousxd/nestjs-filter';
 import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 
 /**
@@ -98,20 +98,24 @@ export function resolveColumnFilters(filters: ColumnFilter[]): Record<string, un
   return { $and: conditions };
 }
 
-function resolveSingleFilter(filter: ColumnFilter): Record<string, unknown> {
+function resolveSingleFilter(filter: ColumnFilter, depth = 0): Record<string, unknown> {
+  if (depth > MAX_FILTER_DEPTH) {
+    throw new Error(`Filter nesting exceeds maximum depth (${MAX_FILTER_DEPTH}).`);
+  }
+
   const baseCondition = resolveOperator(filter);
   const parts: Record<string, unknown>[] = [baseCondition];
 
   // Handle nested AND
   if (filter.AND && filter.AND.length > 0) {
     for (const sub of filter.AND) {
-      parts.push(resolveSingleFilter(sub));
+      parts.push(resolveSingleFilter(sub, depth + 1));
     }
   }
 
   // Handle nested OR
   if (filter.OR && filter.OR.length > 0) {
-    const orConditions = filter.OR.map((sub) => resolveSingleFilter(sub));
+    const orConditions = filter.OR.map((sub) => resolveSingleFilter(sub, depth + 1));
     parts.push({ $or: orConditions });
   }
 

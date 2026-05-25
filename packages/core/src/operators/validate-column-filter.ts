@@ -25,6 +25,12 @@ const ARRAY_OPERATORS = new Set<FilterOperator>([
   'notBetween',
 ]);
 
+/**
+ * Maximum allowed nesting depth for AND/OR filter composition.
+ * Prevents stack overflow from maliciously deep payloads (DoS).
+ */
+export const MAX_FILTER_DEPTH = 10;
+
 export class InvalidColumnFilterError extends Error {
   constructor(message: string) {
     super(message);
@@ -41,7 +47,13 @@ export class InvalidColumnFilterError extends Error {
  * - 'in'/'isAnyOf' require arrays
  * - AND/OR arrays are validated recursively
  */
-export function validateColumnFilter(filter: ColumnFilter): void {
+export function validateColumnFilter(filter: ColumnFilter, depth = 0): void {
+  if (depth > MAX_FILTER_DEPTH) {
+    throw new InvalidColumnFilterError(
+      `Filter nesting exceeds maximum depth (${MAX_FILTER_DEPTH}).`,
+    );
+  }
+
   if (!filter || typeof filter !== 'object') {
     throw new InvalidColumnFilterError('Column filter must be a non-null object.');
   }
@@ -94,7 +106,7 @@ export function validateColumnFilter(filter: ColumnFilter): void {
       throw new InvalidColumnFilterError('"AND" must be an array of ColumnFilter.');
     }
     for (const sub of filter.AND) {
-      validateColumnFilter(sub);
+      validateColumnFilter(sub, depth + 1);
     }
   }
 
@@ -104,7 +116,7 @@ export function validateColumnFilter(filter: ColumnFilter): void {
       throw new InvalidColumnFilterError('"OR" must be an array of ColumnFilter.');
     }
     for (const sub of filter.OR) {
-      validateColumnFilter(sub);
+      validateColumnFilter(sub, depth + 1);
     }
   }
 }

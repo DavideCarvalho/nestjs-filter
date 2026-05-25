@@ -56,4 +56,5 @@ export {
   validateColumnFilter,
   validateColumnFilters,
   InvalidColumnFilterError,
+  MAX_FILTER_DEPTH,
 } from './operators/validate-column-filter.js';

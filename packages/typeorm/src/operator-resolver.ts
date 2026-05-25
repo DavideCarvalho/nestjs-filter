@@ -1,4 +1,4 @@
-import { escapeLike } from '@dudousxd/nestjs-filter';
+import { escapeLike, MAX_FILTER_DEPTH } from '@dudousxd/nestjs-filter';
 import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 import { Brackets, type ObjectLiteral, type SelectQueryBuilder } from 'typeorm';
 
@@ -178,7 +178,12 @@ function applySingleFilter<E extends ObjectLiteral>(
   qb: SelectQueryBuilder<E>,
   filter: ColumnFilter,
   method: 'andWhere' | 'orWhere',
+  depth = 0,
 ): void {
+  if (depth > MAX_FILTER_DEPTH) {
+    throw new Error(`Filter nesting exceeds maximum depth (${MAX_FILTER_DEPTH}).`);
+  }
+
   const alias = qb.alias;
 
   // Wrap the entire filter (base + nested AND/OR) in a Brackets so it groups correctly
@@ -192,14 +197,14 @@ function applySingleFilter<E extends ObjectLiteral>(
         // Apply nested AND conditions
         if (filter.AND) {
           for (const andFilter of filter.AND) {
-            applySingleFilter(subQb, andFilter, 'andWhere');
+            applySingleFilter(subQb, andFilter, 'andWhere', depth + 1);
           }
         }
 
         // Apply nested OR conditions
         if (filter.OR) {
           for (const orFilter of filter.OR) {
-            applySingleFilter(subQb, orFilter, 'orWhere');
+            applySingleFilter(subQb, orFilter, 'orWhere', depth + 1);
           }
         }
       }),

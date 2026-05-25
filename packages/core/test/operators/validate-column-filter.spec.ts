@@ -207,6 +207,22 @@ describe('validateColumnFilter', () => {
     ).toThrow(/must be an array/);
   });
 
+  it('rejects deeply nested AND/OR exceeding depth limit', () => {
+    let filter: ColumnFilter = { field: 'x', operator: 'equals', value: 1 };
+    for (let i = 0; i < 15; i++) {
+      filter = { field: 'y', operator: 'equals', value: 0, AND: [filter] };
+    }
+    expect(() => validateColumnFilter(filter)).toThrow(/depth/);
+  });
+
+  it('allows nesting up to the limit', () => {
+    let filter: ColumnFilter = { field: 'x', operator: 'equals', value: 1 };
+    for (let i = 0; i < 9; i++) {
+      filter = { field: 'y', operator: 'equals', value: 0, AND: [filter] };
+    }
+    expect(() => validateColumnFilter(filter)).not.toThrow();
+  });
+
   it('rejects null filter object', () => {
     expect(() => validateColumnFilter(null as any)).toThrow(InvalidColumnFilterError);
   });
