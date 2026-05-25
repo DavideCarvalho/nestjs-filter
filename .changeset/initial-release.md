@@ -1,8 +1,8 @@
 ---
-'@dudousxd/nestjs-filter': minor
-'@dudousxd/nestjs-filter-mikro-orm': minor
-'@dudousxd/nestjs-filter-typeorm': minor
-'@dudousxd/nestjs-filter-client': minor
+'@dudousxd/nestjs-filter': major
+'@dudousxd/nestjs-filter-mikro-orm': major
+'@dudousxd/nestjs-filter-typeorm': major
+'@dudousxd/nestjs-filter-client': major
 ---
 
 Initial release of nestjs-filter.
