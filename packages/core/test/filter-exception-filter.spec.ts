@@ -11,6 +11,7 @@ import { BaseFilter } from '../src/base-filter.js';
 import { ApplyFilter } from '../src/decorator/apply-filter.decorator.js';
 import { FilterFor } from '../src/decorator/filter-for.decorator.js';
 import { Filterable } from '../src/decorator/filterable.decorator.js';
+import { FilterValidationException } from '../src/errors/exceptions.js';
 import { FilterExceptionFilter } from '../src/filter/filter-exception.filter.js';
 import { FilterModule } from '../src/module.js';
 import { FILTER_ADAPTER } from '../src/tokens.js';
@@ -81,6 +82,34 @@ class UsersController {
   providers: [{ provide: FILTER_ADAPTER, useValue: fakeAdapter }],
 })
 class TestAppModule {}
+
+describe('FilterExceptionFilter (unit)', () => {
+  it('re-throws for non-HTTP context', () => {
+    const filter = new FilterExceptionFilter();
+    const host = {
+      getType: () => 'ws',
+      switchToHttp: () => {
+        throw new Error('not HTTP');
+      },
+    };
+    expect(() =>
+      filter.catch(new FilterValidationException([]), host as any),
+    ).toThrow(FilterValidationException);
+  });
+
+  it('re-throws for RPC context', () => {
+    const filter = new FilterExceptionFilter();
+    const host = {
+      getType: () => 'rpc',
+      switchToHttp: () => {
+        throw new Error('not HTTP');
+      },
+    };
+    expect(() =>
+      filter.catch(new FilterValidationException([]), host as any),
+    ).toThrow(FilterValidationException);
+  });
+});
 
 describe('FilterExceptionFilter', () => {
   it('returns 400 with errors array for invalid filter input', async () => {
