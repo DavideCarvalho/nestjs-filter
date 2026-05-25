@@ -4,6 +4,7 @@ import {
   type EntityRelationInfo,
   FILTER_OPERATORS,
   type FilterAdapter,
+  type SortItem,
   escapeLike,
 } from '@dudousxd/nestjs-filter';
 import { ReferenceKind } from '@mikro-orm/core';
@@ -120,6 +121,19 @@ export class MikroOrmAdapter implements FilterAdapter {
   applyVectorSearch(qb: unknown, term: string, vectorColumn: string): void {
     const queryBuilder = qb as { andWhere: (condition: unknown) => void };
     queryBuilder.andWhere({ [vectorColumn]: { $fulltext: term } });
+  }
+
+  applySort(qb: unknown, sorts: SortItem[]): void {
+    const orderBy: Record<string, 'asc' | 'desc'> = {};
+    for (const s of sorts) orderBy[s.field] = s.direction;
+    const queryBuilder = qb as { orderBy: (order: Record<string, 'asc' | 'desc'>) => void };
+    queryBuilder.orderBy(orderBy);
+  }
+
+  applyOffsetPagination(qb: unknown, page: number, size: number): void {
+    const queryBuilder = qb as { limit: (n: number) => unknown; offset: (n: number) => unknown };
+    queryBuilder.limit(size);
+    queryBuilder.offset(page * size);
   }
 
   private mapRelationType(kind: ReferenceKind): EntityRelationInfo['type'] {

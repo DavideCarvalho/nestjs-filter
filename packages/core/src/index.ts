@@ -32,6 +32,7 @@ export {
 } from './tokens.js';
 export type {
   ApplyFilterOptions,
+  CursorPagination,
   FilterableOptions,
   FilterContext,
   FilterInput,
@@ -43,7 +44,9 @@ export type {
   FilterModuleAsyncOptions,
   InputNormalizer,
   InputSource,
+  OffsetPagination,
   OnUnknownKey,
+  SortItem,
   StructuredInput,
   ValidationMode,
 } from './types.js';

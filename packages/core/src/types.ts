@@ -46,6 +46,34 @@ export interface FilterModuleOptions {
   stripEmpty?: boolean;
   /** Maximum depth for nested include paths (e.g. 'posts.comments.author'). Default: 3. */
   maxIncludeDepth?: number;
+  /** Maximum page size for offset pagination. Default: 100. */
+  maxPageSize?: number;
+}
+
+/**
+ * A single sort directive: field name and direction.
+ */
+export interface SortItem {
+  field: string;
+  direction: 'asc' | 'desc';
+}
+
+/**
+ * Offset-based pagination parameters.
+ */
+export interface OffsetPagination {
+  page: number;
+  size: number;
+}
+
+/**
+ * Cursor-based pagination parameters (not yet implemented).
+ */
+export interface CursorPagination {
+  after?: string;
+  before?: string;
+  first?: number;
+  last?: number;
 }
 
 /**
@@ -58,6 +86,8 @@ export interface StructuredInput {
   filter?: Record<string, unknown>;
   include?: string[] | string;
   search?: string;
+  sort?: string | SortItem[];
+  paginate?: OffsetPagination | CursorPagination;
   [key: string]: unknown;
 }
 

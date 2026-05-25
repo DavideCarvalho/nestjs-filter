@@ -16,7 +16,7 @@ import { validateInput } from './input/validator.js';
 import type { ColumnFilter } from './operators/types.js';
 import { validateColumnFilters } from './operators/validate-column-filter.js';
 import { FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
-import type { FilterContext, FilterModuleOptions } from './types.js';
+import type { FilterContext, FilterModuleOptions, SortItem } from './types.js';
 
 /**
  * A set-like interface for checking auto-field membership.
@@ -69,11 +69,13 @@ export class FilterRunner {
     const filter = await this.resolveFilter(FilterClass);
     const adapter = this.resolveAdapter();
 
-    // Extract structured input: { filter, include, search }
+    // Extract structured input: { filter, include, search, sort, paginate }
     const rawInput = this.extractStructuredInput(input);
     const filterInput = rawInput.filter;
     const rawInclude = rawInput.include;
     const rawSearch = rawInput.search;
+    const rawSort = rawInput.sort;
+    const rawPaginate = rawInput.paginate;
 
     // Extract column filters from the filter portion before normalization
     const { columnFilters, remainingInput } = this.extractColumnFilters(filterInput);
@@ -250,6 +252,24 @@ export class FilterRunner {
           this.applyGlobalSearch(qb, rawSearch.trim(), FilterClass, adapter, filterableMeta);
         }
 
+        // Apply sort
+        const sorts = this.parseSorts(rawSort);
+        if (sorts.length > 0 && adapter?.applySort) {
+          const allowedSorts = (FilterClass as unknown as { sort?: readonly string[] }).sort;
+          const validSorts = this.validateSorts(
+            sorts,
+            allowedSorts as string[] | undefined,
+            adapter,
+            filterableMeta?.entity,
+          );
+          if (validSorts.length > 0) {
+            adapter.applySort(qb as unknown, validSorts);
+          }
+        }
+
+        // Apply pagination
+        this.applyPagination(qb, rawPaginate, adapter);
+
         return qb;
       },
     );
@@ -323,16 +343,24 @@ export class FilterRunner {
    * Extracts the structured input shape from raw input.
    *
    * Supports:
-   * - `{ filter: {...}, include: [...], search: '...' }` (new structured format)
+   * - `{ filter: {...}, include: [...], search: '...', sort: '...', paginate: {...} }` (structured format)
    * - Any other shape is treated as the filter portion directly (backward compat for internal calls)
    */
   private extractStructuredInput(input: unknown): {
     filter: unknown;
     include: unknown;
     search: unknown;
+    sort: unknown;
+    paginate: unknown;
   } {
     if (input == null || typeof input !== 'object') {
-      return { filter: input, include: undefined, search: undefined };
+      return {
+        filter: input,
+        include: undefined,
+        search: undefined,
+        sort: undefined,
+        paginate: undefined,
+      };
     }
     const inputObj = input as Record<string, unknown>;
     // Detect structured format: must have a 'filter' key (even if undefined/null)
@@ -341,10 +369,18 @@ export class FilterRunner {
         filter: inputObj.filter ?? undefined,
         include: inputObj.include ?? undefined,
         search: inputObj.search ?? undefined,
+        sort: inputObj.sort ?? undefined,
+        paginate: inputObj.paginate ?? undefined,
       };
     }
     // Not structured — treat entire input as the filter portion
-    return { filter: input, include: undefined, search: undefined };
+    return {
+      filter: input,
+      include: undefined,
+      search: undefined,
+      sort: undefined,
+      paginate: undefined,
+    };
   }
 
   /**
@@ -553,11 +589,13 @@ export class FilterRunner {
   ): Promise<Q> {
     const adapter = this.resolveAdapter();
 
-    // Extract structured input: { filter, include, search }
+    // Extract structured input: { filter, include, search, sort, paginate }
     const rawInput = this.extractStructuredInput(input);
     const filterInput = rawInput.filter;
     const rawInclude = rawInput.include;
     const rawSearch = rawInput.search;
+    const rawSort = rawInput.sort;
+    const rawPaginate = rawInput.paginate;
 
     // Extract column filters before normalization
     const { columnFilters, remainingInput } = this.extractColumnFilters(filterInput);
@@ -623,6 +661,18 @@ export class FilterRunner {
       this.applyGlobalSearchDynamic(qb, rawSearch.trim(), entity, adapter);
     }
 
+    // Sort — validate against entity metadata only (no filter class)
+    const sorts = this.parseSorts(rawSort);
+    if (sorts.length > 0 && adapter?.applySort) {
+      const validSorts = this.validateSorts(sorts, undefined, adapter, entity);
+      if (validSorts.length > 0) {
+        adapter.applySort(qb as unknown, validSorts);
+      }
+    }
+
+    // Pagination
+    this.applyPagination(qb, rawPaginate, adapter);
+
     return qb;
   }
 
@@ -657,6 +707,88 @@ export class FilterRunner {
     if (policy === 'throw') throw new UnknownFilterKeyException(key);
     if (policy === 'warn') {
       this.logger.warn(`Unknown filter key: "${key}"`);
+    }
+  }
+
+  /**
+   * Parses raw sort input into an array of SortItem objects.
+   *
+   * Supports:
+   * - String: `"-createdAt,name"` → `[{ field: 'createdAt', direction: 'desc' }, { field: 'name', direction: 'asc' }]`
+   * - Array of SortItem objects: passed through as-is
+   * - Falsy values: returns empty array
+   *
+   * Minus prefix = desc, no prefix = asc (JSON:API convention).
+   */
+  parseSorts(raw: unknown): SortItem[] {
+    if (!raw) return [];
+    if (typeof raw === 'string') {
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((token) => {
+          if (token.startsWith('-')) {
+            return { field: token.substring(1), direction: 'desc' as const };
+          }
+          return { field: token, direction: 'asc' as const };
+        })
+        .filter((s) => s.field.length > 0);
+    }
+    if (Array.isArray(raw)) {
+      return raw.filter(
+        (item): item is SortItem =>
+          item != null &&
+          typeof item === 'object' &&
+          typeof item.field === 'string' &&
+          (item.direction === 'asc' || item.direction === 'desc'),
+      );
+    }
+    return [];
+  }
+
+  /**
+   * Validates sort fields against the allowlist (if defined) or entity metadata.
+   * Silently skips invalid fields.
+   */
+  private validateSorts(
+    sorts: SortItem[],
+    allowlist: string[] | undefined,
+    adapter: FilterAdapter,
+    entity: Type<unknown> | undefined,
+  ): SortItem[] {
+    if (allowlist) {
+      return sorts.filter((s) => allowlist.includes(s.field));
+    }
+    // No allowlist — validate against entity columns
+    if (entity && adapter.getEntityFields) {
+      const fields = adapter.getEntityFields(entity);
+      if (fields) {
+        const fieldNames = new Set(fields.map((f) => f.name));
+        return sorts.filter((s) => fieldNames.has(s.field));
+      }
+    }
+    // No metadata available — pass through
+    return sorts;
+  }
+
+  /**
+   * Applies offset or cursor pagination to the query builder.
+   * Cursor pagination logs a warning (not yet implemented).
+   */
+  private applyPagination<Q>(qb: Q, rawPaginate: unknown, adapter: FilterAdapter | null): void {
+    if (!rawPaginate || typeof rawPaginate !== 'object') return;
+
+    const p = rawPaginate as Record<string, unknown>;
+
+    if ('page' in p && 'size' in p) {
+      if (!adapter?.applyOffsetPagination) return;
+      const maxSize = this.options.maxPageSize ?? 100;
+      const size = Math.min(Math.max(1, Number(p.size) || 25), maxSize);
+      const page = Math.max(0, Number(p.page) || 0);
+      adapter.applyOffsetPagination(qb as unknown, page, size);
+    } else if ('after' in p || 'before' in p) {
+      this.logger.warn('Cursor pagination is not yet implemented. Use offset pagination.');
     }
   }
 }

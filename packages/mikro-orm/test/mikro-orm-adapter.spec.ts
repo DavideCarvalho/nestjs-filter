@@ -26,7 +26,7 @@ describe('MikroOrmAdapter', () => {
     if (orm) await orm.close(true);
   });
 
-  it('createQueryBuilder returns a MikroORM QueryBuilder', async () => {
+  async function initOrm() {
     orm = await MikroORM.init({
       driver: SqliteDriver,
       dbName: ':memory:',
@@ -35,12 +35,65 @@ describe('MikroOrmAdapter', () => {
       metadataProvider: ReflectMetadataProvider,
     });
     await orm.schema.create();
+    return orm;
+  }
 
+  it('createQueryBuilder returns a MikroORM QueryBuilder', async () => {
+    await initOrm();
     const adapter = new MikroOrmAdapter(orm.em);
     const qb = adapter.createQueryBuilder(Item as any);
 
     // MikroORM QueryBuilder has a getQuery method
     expect(qb).toBeDefined();
     expect(typeof (qb as any).getQuery).toBe('function');
+  });
+
+  it('applySort sets orderBy on the query builder', async () => {
+    await initOrm();
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applySort(qb, [
+      { field: 'title', direction: 'desc' },
+      { field: 'id', direction: 'asc' },
+    ]);
+
+    const sql = qb.getQuery();
+    expect(sql).toContain('order by');
+  });
+
+  it('applySort with single field asc', async () => {
+    await initOrm();
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applySort(qb, [{ field: 'title', direction: 'asc' }]);
+
+    const sql = qb.getQuery();
+    expect(sql).toContain('order by');
+    expect(sql.toLowerCase()).toContain('asc');
+  });
+
+  it('applyOffsetPagination applies limit and offset', async () => {
+    await initOrm();
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applyOffsetPagination(qb, 2, 10);
+
+    const sql = qb.getQuery();
+    expect(sql).toContain('limit');
+    expect(sql).toContain('offset');
+  });
+
+  it('applyOffsetPagination page 0 results in offset 0', async () => {
+    await initOrm();
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applyOffsetPagination(qb, 0, 25);
+
+    const sql = qb.getQuery();
+    expect(sql).toContain('limit');
   });
 });

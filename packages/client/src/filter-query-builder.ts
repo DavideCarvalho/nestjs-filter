@@ -3,6 +3,22 @@ import type { ColumnFilter, FilterOperator } from './types.js';
 import { validateAddOperator, validateOperatorValue } from './validate-operator-value.js';
 
 /**
+ * A single sort directive: field name and direction.
+ */
+export interface SortItem {
+  field: string;
+  direction: 'asc' | 'desc';
+}
+
+/**
+ * Offset-based pagination parameters.
+ */
+export interface OffsetPagination {
+  page: number;
+  size: number;
+}
+
+/**
  * Internal representation of a condition added via `where()`.
  */
 interface Condition {
@@ -22,7 +38,7 @@ interface Group {
 /**
  * The result shape returned by `build()`.
  *
- * Uses the structured input format: `{ filter, include, search }`.
+ * Uses the structured input format: `{ filter, include, search, sort, paginate }`.
  */
 export interface FilterQueryResult {
   filter: {
@@ -31,6 +47,8 @@ export interface FilterQueryResult {
   };
   include?: string[];
   search?: string;
+  sort?: SortItem[];
+  paginate?: OffsetPagination;
   [key: string]: unknown;
 }
 
@@ -44,6 +62,8 @@ export class FilterQueryBuilder {
   private extra: Record<string, unknown> = {};
   private includes: string[] = [];
   private searchTerm: string | undefined;
+  private sorts: SortItem[] = [];
+  private pagination: OffsetPagination | undefined;
 
   /**
    * Adds a filter condition, **replacing** any existing filter(s) for the same field.
@@ -184,6 +204,8 @@ export class FilterQueryBuilder {
     this.extra = {};
     this.includes = [];
     this.searchTerm = undefined;
+    this.sorts = [];
+    this.pagination = undefined;
     return this;
   }
 
@@ -370,6 +392,51 @@ export class FilterQueryBuilder {
     return this;
   }
 
+  // ─── Sort & Pagination ──────────────────────────────────────────────────
+
+  /**
+   * Adds or replaces a sort directive for the given field.
+   * If a sort for the same field already exists, it is replaced.
+   *
+   * @example
+   * filterQuery().sort('createdAt', 'desc').sort('name').build()
+   * // → { ..., sort: [{ field: 'createdAt', direction: 'desc' }, { field: 'name', direction: 'asc' }] }
+   */
+  sort(field: string, direction: 'asc' | 'desc' = 'asc'): this {
+    this.sorts = this.sorts.filter((s) => s.field !== field);
+    this.sorts.push({ field, direction });
+    return this;
+  }
+
+  /**
+   * Shorthand for `sort(field, 'desc')`.
+   */
+  sortDesc(field: string): this {
+    return this.sort(field, 'desc');
+  }
+
+  /**
+   * Shorthand for `sort(field, 'asc')`.
+   */
+  sortAsc(field: string): this {
+    return this.sort(field, 'asc');
+  }
+
+  /**
+   * Sets offset-based pagination.
+   *
+   * @param page - Zero-based page number.
+   * @param size - Number of records per page (default 25).
+   *
+   * @example
+   * filterQuery().page(0, 25).build()
+   * // → { ..., paginate: { page: 0, size: 25 } }
+   */
+  page(page: number, size = 25): this {
+    this.pagination = { page, size };
+    return this;
+  }
+
   // ─── Build ──────────────────────────────────────────────────────────────
 
   /**
@@ -422,6 +489,12 @@ export class FilterQueryBuilder {
     if (this.searchTerm !== undefined) {
       result.search = this.searchTerm;
     }
+    if (this.sorts.length > 0) {
+      result.sort = [...this.sorts];
+    }
+    if (this.pagination !== undefined) {
+      result.paginate = { ...this.pagination };
+    }
     return result;
   }
 
@@ -457,6 +530,20 @@ export class FilterQueryBuilder {
     // Build search
     if (this.searchTerm !== undefined) {
       parts.push(`search=${encodeURIComponent(this.searchTerm)}`);
+    }
+
+    // Build sort
+    if (this.sorts.length > 0) {
+      const sortStr = this.sorts
+        .map((s) => (s.direction === 'desc' ? `-${s.field}` : s.field))
+        .join(',');
+      parts.push(`sort=${encodeURIComponent(sortStr)}`);
+    }
+
+    // Build pagination
+    if (this.pagination !== undefined) {
+      parts.push(`page=${encodeURIComponent(String(this.pagination.page))}`);
+      parts.push(`size=${encodeURIComponent(String(this.pagination.size))}`);
     }
 
     // Build extra keys

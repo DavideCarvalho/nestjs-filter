@@ -913,4 +913,156 @@ describe('FilterQueryBuilder', () => {
       expect(() => filterQuery().addGt('x', 0).addLt('x', 100)).not.toThrow();
     });
   });
+
+  // ─── Sort ─────────────────────────────────────────────────────────────────
+
+  describe('sort()', () => {
+    it('adds a sort directive to build result', () => {
+      const result = filterQuery().sort('createdAt', 'desc').build();
+      expect(result.sort).toEqual([{ field: 'createdAt', direction: 'desc' }]);
+    });
+
+    it('defaults direction to asc', () => {
+      const result = filterQuery().sort('name').build();
+      expect(result.sort).toEqual([{ field: 'name', direction: 'asc' }]);
+    });
+
+    it('replaces existing sort for same field', () => {
+      const result = filterQuery().sort('name', 'asc').sort('name', 'desc').build();
+      expect(result.sort).toEqual([{ field: 'name', direction: 'desc' }]);
+    });
+
+    it('multiple sorts on different fields', () => {
+      const result = filterQuery().sort('createdAt', 'desc').sort('name').build();
+      expect(result.sort).toEqual([
+        { field: 'createdAt', direction: 'desc' },
+        { field: 'name', direction: 'asc' },
+      ]);
+    });
+
+    it('sortDesc shorthand', () => {
+      const result = filterQuery().sortDesc('createdAt').build();
+      expect(result.sort).toEqual([{ field: 'createdAt', direction: 'desc' }]);
+    });
+
+    it('sortAsc shorthand', () => {
+      const result = filterQuery().sortAsc('name').build();
+      expect(result.sort).toEqual([{ field: 'name', direction: 'asc' }]);
+    });
+
+    it('no sort in result when none set', () => {
+      const result = filterQuery().where('status', 'active').build();
+      expect(result.sort).toBeUndefined();
+    });
+
+    it('sort returns this for chaining', () => {
+      const builder = filterQuery();
+      expect(builder.sort('name')).toBe(builder);
+      expect(builder.sortDesc('x')).toBe(builder);
+      expect(builder.sortAsc('y')).toBe(builder);
+    });
+
+    it('clear() resets sorts', () => {
+      const result = filterQuery().sort('name').clear().build();
+      expect(result.sort).toBeUndefined();
+    });
+  });
+
+  // ─── Page ─────────────────────────────────────────────────────────────────
+
+  describe('page()', () => {
+    it('sets pagination in build result', () => {
+      const result = filterQuery().page(0, 25).build();
+      expect(result.paginate).toEqual({ page: 0, size: 25 });
+    });
+
+    it('defaults size to 25', () => {
+      const result = filterQuery().page(2).build();
+      expect(result.paginate).toEqual({ page: 2, size: 25 });
+    });
+
+    it('replaces previous pagination', () => {
+      const result = filterQuery().page(0, 10).page(3, 50).build();
+      expect(result.paginate).toEqual({ page: 3, size: 50 });
+    });
+
+    it('no paginate in result when not set', () => {
+      const result = filterQuery().where('name', 'foo').build();
+      expect(result.paginate).toBeUndefined();
+    });
+
+    it('page returns this for chaining', () => {
+      const builder = filterQuery();
+      expect(builder.page(0)).toBe(builder);
+    });
+
+    it('clear() resets pagination', () => {
+      const result = filterQuery().page(5, 10).clear().build();
+      expect(result.paginate).toBeUndefined();
+    });
+  });
+
+  // ─── toQueryString with sort + pagination ─────────────────────────────────
+
+  describe('toQueryString() with sort and pagination', () => {
+    it('includes sort string in query string', () => {
+      const qs = filterQuery().sortDesc('createdAt').sort('name').toQueryString();
+      expect(qs).toContain('sort=-createdAt%2Cname');
+    });
+
+    it('includes page and size in query string', () => {
+      const qs = filterQuery().page(2, 10).toQueryString();
+      expect(qs).toContain('page=2');
+      expect(qs).toContain('size=10');
+    });
+
+    it('sort + pagination + filter in query string', () => {
+      const qs = filterQuery()
+        .where('status', 'active')
+        .sortDesc('createdAt')
+        .page(0, 25)
+        .toQueryString();
+      expect(qs).toContain('filter');
+      expect(qs).toContain('sort=-createdAt');
+      expect(qs).toContain('page=0');
+      expect(qs).toContain('size=25');
+    });
+
+    it('no sort or pagination params when not set', () => {
+      const qs = filterQuery().where('name', 'foo').toQueryString();
+      expect(qs).not.toContain('sort=');
+      expect(qs).not.toContain('page=');
+      expect(qs).not.toContain('size=');
+    });
+  });
+
+  // ─── build() with sort + pagination ─────────────────────────────────────
+
+  describe('build() with sort and pagination', () => {
+    it('complete build with all features', () => {
+      const result = filterQuery()
+        .where('status', 'active')
+        .include('posts')
+        .search('fleet')
+        .sortDesc('createdAt')
+        .page(0, 25)
+        .build();
+
+      expect(result.filter.where).toHaveLength(1);
+      expect(result.include).toEqual(['posts']);
+      expect(result.search).toBe('fleet');
+      expect(result.sort).toEqual([{ field: 'createdAt', direction: 'desc' }]);
+      expect(result.paginate).toEqual({ page: 0, size: 25 });
+    });
+
+    it('build() is idempotent with sort and pagination', () => {
+      const b = filterQuery().sort('name').page(1, 10);
+      const r1 = b.build();
+      const r2 = b.build();
+      expect(r1).toEqual(r2);
+      // Ensure they are different object references (not shared)
+      expect(r1.sort).not.toBe(r2.sort);
+      expect(r1.paginate).not.toBe(r2.paginate);
+    });
+  });
 });

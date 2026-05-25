@@ -4,6 +4,7 @@ import {
   type EntityRelationInfo,
   FILTER_OPERATORS,
   type FilterAdapter,
+  type SortItem,
   escapeLike,
 } from '@dudousxd/nestjs-filter';
 import type { Type } from '@nestjs/common';
@@ -170,6 +171,20 @@ export class TypeOrmAdapter implements FilterAdapter {
     const alias = queryBuilder.alias;
     const param = 'search_vector_0';
     queryBuilder.andWhere(`${alias}.${vectorColumn} @@ to_tsquery(:${param})`, { [param]: term });
+  }
+
+  applySort(qb: unknown, sorts: SortItem[]): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const alias = queryBuilder.alias;
+    for (const s of sorts) {
+      if (!SAFE_FIELD.test(s.field)) continue;
+      queryBuilder.addOrderBy(`${alias}.${s.field}`, s.direction.toUpperCase() as 'ASC' | 'DESC');
+    }
+  }
+
+  applyOffsetPagination(qb: unknown, page: number, size: number): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    queryBuilder.skip(page * size).take(size);
   }
 
   private mapTypeOrmType(ormType: string | Function): EntityFieldInfo['type'] {

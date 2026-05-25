@@ -1,5 +1,6 @@
 import type { Type } from '@nestjs/common';
 import type { ColumnFilter } from '../operators/types.js';
+import type { SortItem } from '../types.js';
 
 /**
  * Describes a single scalar field on an entity, as reported by the ORM's
@@ -170,4 +171,21 @@ export interface FilterAdapter {
    * @param vectorColumn - The tsvector column name.
    */
   applyVectorSearch?(qb: unknown, term: string, vectorColumn: string): void;
+
+  /**
+   * Applies sort ordering to the query builder.
+   *
+   * @param qb - The query builder instance.
+   * @param sorts - Array of SortItem directives (field + direction).
+   */
+  applySort?(qb: unknown, sorts: SortItem[]): void;
+
+  /**
+   * Applies offset-based pagination to the query builder.
+   *
+   * @param qb - The query builder instance.
+   * @param page - Zero-based page number.
+   * @param size - Number of records per page.
+   */
+  applyOffsetPagination?(qb: unknown, page: number, size: number): void;
 }
