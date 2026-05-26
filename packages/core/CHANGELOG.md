@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter
 
+## 1.0.3
+
+### Patch Changes
+
+- [`dad7e77`](https://github.com/DavideCarvalho/nestjs-filter/commit/dad7e776fe85f2477deb4a11b320633207d56901) - Export OffsetPagination, CursorPagination, SortItem types and add sort + paginate to StructuredInput.
+
 ## 1.0.0
 
 ### Minor Changes
