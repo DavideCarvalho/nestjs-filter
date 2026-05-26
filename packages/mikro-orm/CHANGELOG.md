@@ -1,5 +1,14 @@
 # @dudousxd/nestjs-filter-mikro-orm
 
+## 1.0.4
+
+### Patch Changes
+
+- [`d72a84d`](https://github.com/DavideCarvalho/nestjs-filter/commit/d72a84d72fb42da8ec567f87ba171ed040f2e9a5) - Fix: add "default" export condition for CJS compatibility (Node 26 strict exports resolution).
+
+- Updated dependencies [[`d72a84d`](https://github.com/DavideCarvalho/nestjs-filter/commit/d72a84d72fb42da8ec567f87ba171ed040f2e9a5)]:
+  - @dudousxd/nestjs-filter@1.0.4
+
 ## 1.0.3
 
 ### Patch Changes
