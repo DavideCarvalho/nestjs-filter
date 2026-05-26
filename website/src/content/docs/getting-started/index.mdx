@@ -209,6 +209,84 @@ That's it. A request to `GET /users?name=Al&minAge=18` will:
 
 ---
 
+## Structured input
+
+Beyond flat query strings, `nestjs-filter` accepts a **structured input** object that combines filtering, sorting, pagination, search, and eager loading in a single request:
+
+```ts
+// POST /users/search  — body:
+{
+  filter: { name: 'Al', status: 'active' },
+  sort: ['-createdAt', 'name'],         // prefix with - for descending
+  paginate: { page: 0, size: 25 },
+  search: 'fleet',                       // global ILIKE across searchable fields
+  include: ['role', 'posts'],            // eager-load relations
+}
+```
+
+### Sort
+
+The `sort` field accepts an array of field names. Prefix a field with `-` for descending order:
+
+```ts
+{ sort: ['-createdAt', 'name'] }
+// ORDER BY createdAt DESC, name ASC
+```
+
+### Pagination
+
+The `paginate` field supports offset-based pagination:
+
+```ts
+{ paginate: { page: 0, size: 25 } }
+```
+
+Configure `maxPageSize` in `FilterModule.forRoot()` to cap the page size (see [Configuration](/nestjs-filter/guides/configuration/)).
+
+### Include
+
+The `include` field specifies relations to eager-load:
+
+```ts
+{ include: ['role', 'posts'] }
+```
+
+### Search
+
+The `search` field runs a global ILIKE query across all searchable fields:
+
+```ts
+{ search: 'fleet' }
+```
+
+### Dot-notation auto-joins
+
+Use dot-notation to filter on related entities. The library automatically joins the required relations:
+
+```ts
+// Filter by a relation field — auto-joins the 'posts' relation
+{ filter: { 'posts.title': 'Hello' } }
+```
+
+### Dynamic filtering with applyDynamic
+
+Query any entity without defining a filter class using `applyDynamic`:
+
+```ts
+import { applyDynamic } from '@dudousxd/nestjs-filter';
+
+const qb = em.createQueryBuilder(User);
+await applyDynamic(qb, {
+  filter: { name: 'Al', status: 'active' },
+  sort: ['-createdAt'],
+  paginate: { page: 0, size: 10 },
+});
+```
+
+Entity metadata introspection ensures unknown fields are rejected at runtime.
+
+---
+
 ## Step 5 -- Use via FilterRunner (optional)
 
 For programmatic use in services (outside controllers), inject `FilterRunner`:

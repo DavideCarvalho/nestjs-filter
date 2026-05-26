@@ -58,10 +58,6 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
   <div class="custom-hero">
     {/* Section 1: Hero */}
     <section class="hero-top">
-      <div class="hero-badge">
-        <span class="badge-dot"></span>
-        <span>Alpha &mdash; API stabilising</span>
-      </div>
       <p class="hero-tagline">Declarative filters<br />for NestJS</p>
       <p class="hero-sub">
         Stop writing <code>if/if/if</code> chains. Define filter classes, decorate methods, let the library build your WHERE clauses.
@@ -251,33 +247,6 @@ const afterCode = `<span class="hl-dec">@ApplyFilter</span>(<span class="hl-type
     padding-top: 4rem;
     padding-bottom: 4rem;
     border-bottom: 1px solid var(--sl-color-hairline);
-  }
-
-  .hero-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-family: var(--sl-font-mono);
-    font-size: 0.8rem;
-    color: var(--sl-color-text-accent);
-    background: var(--sl-color-bg-inline-code);
-    padding: 0.3rem 0.75rem;
-    border-radius: 999px;
-    margin-bottom: 2rem;
-    border: 1px solid var(--sl-color-hairline);
-  }
-
-  .badge-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--sl-color-text-accent);
-    animation: pulse-dot 2s infinite;
-  }
-
-  @keyframes pulse-dot {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
   }
 
   .hero-tagline {

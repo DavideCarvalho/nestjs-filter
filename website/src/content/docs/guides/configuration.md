@@ -30,6 +30,7 @@ FilterModule.forRoot({
 | `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | What to do when an input key has no matching `@FilterFor`. |
 | `validation` | `'auto' \| 'off'` | `'auto'` | `'auto'` uses class-validator if installed. `'off'` skips validation. |
 | `stripEmpty` | `boolean` | `true` | When `true`, `null`, `undefined`, and empty string values are stripped from input. |
+| `maxPageSize` | `number` | `100` | Maximum allowed page size for pagination. Requests exceeding this value are capped. |
 
 ### Input normalizer details
 

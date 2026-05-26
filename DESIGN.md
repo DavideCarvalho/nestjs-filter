@@ -91,7 +91,7 @@ No box-shadows on cards, sidebars, or navigation. Hover states use background co
 
 ### Site Title
 - Monospace (`JetBrains Mono`), white text
-- "alpha" badge: zinc text on zinc-900 bg with zinc border (no color)
+- Monospace title, no version badge
 
 ### Hero (Landing Page)
 - Large bold tagline with tight letter-spacing (-0.03em)

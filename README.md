@@ -11,8 +11,6 @@ Declarative, ORM-agnostic filter classes for NestJS. Inspired by `adonis-lucid-f
 [![NestJS](https://img.shields.io/badge/NestJS-10%2B-e0234e.svg)](https://nestjs.com/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/DavideCarvalho/nestjs-filter/blob/main/CONTRIBUTING.md)
 
-> **Alpha status:** API is stabilising. Breaking changes may occur before `1.0`.
-
 ## Docs
 
 Full documentation: **[davidecarvalho.github.io/nestjs-filter](https://davidecarvalho.github.io/nestjs-filter/)**

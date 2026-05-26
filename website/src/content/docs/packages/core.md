@@ -78,6 +78,15 @@ The core package provides the filter infrastructure: the base class, runner, dec
 | `validateColumnFilters(filters)` | Validates an array of `ColumnFilter` objects. |
 | `InvalidColumnFilterError` | Error class thrown by `validateColumnFilter`. |
 
+### Structured Input & Pagination
+
+| Export | Description |
+|--------|-------------|
+| `StructuredInput` | Type for the structured input format: `{ filter?, sort?, paginate?, search?, include? }`. |
+| `OffsetPagination` | Type for offset-based pagination: `{ page: number, size: number }`. |
+| `SortItem` | Type for a sort entry: a field string optionally prefixed with `-` for descending. |
+| `applyDynamic(qb, input, options?)` | Apply filtering, sorting, pagination, search, and includes to any entity's QueryBuilder without a filter class. Uses entity metadata introspection to reject unknown fields. |
+
 ### Utilities
 
 | Export | Description |
