@@ -1,0 +1,184 @@
+---
+title: Controller Integration
+description: Using @ApplyFilter in controllers — method-aware source resolution, custom sources, dynamic filter selection, and error handling.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `@ApplyFilter()` parameter decorator is the primary way to use filters in controllers. It resolves input from the HTTP request, runs the filter, and injects the resulting QueryBuilder into your controller method parameter.
+
+---
+
+## Basic usage
+
+```ts
+import { Controller, Get, Post, Body } from '@nestjs/common';
+import { ApplyFilter } from '@dudousxd/nestjs-filter';
+import { UserFilter } from './user.filter.js';
+
+@Controller('users')
+export class UsersController {
+  @Get()
+  list(@ApplyFilter(UserFilter) qb: QueryBuilder<User>) {
+    return qb.getResultList(); // MikroORM
+  }
+
+  @Post('search')
+  search(@ApplyFilter(UserFilter) qb: QueryBuilder<User>, @Body() _body: unknown) {
+    return qb.getResultList();
+  }
+}
+```
+
+---
+
+## Method-aware source resolution
+
+By default (`source: 'auto'`), `@ApplyFilter` automatically selects the input source based on the HTTP method:
+
+| HTTP method | Source |
+|-------------|--------|
+| `GET`, `HEAD` | `req.query` |
+| `POST`, `PUT`, `PATCH`, `DELETE` | `{ ...req.query, ...req.body }` (body wins on conflicts) |
+
+This means:
+- `GET /users?name=Al` reads from the query string
+- `POST /users/search` with body `{ name: 'Al' }` merges query string and body
+
+---
+
+## Custom source
+
+Override the source with the `source` option:
+
+```ts
+// Always read from query string, even on POST
+@Post('search')
+search(@ApplyFilter(UserFilter, { source: 'query' }) qb: QueryBuilder<User>) {
+  return qb.getResultList();
+}
+
+// Always read from body
+@Post('search')
+search(@ApplyFilter(UserFilter, { source: 'body' }) qb: QueryBuilder<User>) {
+  return qb.getResultList();
+}
+
+// Dot-path source — read from a nested property
+@Post('search')
+search(@ApplyFilter(UserFilter, { source: 'body.filters' }) qb: QueryBuilder<User>) {
+  // Reads from req.body.filters
+  return qb.getResultList();
+}
+
+// Custom source function
+@Get()
+list(
+  @ApplyFilter(UserFilter, {
+    source: (req: unknown) => ({
+      ...req.query,
+      tenantId: req.headers['x-tenant-id'],
+    }),
+  })
+  qb: QueryBuilder<User>,
+) {
+  return qb.getResultList();
+}
+```
+
+<Callout type="info">
+  Dot-path sources like `'body.filters'` or `'body.data.query'` traverse the request object using dot notation. This is useful when your API wraps filter input inside a nested object.
+</Callout>
+
+---
+
+## Dynamic filter selection with `resolve`
+
+Use the `resolve` option to select a filter class dynamically per request:
+
+```ts
+import { UserFilter } from './user.filter.js';
+import { AdminUserFilter } from './admin-user.filter.js';
+
+@Get()
+list(
+  @ApplyFilter(UserFilter, {
+    resolve: (req: unknown) =>
+      req.user?.role === 'admin' ? AdminUserFilter : UserFilter,
+  })
+  qb: QueryBuilder<User>,
+) {
+  return qb.getResultList();
+}
+```
+
+When `resolve` is provided, the first argument (`UserFilter` in this example) acts as the default/fallback. The `resolve` function receives the raw request object and must return a filter class constructor.
+
+---
+
+## `@ApplyFilter` options reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `source` | `'auto' \| 'query' \| 'body' \| string \| (req) => Record` | `'auto'` | Where to read input from. Strings with dots (e.g. `'body.filters'`) traverse the request object. |
+| `dto` | `Type<unknown>` | -- | Override the DTO class used for validation. |
+| `resolve` | `(req) => Type` | -- | Dynamically select a filter class per request. |
+
+---
+
+## FilterExceptionFilter
+
+When validation fails, `FilterRunner` throws a `FilterValidationException`. To convert this into a proper HTTP 400 response, register `FilterExceptionFilter`:
+
+```ts
+// src/main.ts
+import { NestFactory } from '@nestjs/core';
+import { FilterExceptionFilter } from '@dudousxd/nestjs-filter';
+import { AppModule } from './app.module.js';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalFilters(new FilterExceptionFilter());
+  await app.listen(3000);
+}
+bootstrap();
+```
+
+The filter catches `FilterValidationException` and returns:
+
+```json
+{
+  "statusCode": 400,
+  "message": "Filter input validation failed.",
+  "errors": [
+    {
+      "property": "minAge",
+      "constraints": {
+        "isNumber": "minAge must be a number"
+      }
+    }
+  ]
+}
+```
+
+<Callout type="info">
+  You can also apply `FilterExceptionFilter` at the controller level with `@UseFilters(FilterExceptionFilter)` instead of globally.
+</Callout>
+
+---
+
+## Multiple filters on one method
+
+You can apply multiple filters to a single controller method. Each `@ApplyFilter` resolves independently:
+
+```ts
+@Get()
+list(
+  @ApplyFilter(UserFilter) userQb: QueryBuilder<User>,
+  @ApplyFilter(OrderFilter) orderQb: QueryBuilder<Order>,
+) {
+  // Both query builders are independently filtered
+}
+```
+
+Each filter creates its own QueryBuilder from the adapter, so they operate on different entities.

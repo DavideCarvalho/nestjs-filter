@@ -1,0 +1,177 @@
+---
+title: Input Validation
+description: class-validator integration, filter-as-DTO pattern, ValidationMode, FilterExceptionFilter, and FilterInput type helper.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+nestjs-filter integrates with `class-validator` and `class-transformer` to validate filter input before dispatch. This is optional -- if the packages are not installed, validation is silently skipped.
+
+---
+
+## Filter as DTO
+
+The filter class itself acts as the validation DTO. Add `class-validator` decorators directly to the filter class properties:
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { Filterable, FilterFor } from '@dudousxd/nestjs-filter';
+import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
+import { IsOptional, IsString, IsNumber, Min, IsEnum } from 'class-validator';
+import { Type } from 'class-transformer';
+import { User } from './user.entity.js';
+
+enum UserStatus {
+  ACTIVE = 'active',
+  INACTIVE = 'inactive',
+}
+
+@Injectable()
+@Filterable({ entity: User })
+export class UserFilter extends MikroOrmFilter<User> {
+  @IsOptional() @IsString()
+  name?: string;
+
+  @IsOptional() @IsNumber() @Min(0)
+  @Type(() => Number)
+  minAge?: number;
+
+  @IsOptional() @IsEnum(UserStatus)
+  status?: UserStatus;
+
+  @FilterFor('name')
+  applyName(value: string) { this.whereLike('name', value); }
+
+  @FilterFor('minAge')
+  applyMinAge(value: number) { this.$query.andWhere({ age: { $gte: value } }); }
+
+  @FilterFor('status')
+  applyStatus(value: UserStatus) { this.$query.andWhere({ status: value }); }
+}
+```
+
+<Callout type="info">
+  Always use `@Type(() => Number)` from `class-transformer` on numeric fields. Query string values are always strings, and `class-transformer` handles the coercion to `number` before `class-validator` runs.
+</Callout>
+
+---
+
+## ValidationMode
+
+The `validation` option in `FilterModule.forRoot()` controls validation behavior:
+
+| Value | Behavior |
+|-------|----------|
+| `'auto'` (default) | Uses `class-validator` if installed. Silently skips if not. |
+| `'off'` | Never validates, even if `class-validator` is installed. |
+
+```ts
+FilterModule.forRoot({
+  validation: 'auto', // default
+})
+```
+
+```ts
+FilterModule.forRoot({
+  validation: 'off', // skip validation entirely
+})
+```
+
+---
+
+## How validation works
+
+When `validation` is `'auto'` and `class-validator` is installed:
+
+1. Input is normalized (camelCase/snakeCase/custom)
+2. `plainToInstance(FilterClass, input)` transforms the raw input into a class instance
+3. `validate(instance)` runs class-validator decorators
+4. If validation errors exist, `FilterValidationException` is thrown
+5. Transformed values are extracted back into a plain object for dispatch
+
+This means `class-transformer` decorators like `@Type(() => Number)` and `@Transform()` are applied before validation.
+
+---
+
+## FilterExceptionFilter
+
+To convert `FilterValidationException` into HTTP 400 responses, register the `FilterExceptionFilter`:
+
+### Global registration
+
+```ts
+// src/main.ts
+import { FilterExceptionFilter } from '@dudousxd/nestjs-filter';
+
+const app = await NestFactory.create(AppModule);
+app.useGlobalFilters(new FilterExceptionFilter());
+```
+
+### Controller-level registration
+
+```ts
+import { UseFilters } from '@nestjs/common';
+import { FilterExceptionFilter } from '@dudousxd/nestjs-filter';
+
+@Controller('users')
+@UseFilters(FilterExceptionFilter)
+export class UsersController { /* ... */ }
+```
+
+### Response shape
+
+```json
+{
+  "statusCode": 400,
+  "message": "Filter input validation failed.",
+  "errors": [
+    {
+      "property": "minAge",
+      "constraints": {
+        "min": "minAge must not be less than 0",
+        "isNumber": "minAge must be a number"
+      }
+    }
+  ]
+}
+```
+
+The `errors` array follows the same structure as `class-validator`'s `ValidationError`, with `property`, `constraints`, and optional `children` for nested objects.
+
+---
+
+## `FilterInput<F>` type helper
+
+The `FilterInput<F>` type extracts the input shape from a filter class. It picks all non-function, non-`$`-prefixed, non-`setup` properties:
+
+```ts
+import type { FilterInput } from '@dudousxd/nestjs-filter';
+
+type UserFilterInput = FilterInput<UserFilter>;
+// { name?: string; minAge?: number; status?: UserStatus }
+```
+
+This is useful for typing service method parameters:
+
+```ts
+async search(input: FilterInput<UserFilter>) {
+  const qb = this.em.createQueryBuilder(User);
+  await this.runner.apply(UserFilter, input, qb);
+  return qb.getResultList();
+}
+```
+
+### Additional type helpers
+
+| Type | Description |
+|------|-------------|
+| `FilterInput<F>` | All filter properties (non-function, non-`$`-prefixed, non-`setup`) |
+| `FilterInputStrict<F>` | Alias for `FilterInput<F>` -- exact keys only |
+| `FilterInputLoose<F>` | Includes snake_case key variants and `_id` suffixed variants for numeric keys |
+
+```ts
+import type { FilterInputLoose } from '@dudousxd/nestjs-filter';
+
+type LooseInput = FilterInputLoose<UserFilter>;
+// Accepts: name, min_age, minAge, minAgeId, min_age_id, etc.
+```

@@ -1,0 +1,230 @@
+---
+title: Testing
+description: FilterTestingModule, makeMockQueryBuilder, unit testing filters, integration testing with real databases, and Docker Compose setup.
+---
+
+nestjs-filter ships with testing utilities in `@dudousxd/nestjs-filter/testing` that make it easy to unit test filters without a database.
+
+---
+
+## FilterTestingModule
+
+A stripped-down module for unit tests. Defaults to `validation: 'off'` so you can test filter logic without needing `class-validator`.
+
+```ts
+import { Test } from '@nestjs/testing';
+import { FilterRunner } from '@dudousxd/nestjs-filter';
+import {
+  FilterTestingModule,
+  makeMockQueryBuilder,
+} from '@dudousxd/nestjs-filter/testing';
+import { UserFilter } from './user.filter.js';
+
+describe('UserFilter', () => {
+  let runner: FilterRunner;
+
+  beforeEach(async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        FilterTestingModule.forRoot(),
+        FilterTestingModule.forFeature([UserFilter]),
+      ],
+    }).compile();
+
+    runner = mod.get(FilterRunner);
+  });
+
+  it('filters by name with LIKE', async () => {
+    const qb = makeMockQueryBuilder();
+    await runner.apply(UserFilter, { name: 'Al' }, qb);
+
+    expect(qb.calls).toEqual([
+      ['andWhere', { name: { $like: '%Al%' } }],
+    ]);
+  });
+
+  it('filters by minAge', async () => {
+    const qb = makeMockQueryBuilder();
+    await runner.apply(UserFilter, { minAge: 18 }, qb);
+
+    expect(qb.calls).toEqual([
+      ['andWhere', { age: { $gte: 18 } }],
+    ]);
+  });
+
+  it('skips undefined values', async () => {
+    const qb = makeMockQueryBuilder();
+    await runner.apply(UserFilter, { name: undefined }, qb);
+
+    expect(qb.calls).toEqual([]);
+  });
+});
+```
+
+### FilterTestingModule API
+
+| Method | Description |
+|--------|-------------|
+| `FilterTestingModule.forRoot(options?)` | Registers FilterRunner with `validation: 'off'` by default. Accepts `FilterModuleOptions` overrides. |
+| `FilterTestingModule.forFeature(filters)` | Registers filter classes in the DI container. |
+
+---
+
+## makeMockQueryBuilder
+
+Creates a Proxy-based mock query builder that records all method calls. Every method returns `this` for chaining, so it works with both MikroORM and TypeORM filter methods.
+
+```ts
+import { makeMockQueryBuilder } from '@dudousxd/nestjs-filter/testing';
+
+const qb = makeMockQueryBuilder();
+
+// After running a filter:
+qb.calls; // Array of [methodName, ...args] tuples
+```
+
+### How it works
+
+The mock uses a JavaScript `Proxy` to intercept all property access:
+- Any method call is recorded as `[methodName, ...args]` in the `calls` array
+- All methods return `this` (the proxy) so chaining works
+- `qb.then` returns `undefined` to prevent `await qb` from resolving
+- `qb.calls` returns the recorded calls array
+
+---
+
+## Testing with validation
+
+To test that validation works correctly, pass `validation: 'auto'` to `FilterTestingModule.forRoot()`:
+
+```ts
+import { FilterTestingModule } from '@dudousxd/nestjs-filter/testing';
+import { FilterValidationException } from '@dudousxd/nestjs-filter';
+
+const mod = await Test.createTestingModule({
+  imports: [
+    FilterTestingModule.forRoot({ validation: 'auto' }),
+    FilterTestingModule.forFeature([UserFilter]),
+  ],
+}).compile();
+
+const runner = mod.get(FilterRunner);
+const qb = makeMockQueryBuilder();
+
+await expect(
+  runner.apply(UserFilter, { minAge: 'not-a-number' }, qb),
+).rejects.toThrow(FilterValidationException);
+```
+
+---
+
+## Integration testing with real databases
+
+For integration tests against real databases, the project uses Docker Compose to spin up PostgreSQL and MySQL:
+
+```yaml
+# docker-compose.yml
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: nestjs_filter_test
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: test
+      MYSQL_DATABASE: nestjs_filter_test
+      MYSQL_USER: test
+      MYSQL_PASSWORD: test
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "test", "-ptest"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+```
+
+### Running integration tests
+
+```bash
+# Start databases
+docker compose up -d
+
+# Run MikroORM + PostgreSQL integration tests
+pnpm --filter mikro-orm-postgres test
+
+# Run TypeORM + MySQL integration tests
+pnpm --filter typeorm-mysql test
+
+# Stop databases
+docker compose down
+```
+
+---
+
+## Testing patterns
+
+### Testing `setup()` hook
+
+```ts
+it('applies tenant filter in setup()', async () => {
+  const qb = makeMockQueryBuilder();
+  await runner.apply(OrderFilter, {}, qb, {
+    user: { id: 42, tenantId: 'acme' },
+  });
+
+  expect(qb.calls).toContainEqual([
+    'andWhere',
+    { tenantId: 'acme' },
+  ]);
+});
+```
+
+### Testing dynamic blacklisting
+
+```ts
+it('blocks internalStatus for non-admins', async () => {
+  const qb = makeMockQueryBuilder();
+  await runner.apply(
+    OrderFilter,
+    { internalStatus: 'draft' },
+    qb,
+    { user: { role: 'user' } },
+  );
+
+  // internalStatus should not appear in calls
+  const statusCalls = qb.calls.filter(
+    ([method, arg]) => JSON.stringify(arg).includes('internalStatus'),
+  );
+  expect(statusCalls).toHaveLength(0);
+});
+```
+
+### Testing push() behavior
+
+```ts
+it('splits dateRange into startDate and endDate', async () => {
+  const qb = makeMockQueryBuilder();
+  await runner.apply(
+    OrderFilter,
+    { dateRange: '2024-01-01,2024-12-31' },
+    qb,
+  );
+
+  expect(qb.calls).toContainEqual([
+    'andWhere',
+    expect.objectContaining({ createdAt: expect.any(Object) }),
+  ]);
+});
+```

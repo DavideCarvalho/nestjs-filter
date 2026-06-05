@@ -1,0 +1,12 @@
+{
+  "title": "Guides",
+  "pages": [
+    "filter-classes",
+    "controllers",
+    "repositories",
+    "relations",
+    "validation",
+    "testing",
+    "operators"
+  ]
+}
