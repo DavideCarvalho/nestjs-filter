@@ -1,6 +1,18 @@
-export type TypedFilterQuery<Fields extends string> = {
+import type {
+  FilterFieldTypes,
+  OperatorsFor,
+  ValueAt,
+  ValueForOp,
+} from './field-types.js';
+
+export type TypedFilterQuery<
+  Fields extends string,
+  M extends FilterFieldTypes<Fields> = Record<Fields, unknown>,
+> = {
   filter?: {
-    [K in Fields]?: unknown | Record<string, unknown>;
+    [K in Fields]?:
+      | ValueAt<M, K>
+      | { [Op in OperatorsFor<ValueAt<M, K>>]?: ValueForOp<ValueAt<M, K>, Op> };
   };
   include?: string[];
   search?: string;

@@ -44,6 +44,27 @@ describe('TypedFilterQuery type', () => {
     };
     expect(q.filter?.name).toBe('Al');
   });
+
+  it('is type-aware with a field-type map (Phase 5)', () => {
+    const q: TypedFilterQuery<'age' | 'name', { age: number; name: string }> = {
+      filter: {
+        age: { gte: 18, lt: 65 },
+        name: { contains: 'al' },
+      },
+    };
+    expect(q.filter?.age).toEqual({ gte: 18, lt: 65 });
+  });
+
+  it('rejects type-mismatched operators in the payload map', () => {
+    function _rejects() {
+      // @ts-expect-error — contains is string-only; age is number
+      const bad: TypedFilterQuery<'age', { age: number }> = {
+        filter: { age: { contains: 'x' } },
+      };
+      return bad;
+    }
+    expect(_rejects).toBeTypeOf('function');
+  });
 });
 
 describe('filterQueryTyped', () => {
