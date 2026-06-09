@@ -3,7 +3,7 @@ import type { FilterOperator } from './types.js';
 // ─── Operator categories ──────────────────────────────────────────────────────
 
 /** Operators that accept a non-array scalar: string | number | boolean | Date | null */
-const SCALAR_OPERATORS: ReadonlySet<FilterOperator> = new Set([
+export const SCALAR_OPERATORS: ReadonlySet<FilterOperator> = new Set([
   'equals',
   'notEquals',
   'gt',
@@ -13,7 +13,7 @@ const SCALAR_OPERATORS: ReadonlySet<FilterOperator> = new Set([
 ]);
 
 /** Operators that require a string value */
-const STRING_OPERATORS: ReadonlySet<FilterOperator> = new Set([
+export const STRING_OPERATORS: ReadonlySet<FilterOperator> = new Set([
   'contains',
   'notContains',
   'iContains',
@@ -22,13 +22,13 @@ const STRING_OPERATORS: ReadonlySet<FilterOperator> = new Set([
 ]);
 
 /** Operators that require an array value */
-const ARRAY_OPERATORS: ReadonlySet<FilterOperator> = new Set(['in', 'notIn', 'isAnyOf']);
+export const ARRAY_OPERATORS: ReadonlySet<FilterOperator> = new Set(['in', 'notIn', 'isAnyOf']);
 
 /** Operators that require a 2-element tuple [low, high] */
-const TUPLE_OPERATORS: ReadonlySet<FilterOperator> = new Set(['between', 'notBetween']);
+export const TUPLE_OPERATORS: ReadonlySet<FilterOperator> = new Set(['between', 'notBetween']);
 
 /** Operators that accept no value (unary) */
-const UNARY_OPERATORS: ReadonlySet<FilterOperator> = new Set([
+export const UNARY_OPERATORS: ReadonlySet<FilterOperator> = new Set([
   'isNull',
   'isNotNull',
   'isEmpty',
