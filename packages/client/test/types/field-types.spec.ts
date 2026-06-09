@@ -122,6 +122,67 @@ describe('where/add call-site type-awareness (map-passing)', () => {
   });
 });
 
+describe('enum narrowing + convenience-method tightening (Phase 4)', () => {
+  it('narrows enum values for where()', () => {
+    const q = filterQueryTyped<'status', { status: 'A' | 'B' }>();
+    q.where('status', 'equals', 'A');
+    q.where('status', 'in', ['A', 'B']);
+    expect(q.build).toBeTypeOf('function');
+  });
+
+  it('rejects out-of-enum values and ordering on enum/string fields', () => {
+    function _rejects() {
+      const q = filterQueryTyped<'status', { status: 'A' | 'B' }>();
+      // @ts-expect-error — 'C' not in enum
+      q.where('status', 'equals', 'C');
+      // @ts-expect-error — string-only field, no ordering
+      q.where('status', 'gt', 'A');
+    }
+    expect(_rejects).toBeTypeOf('function');
+  });
+
+  it('convenience methods are type-aware', () => {
+    const q = filterQueryTyped<
+      'age' | 'name' | 'active',
+      { age: number; name: string; active: boolean }
+    >();
+    q.contains('name', 'al');
+    q.startsWith('name', 'al');
+    q.gte('age', 18);
+    q.between('age', 1, 99);
+    q.equals('name', 'al');
+    q.in('age', [1, 2]);
+    expect(q.build).toBeTypeOf('function');
+  });
+
+  it('rejects type-mismatched convenience calls', () => {
+    function _rejects() {
+      const q = filterQueryTyped<
+        'age' | 'name' | 'active',
+        { age: number; name: string; active: boolean }
+      >();
+      // @ts-expect-error — contains is string-only; age is number
+      q.contains('age', 'x');
+      // @ts-expect-error — gt is ordering-only; name is string
+      q.gt('name', 'x');
+      // @ts-expect-error — between is ordering-only; active is boolean
+      q.between('active', true, false);
+      // @ts-expect-error — startsWith string-only; age is number
+      q.startsWith('age', 'x');
+    }
+    expect(_rejects).toBeTypeOf('function');
+  });
+
+  it('single-generic builder keeps full convenience autocomplete', () => {
+    const u = filterQueryTyped<'a' | 'b'>();
+    u.contains('a', 'x');
+    u.gt('b', 1);
+    u.between('a', 1, 2);
+    u.startsWith('b', 'x');
+    expect(u.build).toBeTypeOf('function');
+  });
+});
+
 // ─── DRIFT GUARD: type matrix must mirror validate-operator-value.ts sets ───
 // Mirror the runtime sets here as type-level literals. If validate-operator-value.ts
 // changes a set, update BOTH and this assert keeps them aligned.

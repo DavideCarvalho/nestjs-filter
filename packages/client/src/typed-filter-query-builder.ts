@@ -1,10 +1,13 @@
 import { FilterQueryBuilder } from './filter-query-builder.js';
 import type { FilterQueryResult } from './filter-query-builder.js';
 import type {
+  Base,
   EqValue,
   FilterFieldTypes,
   OperatorsFor,
+  OrderableFieldsOf,
   OrderingOps,
+  StringFieldsOf,
   UnaryOf,
   ValueAt,
   ValueForOp,
@@ -54,29 +57,39 @@ export interface TypedFilterQueryBuilder<
 
   // ─── Convenience methods ────────────────────────────────────────────────
 
-  equals(field: Fields, value: unknown): this;
-  notEquals(field: Fields, value: unknown): this;
-  contains(field: Fields, value: string): this;
-  in(field: Fields, values: unknown[]): this;
-  notIn(field: Fields, values: unknown[]): this;
-  between(field: Fields, low: unknown, high: unknown): this;
-  gt(field: Fields, value: unknown): this;
-  gte(field: Fields, value: unknown): this;
-  lt(field: Fields, value: unknown): this;
-  lte(field: Fields, value: unknown): this;
+  equals<K extends Fields>(field: K, value: EqValue<ValueAt<M, K>>): this;
+  notEquals<K extends Fields>(field: K, value: EqValue<ValueAt<M, K>>): this;
+  contains<K extends StringFieldsOf<M> & Fields>(field: K, value: string): this;
+  in<K extends Fields>(field: K, values: Base<ValueAt<M, K>>[]): this;
+  notIn<K extends Fields>(field: K, values: Base<ValueAt<M, K>>[]): this;
+  between<K extends OrderableFieldsOf<M> & Fields>(
+    field: K,
+    low: Base<ValueAt<M, K>>,
+    high: Base<ValueAt<M, K>>,
+  ): this;
+  gt<K extends OrderableFieldsOf<M> & Fields>(field: K, value: ValueForOp<ValueAt<M, K>, 'gt'>): this;
+  gte<K extends OrderableFieldsOf<M> & Fields>(
+    field: K,
+    value: ValueForOp<ValueAt<M, K>, 'gte'>,
+  ): this;
+  lt<K extends OrderableFieldsOf<M> & Fields>(field: K, value: ValueForOp<ValueAt<M, K>, 'lt'>): this;
+  lte<K extends OrderableFieldsOf<M> & Fields>(
+    field: K,
+    value: ValueForOp<ValueAt<M, K>, 'lte'>,
+  ): this;
   isNull(field: Fields): this;
   isNotNull(field: Fields): this;
   isEmpty(field: Fields): this;
   isNotEmpty(field: Fields): this;
-  startsWith(field: Fields, value: string): this;
-  endsWith(field: Fields, value: string): this;
+  startsWith<K extends StringFieldsOf<M> & Fields>(field: K, value: string): this;
+  endsWith<K extends StringFieldsOf<M> & Fields>(field: K, value: string): this;
 
   // ─── Range helpers (use add — accumulate) ───────────────────────────────
 
-  addGte(field: Fields, value: unknown): this;
-  addLte(field: Fields, value: unknown): this;
-  addGt(field: Fields, value: unknown): this;
-  addLt(field: Fields, value: unknown): this;
+  addGte<K extends OrderableFieldsOf<M> & Fields>(field: K, value: Base<ValueAt<M, K>>): this;
+  addLte<K extends OrderableFieldsOf<M> & Fields>(field: K, value: Base<ValueAt<M, K>>): this;
+  addGt<K extends OrderableFieldsOf<M> & Fields>(field: K, value: Base<ValueAt<M, K>>): this;
+  addLt<K extends OrderableFieldsOf<M> & Fields>(field: K, value: Base<ValueAt<M, K>>): this;
 
   // ─── Sort (typed) ──────────────────────────────────────────────────────
 
