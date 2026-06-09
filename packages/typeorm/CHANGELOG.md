@@ -1,5 +1,13 @@
 # @dudousxd/nestjs-filter-typeorm
 
+## 1.1.0
+
+### Patch Changes
+
+- [`751b591`](https://github.com/DavideCarvalho/nestjs-filter/commit/751b591ac2f42eea22fc432b10a99abbabea297e) - Loosen the internal `@dudousxd/nestjs-filter` peer dependency from `workspace:*`
+  (published as an exact pin) to `workspace:^`, so the adapters stay compatible
+  with minor core releases instead of pinning a single version.
+
 ## 1.0.4
 
 ### Patch Changes
