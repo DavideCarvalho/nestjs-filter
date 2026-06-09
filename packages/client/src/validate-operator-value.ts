@@ -1,44 +1,32 @@
 import type { FilterOperator } from './types.js';
 
 // ─── Operator categories ──────────────────────────────────────────────────────
+// The `*_OPS` tuples are the SINGLE runtime source of truth for the operator
+// matrix. Their narrow literal element types are asserted, per group, against
+// the field-types.ts type-level groups in the drift-guard test — so the runtime
+// validator and the compile-time builder cannot silently diverge. The
+// `*_OPERATORS` Sets are derived from the tuples and keep their public
+// `ReadonlySet<FilterOperator>` shape for consumers.
 
 /** Operators that accept a non-array scalar: string | number | boolean | Date | null */
-export const SCALAR_OPERATORS: ReadonlySet<FilterOperator> = new Set([
-  'equals',
-  'notEquals',
-  'gt',
-  'gte',
-  'lt',
-  'lte',
-]);
-
+export const SCALAR_OPS = ['equals', 'notEquals', 'gt', 'gte', 'lt', 'lte'] as const;
 /** Operators that require a string value */
-export const STRING_OPERATORS: ReadonlySet<FilterOperator> = new Set([
-  'contains',
-  'notContains',
-  'iContains',
-  'startsWith',
-  'endsWith',
-]);
-
+export const STRING_OPS = ['contains', 'notContains', 'iContains', 'startsWith', 'endsWith'] as const;
 /** Operators that require an array value */
-export const ARRAY_OPERATORS: ReadonlySet<FilterOperator> = new Set(['in', 'notIn', 'isAnyOf']);
-
+export const ARRAY_OPS = ['in', 'notIn', 'isAnyOf'] as const;
 /** Operators that require a 2-element tuple [low, high] */
-export const TUPLE_OPERATORS: ReadonlySet<FilterOperator> = new Set(['between', 'notBetween']);
-
+export const TUPLE_OPS = ['between', 'notBetween'] as const;
 /** Operators that accept no value (unary) */
-export const UNARY_OPERATORS: ReadonlySet<FilterOperator> = new Set([
-  'isNull',
-  'isNotNull',
-  'isEmpty',
-  'isNotEmpty',
-  'exists',
-  'notExists',
-]);
-
+export const UNARY_OPS = ['isNull', 'isNotNull', 'isEmpty', 'isNotEmpty', 'exists', 'notExists'] as const;
 /** Range operators — the only ones allowed in add() */
-export const RANGE_OPERATORS: ReadonlySet<FilterOperator> = new Set(['gt', 'gte', 'lt', 'lte']);
+export const RANGE_OPS = ['gt', 'gte', 'lt', 'lte'] as const;
+
+export const SCALAR_OPERATORS: ReadonlySet<FilterOperator> = new Set(SCALAR_OPS);
+export const STRING_OPERATORS: ReadonlySet<FilterOperator> = new Set(STRING_OPS);
+export const ARRAY_OPERATORS: ReadonlySet<FilterOperator> = new Set(ARRAY_OPS);
+export const TUPLE_OPERATORS: ReadonlySet<FilterOperator> = new Set(TUPLE_OPS);
+export const UNARY_OPERATORS: ReadonlySet<FilterOperator> = new Set(UNARY_OPS);
+export const RANGE_OPERATORS: ReadonlySet<FilterOperator> = new Set(RANGE_OPS);
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 

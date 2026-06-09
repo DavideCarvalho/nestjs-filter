@@ -1,7 +1,12 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import type {
+  AllUnaryOps,
+  ArrayOps,
+  EqualityOps,
   OperatorsFor,
   OrderingOps,
+  StringOps,
+  TupleOps,
   ValueForOp,
 } from '../../src/field-types.js';
 import { FilterQueryBuilder } from '../../src/filter-query-builder.js';
@@ -10,10 +15,16 @@ import { FILTER_OPERATORS } from '../../src/types.js';
 import type { FilterOperator } from '../../src/types.js';
 import {
   ARRAY_OPERATORS,
+  ARRAY_OPS,
+  RANGE_OPS,
   SCALAR_OPERATORS,
+  SCALAR_OPS,
   STRING_OPERATORS,
+  STRING_OPS,
   TUPLE_OPERATORS,
+  TUPLE_OPS,
   UNARY_OPERATORS,
+  UNARY_OPS,
 } from '../../src/validate-operator-value.js';
 
 describe('OperatorsFor matrix', () => {
@@ -215,29 +226,37 @@ describe('enum narrowing + convenience-method tightening (Phase 4)', () => {
   });
 });
 
-// ─── DRIFT GUARD: type matrix must mirror validate-operator-value.ts sets ───
-// Mirror the runtime sets here as type-level literals. If validate-operator-value.ts
-// changes a set, update BOTH and this assert keeps them aligned.
-describe('drift guard vs validate-operator-value runtime sets', () => {
-  type RuntimeScalar = 'equals' | 'notEquals' | 'gt' | 'gte' | 'lt' | 'lte';
-  type RuntimeString = 'contains' | 'notContains' | 'iContains' | 'startsWith' | 'endsWith';
-  type RuntimeArray = 'in' | 'notIn' | 'isAnyOf';
-  type RuntimeTuple = 'between' | 'notBetween';
-  type RuntimeUnary = 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty' | 'exists' | 'notExists';
-  type RuntimeRange = 'gt' | 'gte' | 'lt' | 'lte';
-  type RuntimeAll = RuntimeScalar | RuntimeString | RuntimeArray | RuntimeTuple | RuntimeUnary;
+// ─── DRIFT GUARD: runtime operator tuples ARE the source of truth ───
+// The `*_OPS` tuples in validate-operator-value.ts carry narrow literal types,
+// so we assert each tuple's element type directly against its field-types.ts
+// group. No hand-retyped third copy: if a tuple or a type group changes, the
+// matching assert fails. Per-group (not just the union), so moving an operator
+// between groups is caught too.
+describe('drift guard: runtime *_OPS tuples mirror the field-types groups', () => {
+  it('SCALAR_OPS === EqualityOps | OrderingOps', () => {
+    expectTypeOf<(typeof SCALAR_OPS)[number]>().toEqualTypeOf<EqualityOps | OrderingOps>();
+  });
+  it('STRING_OPS === StringOps', () => {
+    expectTypeOf<(typeof STRING_OPS)[number]>().toEqualTypeOf<StringOps>();
+  });
+  it('ARRAY_OPS === ArrayOps', () => {
+    expectTypeOf<(typeof ARRAY_OPS)[number]>().toEqualTypeOf<ArrayOps>();
+  });
+  it('TUPLE_OPS === TupleOps', () => {
+    expectTypeOf<(typeof TUPLE_OPS)[number]>().toEqualTypeOf<TupleOps>();
+  });
+  it('UNARY_OPS === AllUnaryOps', () => {
+    expectTypeOf<(typeof UNARY_OPS)[number]>().toEqualTypeOf<AllUnaryOps>();
+  });
+  it('RANGE_OPS === OrderingOps (add()-eligible)', () => {
+    expectTypeOf<(typeof RANGE_OPS)[number]>().toEqualTypeOf<OrderingOps>();
+  });
 
-  it('the union of all runtime sets equals FilterOperator', () => {
-    expectTypeOf<RuntimeAll>().toEqualTypeOf<FilterOperator>();
-  });
-  it('OperatorsFor<unknown> equals the runtime full set', () => {
-    expectTypeOf<OperatorsFor<unknown>>().toEqualTypeOf<RuntimeAll>();
-  });
-  it('RANGE matches add()-eligible ordering ops', () => {
-    expectTypeOf<RuntimeRange>().toEqualTypeOf<OrderingOps>();
+  it('OperatorsFor<unknown> is the full operator union', () => {
+    expectTypeOf<OperatorsFor<unknown>>().toEqualTypeOf<FilterOperator>();
   });
 
-  it('runtime sets union == FILTER_OPERATORS (no drift)', () => {
+  it('runtime sets (built from the tuples) union == FILTER_OPERATORS', () => {
     const union = new Set([
       ...SCALAR_OPERATORS,
       ...STRING_OPERATORS,
