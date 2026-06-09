@@ -68,6 +68,24 @@ describe('ValueForOp', () => {
   it('string op → string regardless of T', () => {
     expectTypeOf<ValueForOp<string, 'contains'>>().toEqualTypeOf<string>();
   });
+  it('equality/ordering op → Base<T>', () => {
+    expectTypeOf<ValueForOp<number, 'equals'>>().toEqualTypeOf<number>();
+    expectTypeOf<ValueForOp<number, 'gt'>>().toEqualTypeOf<number>();
+  });
+  // Exhaustiveness guard. The fallthrough arm now resolves to `never` (made explicit),
+  // so an operator missing from every group would silently get value type `never`
+  // instead of `unknown`. We assert it directly: a non-grouped token hits the
+  // fallthrough (`never`), while every NON-unary real operator resolves to a
+  // non-never value type. Combined with the per-op tests above (which cover one op
+  // from each group), a future operator added to FilterOperator but not to a group
+  // would resolve to `never` and break its call sites — surfacing the gap.
+  it('non-grouped token hits the never fallthrough', () => {
+    expectTypeOf<ValueForOp<number, 'not_a_real_op'>>().toEqualTypeOf<never>();
+  });
+  it('every non-unary operator resolves to a concrete (non-never) value type', () => {
+    type NonUnaryOp = Exclude<FilterOperator, AllUnaryOps>;
+    expectTypeOf<ValueForOp<number, NonUnaryOp>>().not.toEqualTypeOf<never>();
+  });
 });
 
 describe('backward compat — single generic stays permissive', () => {

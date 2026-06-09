@@ -38,6 +38,13 @@ export interface TypedFilterQueryBuilder<
   //    ValueForOp<unknown, Op> stays loose, so this overload is fully permissive —
   //    no separate `FilterOperator` fallback is needed (that fallback would defeat
   //    narrowing for *known* fields by swallowing every operator).
+  //
+  //    CAVEAT (scalar shorthand, see overload 3): on a string field, `where('name', 'gt')`
+  //    does NOT flag `'gt'` as a misplaced operator — the 2-arg `(field, value)` shorthand
+  //    matches first and swallows `'gt'` as an equals VALUE (a string is a valid EqValue).
+  //    This is inherent to the value-shorthand overload, not a bug: there's no way to tell a
+  //    string that happens to equal an operator name from an intended operator. Use the
+  //    explicit 3-arg form (`where('name', 'equals', 'gt')`) when the value is operator-like.
   where<K extends Fields, Op extends OperatorsFor<ValueAt<M, K>>>(
     field: K,
     operator: Op,

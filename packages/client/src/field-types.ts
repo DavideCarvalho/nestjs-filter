@@ -1,6 +1,14 @@
 import type { FilterOperator } from './types.js';
 
-/** Canonical classification used by codegen + the runtime adapters. Mirrors EntityFieldInfo['type']. */
+/**
+ * Canonical classification used by codegen + the runtime adapters. Mirrors EntityFieldInfo['type'].
+ *
+ * NOT to be unified with `FilterFieldTypeHint` (core `@FilterFor` decorator): that hint is a
+ * codegen *authoring* surface — it uses `'Date'` to mirror the TS type name and accepts a
+ * `readonly string[]` of enum literals, whereas `FieldTypeKind` is this layer's lowercase
+ * *classifier output* (`'date'`, plus `'json'`/`'unknown'` buckets the hint has no concept of).
+ * Different layers, different purposes; keep them separate.
+ */
 export type FieldTypeKind = 'string' | 'number' | 'boolean' | 'date' | 'json' | 'unknown';
 
 /** Shape of the per-field type map: each field maps to its TS value type. */
@@ -38,13 +46,22 @@ export type OperatorsFor<T> = unknown extends T
           : FilterOperator; // json/object/other → permissive
 
 /**
- * NOTE on ordering: `boolean` is checked BEFORE `Date` because `[boolean] extends [Date]`
- * is false but `[Date] extends [boolean]` is also false — order between them is safe.
- * `number`/`Date` MUST come before the permissive fallback. `string` first because
- * string-literal enums resolve here (tuple-wrapped guard prevents distribution).
+ * NOTE on ordering: `string` MUST be checked first so string-literal enums resolve
+ * to the string branch (the tuple-wrapped `[Base<T>] extends [...]` guard prevents
+ * union distribution). Everything unmatched falls through to the permissive
+ * `FilterOperator` fallback (json/object/other).
  */
 
-/** Resolve the value type for a (field-type, operator) pair. */
+/**
+ * Resolve the value type for a (field-type, operator) pair.
+ *
+ * The arms below cover every group in `FilterOperator` (unary/array/tuple/string/
+ * equality+ordering = the whole union), so the final fallthrough is unreachable for
+ * any `Op extends FilterOperator`. We resolve it to `never` rather than `unknown` to
+ * make exhaustiveness explicit: if an operator is added to `FilterOperator` without
+ * being placed in a group above, it lands here and its value type collapses to
+ * `never`, breaking call sites instead of silently going permissive.
+ */
 export type ValueForOp<T, Op> = Op extends AllUnaryOps
   ? never
   : Op extends ArrayOps
@@ -55,7 +72,7 @@ export type ValueForOp<T, Op> = Op extends AllUnaryOps
         ? string
         : Op extends EqualityOps | OrderingOps
           ? Base<T>
-          : unknown;
+          : never;
 
 /** Operators with no value (covers the 2-arg call site). */
 export type UnaryOf<T> = Extract<OperatorsFor<T>, AllUnaryOps>;
