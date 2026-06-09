@@ -1,5 +1,6 @@
 import { FilterQueryBuilder } from './filter-query-builder.js';
 import type { FilterQueryResult } from './filter-query-builder.js';
+import type { FilterFieldTypes } from './field-types.js';
 
 /**
  * A type-safe wrapper interface over `FilterQueryBuilder` that restricts
@@ -11,7 +12,10 @@ import type { FilterQueryResult } from './filter-query-builder.js';
  * **Important:** This interface must mirror every public method of
  * `FilterQueryBuilder` so the cast in `filterQueryTyped()` is safe.
  */
-export interface TypedFilterQueryBuilder<Fields extends string> {
+export interface TypedFilterQueryBuilder<
+  Fields extends string,
+  M extends FilterFieldTypes<Fields> = Record<Fields, unknown>,
+> {
   // ─── Core filter methods ────────────────────────────────────────────────
 
   // Scalar operators
@@ -86,8 +90,8 @@ export interface TypedFilterQueryBuilder<Fields extends string> {
   include(...relations: string[]): this;
   search(term: string): this;
   page(page: number, size?: number): this;
-  or(callback: (builder: TypedFilterQueryBuilder<Fields>) => void): this;
-  and(callback: (builder: TypedFilterQueryBuilder<Fields>) => void): this;
+  or(callback: (builder: TypedFilterQueryBuilder<Fields, M>) => void): this;
+  and(callback: (builder: TypedFilterQueryBuilder<Fields, M>) => void): this;
   set(key: string, value: unknown): this;
   clear(): this;
 
@@ -118,6 +122,9 @@ export interface TypedFilterQueryBuilder<Fields extends string> {
  * // TypeScript error — 'invalid' is not assignable to UserFields:
  * // filterQueryTyped<UserFields>().where('invalid', 'foo');
  */
-export function filterQueryTyped<Fields extends string>(): TypedFilterQueryBuilder<Fields> {
-  return new FilterQueryBuilder() as unknown as TypedFilterQueryBuilder<Fields>;
+export function filterQueryTyped<
+  Fields extends string,
+  M extends FilterFieldTypes<Fields> = Record<Fields, unknown>,
+>(): TypedFilterQueryBuilder<Fields, M> {
+  return new FilterQueryBuilder() as unknown as TypedFilterQueryBuilder<Fields, M>;
 }

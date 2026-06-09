@@ -8,6 +8,16 @@ export {
   validateAddOperator,
   RANGE_OPERATORS,
 } from './validate-operator-value.js';
+export type {
+  FieldTypeKind,
+  FilterFieldTypes,
+  ValueAt,
+  Base,
+  OperatorsFor,
+  ValueForOp,
+  StringFieldsOf,
+  OrderableFieldsOf,
+} from './field-types.js';
 export type { TypedFilterQuery } from './typed-filter-query.js';
 export type { TypedFilterQueryBuilder } from './typed-filter-query-builder.js';
 export { filterQueryTyped } from './typed-filter-query-builder.js';
