@@ -1,6 +1,15 @@
 import { FilterQueryBuilder } from './filter-query-builder.js';
 import type { FilterQueryResult } from './filter-query-builder.js';
-import type { FilterFieldTypes } from './field-types.js';
+import type {
+  EqValue,
+  FilterFieldTypes,
+  OperatorsFor,
+  OrderingOps,
+  UnaryOf,
+  ValueAt,
+  ValueForOp,
+} from './field-types.js';
+import type { FilterOperator } from './types.js';
 
 /**
  * A type-safe wrapper interface over `FilterQueryBuilder` that restricts
@@ -18,38 +27,28 @@ export interface TypedFilterQueryBuilder<
 > {
   // ─── Core filter methods ────────────────────────────────────────────────
 
-  // Scalar operators
-  where(
-    field: Fields,
-    operator: 'equals' | 'notEquals' | 'gt' | 'gte' | 'lt' | 'lte',
-    value: string | number | boolean | Date,
+  // 1) Unary 2-arg (no value)
+  where<K extends Fields>(field: K, operator: UnaryOf<ValueAt<M, K>>): this;
+  // 2) Generic 3-arg: operator constrained to field's set, value derived from (T, Op)
+  where<K extends Fields, Op extends OperatorsFor<ValueAt<M, K>>>(
+    field: K,
+    operator: Op,
+    value: ValueForOp<ValueAt<M, K>, Op>,
   ): this;
-  // String operators
-  where(
-    field: Fields,
-    operator: 'contains' | 'notContains' | 'iContains' | 'startsWith' | 'endsWith',
-    value: string,
-  ): this;
-  // Array operators
-  where(field: Fields, operator: 'in' | 'notIn' | 'isAnyOf', value: unknown[]): this;
-  // Tuple operators
-  where(field: Fields, operator: 'between' | 'notBetween', value: [unknown, unknown]): this;
-  // Unary operators
-  where(
-    field: Fields,
-    operator: 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty' | 'exists' | 'notExists',
-  ): this;
-  // Two-arg shorthand: value or array
-  where(field: Fields, value: unknown): this;
-  // General fallback
-  where(field: Fields, operator: string, value?: unknown): this;
+  // 3) Value shorthand: scalar (auto-equals) or array (auto-in)
+  where<K extends Fields>(field: K, value: EqValue<ValueAt<M, K>>): this;
+  // 4) Permissive trailing fallback — NEVER hard-error on unknown/edge cases
+  where<K extends Fields>(field: K, operator: FilterOperator, value?: unknown): this;
 
-  add(
-    field: Fields,
-    operator: 'gt' | 'gte' | 'lt' | 'lte',
-    value: string | number | boolean | Date,
+  // add() is runtime-restricted to RANGE ops (validateAddOperator). For string/boolean
+  // fields, Extract<OperatorsFor<T>, OrderingOps> = never → no valid operator (compile-time
+  // surfacing of the runtime throw). Keep a permissive trailing overload.
+  add<K extends Fields, Op extends Extract<OperatorsFor<ValueAt<M, K>>, OrderingOps>>(
+    field: K,
+    operator: Op,
+    value: ValueForOp<ValueAt<M, K>, Op>,
   ): this;
-  add(field: Fields, operator: string, value?: unknown): this;
+  add<K extends Fields>(field: K, operator: FilterOperator, value?: unknown): this;
 
   remove(field: Fields): this;
 

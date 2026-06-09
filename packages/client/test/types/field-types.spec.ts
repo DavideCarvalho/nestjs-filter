@@ -4,6 +4,7 @@ import type {
   OrderingOps,
   ValueForOp,
 } from '../../src/field-types.js';
+import { FilterQueryBuilder } from '../../src/filter-query-builder.js';
 import { filterQueryTyped } from '../../src/typed-filter-query-builder.js';
 import { FILTER_OPERATORS } from '../../src/types.js';
 import type { FilterOperator } from '../../src/types.js';
@@ -65,6 +66,59 @@ describe('backward compat — single generic stays permissive', () => {
     q.where('a', 'contains', 'x');
     q.where('a', 'between', [1, 2]);
     q.where('b', 'in', ['x']);
+  });
+});
+
+describe('where/add call-site type-awareness (map-passing)', () => {
+  it('allows valid type-specific operators/values', () => {
+    const q = filterQueryTyped<
+      'age' | 'name' | 'createdAt' | 'active',
+      { age: number; name: string; createdAt: Date; active: boolean }
+    >();
+
+    q.where('age', 'gte', 18);
+    q.where('name', 'contains', 'al');
+    q.where('createdAt', 'between', [new Date(), new Date()]);
+    q.where('age', 'in', [1, 2]);
+    q.where('age', 'isNull'); // unary 2-arg
+    q.where('name', 'al'); // value shorthand (auto-equals)
+    q.where('age', [1, 2]); // value shorthand (auto-in)
+    q.add('age', 'gte', 18);
+  });
+
+  // Type-only: the body is never executed (so the runtime validateOperatorValue
+  // throws don't fire); TS still type-checks the @ts-expect-error matrix.
+  it('rejects type-mismatched operators/values', () => {
+    // biome-ignore lint/correctness/noUnusedVariables: type-level assertion only
+    function _rejects() {
+      const q = filterQueryTyped<
+        'age' | 'name' | 'createdAt' | 'active',
+        { age: number; name: string; createdAt: Date; active: boolean }
+      >();
+
+      // @ts-expect-error — contains is string-only
+      q.where('age', 'contains', 'foo');
+      // @ts-expect-error — in wants Date[], not string
+      q.where('createdAt', 'in', 'ontem');
+      // @ts-expect-error — between wants [number, number]
+      q.where('age', 'between', 5);
+      // @ts-expect-error — boolean has no ordering
+      q.where('active', 'gt', true);
+      // @ts-expect-error — string has no ordering in add()
+      q.add('name', 'gt', 'x');
+    }
+    expect(_rejects).toBeTypeOf('function');
+  });
+
+  it('single-generic builder stays fully permissive (backward compat)', () => {
+    const u = filterQueryTyped<'a'>();
+    u.where('a', 'contains', 'x');
+    u.where('a', 'between', [1, 2]);
+    u.add('a', 'gt', 1);
+  });
+
+  it('filterQueryTyped returns a FilterQueryBuilder at runtime', () => {
+    expect(filterQueryTyped<'a'>()).toBeInstanceOf(FilterQueryBuilder);
   });
 });
 
