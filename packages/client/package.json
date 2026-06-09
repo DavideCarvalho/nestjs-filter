@@ -23,7 +23,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test:types": "tsc -p tsconfig.typecheck.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.typecheck.json"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

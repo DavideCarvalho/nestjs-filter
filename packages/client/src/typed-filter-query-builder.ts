@@ -32,7 +32,11 @@ export interface TypedFilterQueryBuilder<
 
   // 1) Unary 2-arg (no value)
   where<K extends Fields>(field: K, operator: UnaryOf<ValueAt<M, K>>): this;
-  // 2) Generic 3-arg: operator constrained to field's set, value derived from (T, Op)
+  // 2) Generic 3-arg: operator constrained to the field's set, value derived from (T, Op).
+  //    For unknown-typed fields, OperatorsFor<unknown> is the full union and
+  //    ValueForOp<unknown, Op> stays loose, so this overload is fully permissive —
+  //    no separate `FilterOperator` fallback is needed (that fallback would defeat
+  //    narrowing for *known* fields by swallowing every operator).
   where<K extends Fields, Op extends OperatorsFor<ValueAt<M, K>>>(
     field: K,
     operator: Op,
@@ -40,18 +44,15 @@ export interface TypedFilterQueryBuilder<
   ): this;
   // 3) Value shorthand: scalar (auto-equals) or array (auto-in)
   where<K extends Fields>(field: K, value: EqValue<ValueAt<M, K>>): this;
-  // 4) Permissive trailing fallback — NEVER hard-error on unknown/edge cases
-  where<K extends Fields>(field: K, operator: FilterOperator, value?: unknown): this;
 
   // add() is runtime-restricted to RANGE ops (validateAddOperator). For string/boolean
   // fields, Extract<OperatorsFor<T>, OrderingOps> = never → no valid operator (compile-time
-  // surfacing of the runtime throw). Keep a permissive trailing overload.
+  // surfacing of the runtime throw). Unknown-typed fields keep all four range ops.
   add<K extends Fields, Op extends Extract<OperatorsFor<ValueAt<M, K>>, OrderingOps>>(
     field: K,
     operator: Op,
     value: ValueForOp<ValueAt<M, K>, Op>,
   ): this;
-  add<K extends Fields>(field: K, operator: FilterOperator, value?: unknown): this;
 
   remove(field: Fields): this;
 

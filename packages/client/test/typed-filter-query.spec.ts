@@ -16,7 +16,7 @@ describe('TypedFilterQuery type', () => {
     const q: TypedFilterQuery<UserFields> = {
       sort: [{ field: 'name', direction: 'asc' }],
     };
-    expect(q.sort?.[0].field).toBe('name');
+    expect(q.sort?.[0]?.field).toBe('name');
   });
 
   it('accepts paginate', () => {
@@ -57,9 +57,11 @@ describe('TypedFilterQuery type', () => {
 
   it('rejects type-mismatched operators in the payload map', () => {
     function _rejects() {
-      // @ts-expect-error — contains is string-only; age is number
       const bad: TypedFilterQuery<'age', { age: number }> = {
-        filter: { age: { contains: 'x' } },
+        filter: {
+          // @ts-expect-error — contains is string-only; age is number
+          age: { contains: 'x' },
+        },
       };
       return bad;
     }
