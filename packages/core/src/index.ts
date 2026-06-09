@@ -3,7 +3,15 @@ export const VERSION = '0.0.0';
 export { BaseFilter } from './base-filter.js';
 export type { FilterAdapter, EntityFieldInfo, EntityRelationInfo } from './adapter/adapter.js';
 export { Filterable, getFilterableMetadata } from './decorator/filterable.decorator.js';
-export { FilterFor, getFilterForMap } from './decorator/filter-for.decorator.js';
+export {
+  FilterFor,
+  getFilterForMap,
+  getFilterForOptsMap,
+} from './decorator/filter-for.decorator.js';
+export type {
+  FilterFieldTypeHint,
+  FilterForOptions,
+} from './decorator/filter-for.decorator.js';
 export { ApplyFilter, getApplyFilterMetadata } from './decorator/apply-filter.decorator.js';
 export { Relations, getRelationsMap, resolveRelation } from './decorator/relations.decorator.js';
 export type { RelationConfig, RelationsMap } from './decorator/relations.decorator.js';
@@ -26,6 +34,7 @@ export {
   FILTER_ADAPTER,
   FILTERABLE_METADATA,
   FILTER_FOR_METADATA,
+  FILTER_FOR_OPTS_METADATA,
   FILTER_RELATIONS_METADATA,
   APPLY_FILTER_METADATA,
   APPLY_FILTER_REQ_KEY,
