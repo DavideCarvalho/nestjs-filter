@@ -11,13 +11,26 @@ import type { FilterOperator } from './types.js';
 /** Operators that accept a non-array scalar: string | number | boolean | Date | null */
 export const SCALAR_OPS = ['equals', 'notEquals', 'gt', 'gte', 'lt', 'lte'] as const;
 /** Operators that require a string value */
-export const STRING_OPS = ['contains', 'notContains', 'iContains', 'startsWith', 'endsWith'] as const;
+export const STRING_OPS = [
+  'contains',
+  'notContains',
+  'iContains',
+  'startsWith',
+  'endsWith',
+] as const;
 /** Operators that require an array value */
 export const ARRAY_OPS = ['in', 'notIn', 'isAnyOf'] as const;
 /** Operators that require a 2-element tuple [low, high] */
 export const TUPLE_OPS = ['between', 'notBetween'] as const;
 /** Operators that accept no value (unary) */
-export const UNARY_OPS = ['isNull', 'isNotNull', 'isEmpty', 'isNotEmpty', 'exists', 'notExists'] as const;
+export const UNARY_OPS = [
+  'isNull',
+  'isNotNull',
+  'isEmpty',
+  'isNotEmpty',
+  'exists',
+  'notExists',
+] as const;
 /** Range operators — the only ones allowed in add() */
 export const RANGE_OPS = ['gt', 'gte', 'lt', 'lte'] as const;
 

@@ -12,12 +12,7 @@ import { FILTER_FOR_METADATA, FILTER_FOR_OPTS_METADATA } from '../tokens.js';
  * - A `readonly string[]` of literal values → emitted as a literal string union,
  *   e.g. `['active', 'archived']` → `"active" | "archived"`.
  */
-export type FilterFieldTypeHint =
-  | 'string'
-  | 'number'
-  | 'boolean'
-  | 'Date'
-  | readonly string[];
+export type FilterFieldTypeHint = 'string' | 'number' | 'boolean' | 'Date' | readonly string[];
 
 /** Options for `@FilterFor`. */
 export interface FilterForOptions {

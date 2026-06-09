@@ -1,5 +1,3 @@
-import { FilterQueryBuilder } from './filter-query-builder.js';
-import type { FilterQueryResult } from './filter-query-builder.js';
 import type {
   Base,
   EqValue,
@@ -13,6 +11,8 @@ import type {
   ValueAt,
   ValueForOp,
 } from './field-types.js';
+import { FilterQueryBuilder } from './filter-query-builder.js';
+import type { FilterQueryResult } from './filter-query-builder.js';
 import type { FilterOperator } from './types.js';
 
 /**
@@ -76,12 +76,18 @@ export interface TypedFilterQueryBuilder<
     low: Base<ValueAt<M, K>>,
     high: Base<ValueAt<M, K>>,
   ): this;
-  gt<K extends OrderableFieldsOf<M> & Fields>(field: K, value: ValueForOp<ValueAt<M, K>, 'gt'>): this;
+  gt<K extends OrderableFieldsOf<M> & Fields>(
+    field: K,
+    value: ValueForOp<ValueAt<M, K>, 'gt'>,
+  ): this;
   gte<K extends OrderableFieldsOf<M> & Fields>(
     field: K,
     value: ValueForOp<ValueAt<M, K>, 'gte'>,
   ): this;
-  lt<K extends OrderableFieldsOf<M> & Fields>(field: K, value: ValueForOp<ValueAt<M, K>, 'lt'>): this;
+  lt<K extends OrderableFieldsOf<M> & Fields>(
+    field: K,
+    value: ValueForOp<ValueAt<M, K>, 'lt'>,
+  ): this;
   lte<K extends OrderableFieldsOf<M> & Fields>(
     field: K,
     value: ValueForOp<ValueAt<M, K>, 'lte'>,

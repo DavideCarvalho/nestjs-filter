@@ -1,9 +1,4 @@
-import type {
-  FilterFieldTypes,
-  OperatorsFor,
-  ValueAt,
-  ValueForOp,
-} from './field-types.js';
+import type { FilterFieldTypes, OperatorsFor, ValueAt, ValueForOp } from './field-types.js';
 
 export type TypedFilterQuery<
   Fields extends string,

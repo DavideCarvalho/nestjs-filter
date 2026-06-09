@@ -118,7 +118,6 @@ describe('where/add call-site type-awareness (map-passing)', () => {
   // Type-only: the body is never executed (so the runtime validateOperatorValue
   // throws don't fire); TS still type-checks the @ts-expect-error matrix.
   it('rejects type-mismatched operators/values', () => {
-    // biome-ignore lint/correctness/noUnusedVariables: type-level assertion only
     function _rejects() {
       const q = filterQueryTyped<
         'age' | 'name' | 'createdAt' | 'active',
