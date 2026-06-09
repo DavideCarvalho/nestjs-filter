@@ -181,6 +181,38 @@ describe('enum narrowing + convenience-method tightening (Phase 4)', () => {
     u.startsWith('b', 'x');
     expect(u.build).toBeTypeOf('function');
   });
+
+  it('unary convenience methods are type-gated like where()', () => {
+    const q = filterQueryTyped<'age' | 'name', { age: number; name: string }>();
+    // isEmpty/isNotEmpty are EmptyUnaryOps — only string fields qualify.
+    q.isEmpty('name');
+    q.isNotEmpty('name');
+    // isNull/isNotNull are CommonUnary — valid on every field type, incl. number.
+    q.isNull('age');
+    q.isNotNull('age');
+    q.isNull('name');
+    expect(q.build).toBeTypeOf('function');
+  });
+
+  it('rejects empty-unary convenience on fields whose type forbids it', () => {
+    function _rejects() {
+      const q = filterQueryTyped<'age' | 'name', { age: number; name: string }>();
+      // @ts-expect-error — isEmpty is string/json-only; age is number
+      q.isEmpty('age');
+      // @ts-expect-error — isNotEmpty is string/json-only; age is number
+      q.isNotEmpty('age');
+    }
+    expect(_rejects).toBeTypeOf('function');
+  });
+
+  it('single-generic builder keeps empty-unary fully permissive (backward compat)', () => {
+    const u = filterQueryTyped<'a' | 'b'>();
+    // NO @ts-expect-error — OperatorsFor<unknown> is the full union, every field qualifies:
+    u.isEmpty('a');
+    u.isNotEmpty('b');
+    u.isNull('a');
+    expect(u.build).toBeTypeOf('function');
+  });
 });
 
 // ─── DRIFT GUARD: type matrix must mirror validate-operator-value.ts sets ───

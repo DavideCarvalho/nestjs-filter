@@ -73,3 +73,13 @@ export type StringFieldsOf<M> = {
 export type OrderableFieldsOf<M> = {
   [K in keyof M]: OrderingOps extends OperatorsFor<M[K]> ? K : never;
 }[keyof M];
+
+/**
+ * Field names in M whose type's operator set includes `Op` — the general form of
+ * `StringFieldsOf`/`OrderableFieldsOf`, used to gate per-operator convenience methods
+ * (e.g. `isEmpty`). For unknown-typed fields `OperatorsFor<unknown>` is the full union,
+ * so every field qualifies (single-generic builders stay permissive).
+ */
+export type FieldsWithOp<M, Op extends FilterOperator> = {
+  [K in keyof M]: Op extends OperatorsFor<M[K]> ? K : never;
+}[keyof M];
