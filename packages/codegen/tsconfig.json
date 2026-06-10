@@ -2,15 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
-    "baseUrl": ".",
-    "paths": {
-      // Pre-publish dev shim: resolve the codegen extension contract from the sibling repo.
-      // Once @dudousxd/nestjs-codegen is published, drop this and add it as a devDependency.
-      "@dudousxd/nestjs-codegen/extension": [
-        "../../../nestjs-codegen/packages/core/dist/extension/index.d.ts"
-      ]
-    }
+    "rootDir": "./src"
   },
   "include": ["src/**/*.ts"]
 }
