@@ -1,6 +1,6 @@
 {
   "name": "@dudousxd/nestjs-filter-react",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "React adapter for @dudousxd/nestjs-filter-client — the query builder as reactive state, with optional nuqs URL sync.",
   "license": "MIT",
   "repository": {
