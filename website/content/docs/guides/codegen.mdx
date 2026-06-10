@@ -1,0 +1,108 @@
+---
+title: Typed Client (nestjs-codegen)
+description: Generate a type-safe filterQuery() builder for your filter endpoints with the @dudousxd/nestjs-filter-codegen extension for nestjs-codegen.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+[`@dudousxd/nestjs-codegen`](https://github.com/DavideCarvalho/nestjs-codegen) reads your NestJS controllers and emits a fully typed `api.ts` client. The `@dudousxd/nestjs-filter-codegen` extension plugs into that pipeline and teaches the generated client about your **filter endpoints**: every route decorated with `@ApplyFilter` gains a typed `filterQuery()` helper that builds the structured `where`/`sort`/`paginate` input from your front-end, with field names and operators checked at compile time.
+
+The `filterQuery()` builder is backed by [`filterQueryTyped()`](/docs/guides/operators) from `@dudousxd/nestjs-filter-client`, so this is a **type-only** integration — no extra runtime beyond the client builder you'd reach for anyway.
+
+---
+
+## Step 1 -- Install
+
+The extension is a dev dependency of your codegen setup. It has two peers — the codegen itself, and the filter client runtime:
+
+```bash
+pnpm add -D @dudousxd/nestjs-filter-codegen @dudousxd/nestjs-codegen
+pnpm add @dudousxd/nestjs-filter-client
+```
+
+| Peer dependency | Range |
+|-----------------|-------|
+| `@dudousxd/nestjs-codegen` | `>=0.1.0` |
+| `@dudousxd/nestjs-filter-client` | `>=1.0.0` |
+
+---
+
+## Step 2 -- Register the extension
+
+Add `nestjsFilterCodegen()` to the `extensions` array of `NestjsCodegenModule.forRoot()`:
+
+```ts
+// src/app.module.ts
+import { Module } from '@nestjs/common';
+import { NestjsCodegenModule } from '@dudousxd/nestjs-codegen/nest';
+import { nestjsFilterCodegen } from '@dudousxd/nestjs-filter-codegen';
+
+@Module({
+  imports: [
+    NestjsCodegenModule.forRoot({
+      contracts: { glob: 'src/**/*.controller.ts' },
+      codegen: { outDir: 'src/generated' },
+      extensions: [nestjsFilterCodegen()],
+    }),
+    // ... your FilterModule.forRoot() and ORM modules ...
+  ],
+})
+export class AppModule {}
+```
+
+`nestjsFilterCodegen()` takes no options. On the next codegen run it inspects the discovered routes and emits `filterQuery()` **only** on the leaves whose controller method applies a filter.
+
+<Callout type="info">
+  The extension adds its client import to `api.ts` only when at least one route is actually filtered, so projects that haven't decorated any endpoint with `@ApplyFilter` pay nothing.
+</Callout>
+
+---
+
+## Step 3 -- Use `filterQuery()` on the generated client
+
+Given a filtered endpoint:
+
+```ts
+// src/users.controller.ts
+@Controller('users')
+export class UsersController {
+  @Post('search')
+  search(@ApplyFilter(UserFilter) qb: QueryBuilder<User>) {
+    return qb.getResultList();
+  }
+}
+```
+
+…the generated client exposes `filterQuery()` on that leaf. It returns a typed builder whose field names are restricted to this filter's fields, with operators and values checked against each field's type:
+
+```ts
+import { api } from './generated/api';
+
+const query = api.users.search
+  .filterQuery()
+  .contains('name', 'Al')      // string field → string operators
+  .gte('age', 18)              // numeric field → ordering operators
+  .equals('status', 'active')  // enum field → only the known members
+  .sortDesc('age')
+  .page(0, 25)
+  .build();
+
+// ❌ Compile error — 'invalid' is not one of this endpoint's filter fields:
+// api.users.search.filterQuery().where('invalid', 'foo');
+
+const result = await api.users.search(query);
+```
+
+When the codegen can resolve a field's concrete type — enum members, `Date`, nullability, or a named DTO type — it threads that into the builder, so e.g. `.equals('status', …)` accepts only the valid enum values and ordering helpers (`gt`/`gte`/`between`) are gated to orderable fields.
+
+The builder is the standard `TypedFilterQueryBuilder` from `@dudousxd/nestjs-filter-client`. See [Operators](/docs/guides/operators) for the full method surface — `where` / `equals` / `contains` / `in` / `between` / `gt`·`gte`·`lt`·`lte` / `isNull` / `sort` / `search` / `include` / `page` / `or` / `and` — terminating in `build()`, `toQueryString()`, or `toFlatObject()`.
+
+<Callout type="info">
+  Pick the terminator that matches your transport: `build()` for the structured body that `@ApplyFilter` reads on `POST`/`PUT`, or `toQueryString()` for a `GET` endpoint that filters from the query string. See [Controller Integration](/docs/guides/controllers) for how the source is resolved per HTTP method.
+</Callout>
+
+---
+
+## How it fits
+
+`nestjs-codegen` exposes a `CodegenExtension` contract at `@dudousxd/nestjs-codegen/extension`. This package implements two of its `api.ts` hooks: `apiHeader` (adds the `filterQueryTyped` import) and `apiMembers` (adds the `filterQuery` member to each handle leaf that carries filter fields). Because member contributions land on handle leaves, `filterQuery()` sits alongside whatever client layer is active — the plain fetcher or, for example, TanStack Query. The codegen owns route discovery and the field-type model; the extension maps that onto a typed call.
