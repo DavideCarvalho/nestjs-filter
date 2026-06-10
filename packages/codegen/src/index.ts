@@ -63,7 +63,9 @@ function filterQueryTypeArgs(c: FilterContract): string {
 }
 
 function anyRouteFilters(ctx: ExtensionContext): boolean {
-  return ctx.routes.some((r) => (r.contract?.contractSource as FilterContract | undefined)?.filterFields?.length);
+  return ctx.routes.some(
+    (r) => (r.contract?.contractSource as FilterContract | undefined)?.filterFields?.length,
+  );
 }
 
 /**

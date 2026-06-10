@@ -50,7 +50,9 @@ describe('nestjsFilterCodegen', () => {
 
   it('apiHeader imports filter-client only when some route is filtered', () => {
     const ext = nestjsFilterCodegen();
-    expect(ext.apiHeader?.(ctx([{ contract: { contractSource: { filterFields: ['x'] } } }]))).toEqual({
+    expect(
+      ext.apiHeader?.(ctx([{ contract: { contractSource: { filterFields: ['x'] } } }])),
+    ).toEqual({
       imports: [
         "import { filterQueryTyped as _filterQueryTyped } from '@dudousxd/nestjs-filter-client';",
       ],
