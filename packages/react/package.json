@@ -1,0 +1,60 @@
+{
+  "name": "@dudousxd/nestjs-filter-react",
+  "version": "0.1.0",
+  "description": "React adapter for @dudousxd/nestjs-filter-client — the query builder as reactive state, with optional nuqs URL sync.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DavideCarvalho/nestjs-filter.git",
+    "directory": "packages/react"
+  },
+  "author": "Davi Carvalho <davi@goflip.ai>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./nuqs": {
+      "types": "./dist/nuqs.d.ts",
+      "import": "./dist/nuqs.js",
+      "default": "./dist/nuqs.js"
+    }
+  },
+  "files": ["dist/", "README.md", "CHANGELOG.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.typecheck.json"
+  },
+  "peerDependencies": {
+    "@dudousxd/nestjs-filter-client": "workspace:^",
+    "nuqs": ">=2.0.0",
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "nuqs": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@dudousxd/nestjs-filter-client": "workspace:*",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "jsdom": "^25.0.0",
+    "nuqs": "^2.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.4.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": ["nestjs", "filter", "query", "builder", "react", "hook", "nuqs"]
+}

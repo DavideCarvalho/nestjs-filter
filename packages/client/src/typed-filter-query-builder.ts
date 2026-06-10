@@ -126,6 +126,12 @@ export interface TypedFilterQueryBuilder<
   set(key: string, value: unknown): this;
   clear(): this;
 
+  // ─── Reactivity (framework-agnostic store contract) ──────────────────────
+
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): FilterQueryResult;
+  getVersion(): number;
+
   // ─── Output ─────────────────────────────────────────────────────────────
 
   build(): FilterQueryResult;

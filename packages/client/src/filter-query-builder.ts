@@ -65,6 +65,16 @@ export class FilterQueryBuilder {
   private sorts: SortItem[] = [];
   private pagination: OffsetPagination | undefined;
 
+  // ─── Reactivity (framework-agnostic store contract) ──────────────────────
+  // The builder doubles as an observable store so framework adapters
+  // (React's useSyncExternalStore, Vue refs, Svelte stores) can react to
+  // mutations. `version` increments on every mutation; `snapshot` caches the
+  // last `build()` so `getSnapshot()` returns a stable reference until the
+  // next mutation — required by useSyncExternalStore to avoid render loops.
+  private version = 0;
+  private snapshot: FilterQueryResult | null = null;
+  private readonly listeners = new Set<() => void>();
+
   /**
    * Adds a filter condition, **replacing** any existing filter(s) for the same field.
    * Each field has at most one filter via `where()`. This is the natural mode for
@@ -151,6 +161,7 @@ export class FilterQueryBuilder {
         value: operatorOrValue,
       });
     }
+    this.notify();
     return this;
   }
 
@@ -176,6 +187,7 @@ export class FilterQueryBuilder {
     validateAddOperator(operator);
     validateOperatorValue(operator, value);
     this.conditions.push({ field, operator, value });
+    this.notify();
     return this;
   }
 
@@ -192,6 +204,7 @@ export class FilterQueryBuilder {
    */
   remove(field: string): this {
     this.conditions = this.conditions.filter((c) => c.field !== field);
+    this.notify();
     return this;
   }
 
@@ -206,6 +219,7 @@ export class FilterQueryBuilder {
     this.searchTerm = undefined;
     this.sorts = [];
     this.pagination = undefined;
+    this.notify();
     return this;
   }
 
@@ -224,6 +238,7 @@ export class FilterQueryBuilder {
     const sub = new FilterQueryBuilder();
     fn(sub);
     this.groups.push({ type: 'OR', conditions: sub.conditions });
+    this.notify();
     return this;
   }
 
@@ -241,6 +256,7 @@ export class FilterQueryBuilder {
     const sub = new FilterQueryBuilder();
     fn(sub);
     this.groups.push({ type: 'AND', conditions: sub.conditions });
+    this.notify();
     return this;
   }
 
@@ -357,6 +373,7 @@ export class FilterQueryBuilder {
    */
   set(key: string, value: unknown): this {
     this.extra[key] = value;
+    this.notify();
     return this;
   }
 
@@ -376,6 +393,7 @@ export class FilterQueryBuilder {
         this.includes.push(rel);
       }
     }
+    this.notify();
     return this;
   }
 
@@ -389,6 +407,7 @@ export class FilterQueryBuilder {
   search(term: string): this {
     if (typeof term !== 'string') return this;
     this.searchTerm = term;
+    this.notify();
     return this;
   }
 
@@ -405,6 +424,7 @@ export class FilterQueryBuilder {
   sort(field: string, direction: 'asc' | 'desc' = 'asc'): this {
     this.sorts = this.sorts.filter((s) => s.field !== field);
     this.sorts.push({ field, direction });
+    this.notify();
     return this;
   }
 
@@ -434,7 +454,63 @@ export class FilterQueryBuilder {
    */
   page(page: number, size = 25): this {
     this.pagination = { page, size };
+    this.notify();
     return this;
+  }
+
+  // ─── Reactivity ───────────────────────────────────────────────────────────
+
+  /**
+   * Bumps the version, invalidates the cached snapshot, and notifies every
+   * subscriber. Called internally by every mutating method. Convenience
+   * methods (`equals`, `sortAsc`, `addGte`, …) delegate to a primitive
+   * mutator, so they notify transitively — never call `notify()` from them.
+   */
+  private notify(): void {
+    this.version++;
+    this.snapshot = null;
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
+  /**
+   * Subscribes to mutations. Returns an unsubscribe function.
+   *
+   * Bound so it can be passed directly to `useSyncExternalStore` /
+   * Svelte's store contract without wrapping in an arrow.
+   *
+   * @example
+   * const unsubscribe = qb.subscribe(() => rerender());
+   */
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  /**
+   * Returns the current built result, cached until the next mutation.
+   *
+   * The reference is stable across calls while the builder is unchanged, which
+   * is what `useSyncExternalStore` requires to avoid infinite render loops.
+   *
+   * Bound for the same reason as `subscribe`.
+   */
+  getSnapshot = (): FilterQueryResult => {
+    if (this.snapshot === null) {
+      this.snapshot = this.build();
+    }
+    return this.snapshot;
+  };
+
+  /**
+   * Monotonic mutation counter. Useful as a cheap dependency/key for adapters
+   * that prefer an integer over reference comparison.
+   */
+  getVersion(): number {
+    return this.version;
   }
 
   // ─── Build ──────────────────────────────────────────────────────────────
