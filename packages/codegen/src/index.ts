@@ -62,6 +62,24 @@ function filterQueryTypeArgs(c: FilterContract): string {
   return fts?.length ? `${fieldsUnion}, ${fieldTypesLiteral(fts)}` : fieldsUnion;
 }
 
+/**
+ * Runtime filter metadata emitted alongside the typed builder: the server's
+ * filterable field list (for default allowlists) and each field's classified
+ * kind (for type-aware operator defaults / filter UIs). Lets clients drop the
+ * hand-maintained `FILTERABLE_FIELDS`/operator plumbing.
+ *
+ * Example: `{ fields: ["name", "age"], types: { "name": "string", "age": "number" } }`
+ */
+function filterMetaLiteral(c: FilterContract): string {
+  const fields = `[${(c.filterFields ?? []).map((f) => JSON.stringify(f)).join(', ')}]`;
+  const types = c.filterFieldTypes?.length
+    ? `{ ${c.filterFieldTypes
+        .map((f) => `${JSON.stringify(f.name)}: ${JSON.stringify(f.kind)}`)
+        .join(', ')} }`
+    : '{}';
+  return `{ fields: ${fields}, types: ${types} }`;
+}
+
 function anyRouteFilters(ctx: ExtensionContext): boolean {
   return ctx.routes.some(
     (r) => (r.contract?.contractSource as FilterContract | undefined)?.filterFields?.length,
@@ -90,7 +108,10 @@ export function nestjsFilterCodegen(): CodegenExtension {
     apiMembers(leaf) {
       const c = contractOf(leaf);
       if (!c?.filterFields?.length) return undefined;
-      return { filterQuery: `() => _filterQueryTyped<${filterQueryTypeArgs(c)}>()` };
+      return {
+        filterQuery: `() => _filterQueryTyped<${filterQueryTypeArgs(c)}>()`,
+        filter: filterMetaLiteral(c),
+      };
     },
   };
   return ext;

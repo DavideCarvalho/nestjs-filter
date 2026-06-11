@@ -21,7 +21,30 @@ describe('nestjsFilterCodegen', () => {
   it('apiMembers adds filterQuery for a filtered route (fields union)', () => {
     const ext = nestjsFilterCodegen();
     const members = ext.apiMembers?.(leaf({ filterFields: ['status', 'name'] }), ctx([]));
-    expect(members).toEqual({ filterQuery: '() => _filterQueryTyped<"status" | "name">()' });
+    expect(members?.filterQuery).toBe('() => _filterQueryTyped<"status" | "name">()');
+  });
+
+  it('apiMembers emits runtime filter metadata (fields + types)', () => {
+    const ext = nestjsFilterCodegen();
+    const members = ext.apiMembers?.(
+      leaf({
+        filterFields: ['name', 'age'],
+        filterFieldTypes: [
+          { name: 'name', kind: 'string' },
+          { name: 'age', kind: 'number' },
+        ],
+      }),
+      ctx([]),
+    );
+    expect(members?.filter).toBe(
+      '{ fields: ["name", "age"], types: { "name": "string", "age": "number" } }',
+    );
+  });
+
+  it('filter metadata has an empty types map when no field types are classified', () => {
+    const ext = nestjsFilterCodegen();
+    const members = ext.apiMembers?.(leaf({ filterFields: ['status', 'name'] }), ctx([]));
+    expect(members?.filter).toBe('{ fields: ["status", "name"], types: {} }');
   });
 
   it('apiMembers includes the field-type map when present (typeRef + nullable + enum)', () => {

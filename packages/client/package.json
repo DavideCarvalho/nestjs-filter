@@ -17,6 +17,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./tanstack": {
+      "types": "./dist/tanstack.d.ts",
+      "import": "./dist/tanstack.js",
+      "default": "./dist/tanstack.js"
     }
   },
   "files": ["dist/"],
@@ -26,7 +31,16 @@
     "test:types": "tsc -p tsconfig.typecheck.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.typecheck.json"
   },
+  "peerDependencies": {
+    "@tanstack/table-core": ">=8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/table-core": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@tanstack/table-core": "^8.20.0",
     "typescript": "^5.4.0",
     "vitest": "^3.0.0"
   },
