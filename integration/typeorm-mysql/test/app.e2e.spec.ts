@@ -125,4 +125,17 @@ describe('TypeORM + MySQL integration', () => {
     const roles = res.body.map((row: Record<string, unknown>) => Object.values(row)[0]);
     expect(roles).toEqual(['admin']);
   });
+
+  it('findAndCount paginates correctly with a to-many include (no join row blow-up)', async () => {
+    await seed(); // Alice has 2 posts, Bob has 1, Charlie has 0
+    const res = await request(app.getHttpServer())
+      .post('/users/find-and-count')
+      .send({ filter: {}, include: ['posts'], sort: 'name', paginate: { page: 0, size: 2 } });
+
+    expect(res.status).toBe(201);
+    expect(res.body.total).toBe(3);
+    expect(res.body.rows.map((r: { name: string }) => r.name)).toEqual(['Alice', 'Bob']);
+    const alice = res.body.rows.find((r: { name: string }) => r.name === 'Alice');
+    expect(alice.posts).toHaveLength(2);
+  });
 });

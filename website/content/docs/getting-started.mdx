@@ -314,6 +314,37 @@ await applyDynamic(qb, {
 
 Entity metadata introspection ensures unknown fields are rejected at runtime.
 
+### findAndCount — execute with pagination-safe relation loading
+
+`applyDynamic` builds the query; you execute it. `runner.findAndCount` does
+both, and loads relations correctly under pagination: **to-one** relations stay
+on the join, **to-many** relations are loaded in a separate query after the
+page is fetched (a `leftJoinAndSelect` + `limit` would multiply parent rows and
+corrupt the page + count).
+
+```ts
+const { rows, total } = await runner.findAndCount(User, {
+  filter: { status: 'active' },
+  include: ['base', 'posts'], // base joined; posts loaded separately
+  sort: ['-createdAt'],
+  paginate: { page: 0, size: 20 },
+});
+```
+
+### describe — metadata-driven field discovery
+
+`runner.describe(entity)` returns an entity's scalar fields and its one-hop
+relations (each with their own fields), read from the ORM's metadata — no
+hand-maintained field map. It's memoized per entity class. Use it to build a
+dynamic column picker / filter UI, or the `meta` payload of a generic,
+table-name-driven endpoint:
+
+```ts
+const { fields, relations } = runner.describe(User);
+// fields:    { id: { type: 'number', column: 'id' }, name: { type: 'string', column: 'name' }, ... }
+// relations: { base: { kind: 'many-to-one', target: 'Base', fields: { id, label } }, ... }
+```
+
 ---
 
 ## Step 5 -- Use via FilterRunner (optional)

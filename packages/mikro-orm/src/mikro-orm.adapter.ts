@@ -58,18 +58,38 @@ export class MikroOrmAdapter implements FilterAdapter {
   getEntityFields(entity: Type<unknown>): EntityFieldInfo[] | null {
     try {
       const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
-      if (!meta?.properties) return null;
-
-      return Object.values(meta.properties)
-        .filter((prop) => prop.kind === ReferenceKind.SCALAR)
-        .map((prop) => ({
-          name: prop.name as string,
-          columnName: prop.fieldNames?.[0] ?? (prop.name as string),
-          type: this.mapMikroOrmType(prop.runtimeType),
-        }));
+      return this.scalarFieldsOf(meta);
     } catch {
       return null;
     }
+  }
+
+  getRelatedFields(entity: Type<unknown>, relationName: string): EntityFieldInfo[] | null {
+    try {
+      const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+      const prop = meta?.properties?.[relationName];
+      if (!prop || prop.kind === ReferenceKind.SCALAR) return null;
+      const targetMeta = this.em.getMetadata().get(prop.type as unknown as new () => unknown);
+      return this.scalarFieldsOf(targetMeta);
+    } catch {
+      return null;
+    }
+  }
+
+  private scalarFieldsOf(meta: {
+    properties?: Record<
+      string,
+      { kind: ReferenceKind; name: string; fieldNames?: string[]; runtimeType?: string }
+    >;
+  }): EntityFieldInfo[] | null {
+    if (!meta?.properties) return null;
+    return Object.values(meta.properties)
+      .filter((prop) => prop.kind === ReferenceKind.SCALAR)
+      .map((prop) => ({
+        name: prop.name,
+        columnName: prop.fieldNames?.[0] ?? prop.name,
+        type: this.mapMikroOrmType(prop.runtimeType),
+      }));
   }
 
   getEntityRelations(entity: Type<unknown>): EntityRelationInfo[] | null {
@@ -140,6 +160,18 @@ export class MikroOrmAdapter implements FilterAdapter {
     const queryBuilder = qb as { limit: (n: number) => unknown; offset: (n: number) => unknown };
     queryBuilder.limit(size);
     queryBuilder.offset(page * size);
+  }
+
+  async getResultAndCount(qb: unknown): Promise<{ rows: unknown[]; total: number }> {
+    const queryBuilder = qb as { getResultAndCount: () => Promise<[unknown[], number]> };
+    const [rows, total] = await queryBuilder.getResultAndCount();
+    return { rows, total };
+  }
+
+  async populate(rows: unknown[], relations: string[]): Promise<void> {
+    // Separate query per relation (MikroORM batches by parent id) — keeps the
+    // paginated parent page intact instead of multiplying it with a join.
+    await this.em.populate(rows as object[], relations as never);
   }
 
   private mapRelationType(kind: ReferenceKind): EntityRelationInfo['type'] {

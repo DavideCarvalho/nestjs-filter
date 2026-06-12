@@ -1,4 +1,4 @@
-import { ApplyFilter } from '@dudousxd/nestjs-filter';
+import { ApplyFilter, FilterRunner } from '@dudousxd/nestjs-filter';
 import type { QueryBuilder } from '@mikro-orm/sql';
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { User } from './user.entity.js';
@@ -6,6 +6,8 @@ import { UserFilter } from './user.filter.js';
 
 @Controller('users')
 export class UsersController {
+  constructor(private readonly runner: FilterRunner) {}
+
   @Get()
   list(@ApplyFilter(UserFilter) qb: QueryBuilder<User>) {
     return qb.getResultList();
@@ -21,5 +23,10 @@ export class UsersController {
     // `distinct` overrides the projection to the requested column(s); execute()
     // returns the raw distinct rows (e.g. `[{ role: 'admin' }, ...]`).
     return qb.execute();
+  }
+
+  @Post('find-and-count')
+  findAndCount(@Body() body: unknown) {
+    return this.runner.findAndCount(User, body);
   }
 }

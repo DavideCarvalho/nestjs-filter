@@ -134,4 +134,31 @@ describe('MikroORM + MySQL integration', () => {
     expect(res.status).toBe(201);
     expect(res.body.map((r: { role: string }) => r.role)).toEqual(['admin']);
   });
+
+  it('findAndCount paginates correctly with a to-many include (no join row blow-up)', async () => {
+    await seed(); // Alice has 2 posts, Bob has 1, Charlie has 0
+    const res = await request(app.getHttpServer())
+      .post('/users/find-and-count')
+      .send({ filter: {}, include: ['posts'], sort: 'name', paginate: { page: 0, size: 2 } });
+
+    expect(res.status).toBe(201);
+    // A leftJoinAndSelect + limit would multiply Alice's 2 posts into 2 rows and
+    // corrupt the page. findAndCount loads posts separately → 2 distinct users.
+    expect(res.body.total).toBe(3);
+    expect(res.body.rows.map((r: { name: string }) => r.name)).toEqual(['Alice', 'Bob']);
+    // to-many relation populated on each row
+    const alice = res.body.rows.find((r: { name: string }) => r.name === 'Alice');
+    expect(alice.posts).toHaveLength(2);
+  });
+
+  it('findAndCount returns the correct second page', async () => {
+    await seed();
+    const res = await request(app.getHttpServer())
+      .post('/users/find-and-count')
+      .send({ filter: {}, include: ['posts'], sort: 'name', paginate: { page: 1, size: 2 } });
+
+    expect(res.status).toBe(201);
+    expect(res.body.total).toBe(3);
+    expect(res.body.rows.map((r: { name: string }) => r.name)).toEqual(['Charlie']);
+  });
 });

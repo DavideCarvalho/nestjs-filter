@@ -59,6 +59,39 @@ export interface SortItem {
 }
 
 /**
+ * Metadata for a single scalar field, as surfaced by `FilterRunner.describe`.
+ */
+export interface FieldMeta {
+  /** Simplified type classification for the column. */
+  type: 'string' | 'number' | 'boolean' | 'date' | 'json' | 'unknown';
+  /** The underlying database column name. */
+  column: string;
+}
+
+/**
+ * Metadata for a single one-hop relation, as surfaced by `FilterRunner.describe`.
+ */
+export interface RelationMeta {
+  /** Relation cardinality. */
+  kind: 'one-to-one' | 'many-to-one' | 'one-to-many' | 'many-to-many';
+  /** Target entity name (e.g. 'Base'). */
+  target: string;
+  /** Scalar fields of the related entity (one hop only). */
+  fields: Record<string, FieldMeta>;
+}
+
+/**
+ * The shape returned by `FilterRunner.describe(entity)` — a metadata-derived
+ * map of an entity's filterable/sortable scalar fields and its one-hop
+ * relations. Built from the ORM's metadata (no hand-maintained field map),
+ * and memoized per entity class.
+ */
+export interface EntityDescription {
+  fields: Record<string, FieldMeta>;
+  relations: Record<string, RelationMeta>;
+}
+
+/**
  * Offset-based pagination parameters.
  */
 export interface OffsetPagination {
