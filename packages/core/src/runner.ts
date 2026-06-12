@@ -16,7 +16,14 @@ import { validateInput } from './input/validator.js';
 import type { ColumnFilter } from './operators/types.js';
 import { validateColumnFilters } from './operators/validate-column-filter.js';
 import { FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
-import type { FilterContext, FilterModuleOptions, SortItem } from './types.js';
+import type {
+  EntityDescription,
+  FieldMeta,
+  FilterContext,
+  FilterModuleOptions,
+  RelationMeta,
+  SortItem,
+} from './types.js';
 
 /**
  * A set-like interface for checking auto-field membership.
@@ -32,6 +39,9 @@ export class FilterRunner {
   private readonly logger = new Logger(FilterRunner.name);
 
   private adapter: FilterAdapter | null;
+
+  /** Per-entity metadata cache for `describe()`. Metadata is static at runtime. */
+  private readonly descriptionCache = new WeakMap<object, EntityDescription>();
 
   constructor(
     private readonly moduleRef: ModuleRef,
@@ -58,6 +68,43 @@ export class FilterRunner {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Describes an entity's filterable/sortable scalar fields and its one-hop
+   * relations, read entirely from the ORM's metadata (via the adapter) — no
+   * hand-maintained field map required. Memoized per entity class.
+   *
+   * Intended for building dynamic UIs (column pickers, filter builders) and
+   * the `meta.fields` payload of generic, table-name-driven endpoints.
+   */
+  describe(entity: Type<unknown>): EntityDescription {
+    const cached = this.descriptionCache.get(entity);
+    if (cached) return cached;
+
+    const adapter = this.resolveAdapter();
+    const fields: Record<string, FieldMeta> = {};
+    const relations: Record<string, RelationMeta> = {};
+
+    for (const field of adapter?.getEntityFields?.(entity) ?? []) {
+      fields[field.name] = { type: field.type, column: field.columnName };
+    }
+
+    for (const relation of adapter?.getEntityRelations?.(entity) ?? []) {
+      const relationFields: Record<string, FieldMeta> = {};
+      for (const field of adapter?.getRelatedFields?.(entity, relation.name) ?? []) {
+        relationFields[field.name] = { type: field.type, column: field.columnName };
+      }
+      relations[relation.name] = {
+        kind: relation.type,
+        target: relation.targetEntity,
+        fields: relationFields,
+      };
+    }
+
+    const description: EntityDescription = { fields, relations };
+    this.descriptionCache.set(entity, description);
+    return description;
   }
 
   async apply<F extends object, Q>(
@@ -709,6 +756,94 @@ export class FilterRunner {
     this.applyPagination(qb, rawPaginate, adapter);
 
     return qb;
+  }
+
+  /**
+   * Runs a dynamic query and **executes** it, returning the page of rows plus
+   * the total count — with pagination-safe relation loading. Unlike
+   * `applyDynamic` (which only builds the query builder), `findAndCount` owns
+   * execution so it can route relation loading by cardinality:
+   *
+   * - **to-one** relations stay on the join path (single query, no row blow-up);
+   * - **to-many** relations are loaded in a **separate** query after the page is
+   *   fetched, so `limit`/`offset` are not corrupted by the join.
+   *
+   * Requires an adapter implementing `getResultAndCount` (and `populate` for
+   * to-many includes). `applyDynamic` is unchanged; this is additive.
+   */
+  async findAndCount<E>(
+    entity: Type<E>,
+    input: unknown,
+    opts: { qb?: unknown; context?: FilterContext } = {},
+  ): Promise<{ rows: E[]; total: number }> {
+    const adapter = this.resolveAdapter();
+    const qb = opts.qb ?? adapter?.createQueryBuilder(entity);
+
+    const structured = this.extractStructuredInput(input);
+    const includes = this.parseIncludes(structured.include);
+    const { joinIncludes, deferredIncludes } = this.splitIncludesByCardinality(
+      includes,
+      entity,
+      adapter,
+    );
+
+    // Build the query, keeping only join-safe (to-one) includes on the builder.
+    await this.applyDynamic(
+      entity,
+      {
+        filter: structured.filter,
+        search: structured.search,
+        sort: structured.sort,
+        distinct: structured.distinct,
+        paginate: structured.paginate,
+        include: joinIncludes,
+      },
+      qb,
+      opts.context,
+    );
+
+    if (!adapter?.getResultAndCount) {
+      throw new Error('findAndCount requires an adapter that implements getResultAndCount().');
+    }
+    const { rows, total } = await adapter.getResultAndCount(qb);
+
+    // Load to-many relations in a separate query (pagination-safe).
+    if (deferredIncludes.length > 0 && rows.length > 0) {
+      if (adapter.populate) {
+        await adapter.populate(rows, deferredIncludes, entity);
+      } else {
+        this.logger.warn(
+          `findAndCount: to-many relations [${deferredIncludes.join(', ')}] requested but adapter does not implement populate(). Skipping.`,
+        );
+      }
+    }
+
+    return { rows: rows as E[], total };
+  }
+
+  /**
+   * Splits include paths into join-safe (to-one) and deferred (to-many) sets,
+   * by the cardinality of each path's first relation segment.
+   */
+  private splitIncludesByCardinality(
+    includes: string[],
+    entity: Type<unknown>,
+    adapter: FilterAdapter | null,
+  ): { joinIncludes: string[]; deferredIncludes: string[] } {
+    const relations = adapter?.getEntityRelations?.(entity) ?? [];
+    const cardinality = new Map(relations.map((r) => [r.name, r.type]));
+    const joinIncludes: string[] = [];
+    const deferredIncludes: string[] = [];
+    for (const path of includes) {
+      const first = path.split('.')[0] ?? path;
+      const kind = cardinality.get(first);
+      if (kind === 'one-to-many' || kind === 'many-to-many') {
+        deferredIncludes.push(path);
+      } else {
+        joinIncludes.push(path);
+      }
+    }
+    return { joinIncludes, deferredIncludes };
   }
 
   /**

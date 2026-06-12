@@ -8,7 +8,13 @@ import {
   escapeLike,
 } from '@dudousxd/nestjs-filter';
 import type { Type } from '@nestjs/common';
-import { Brackets, type DataSource, type ObjectLiteral, type SelectQueryBuilder } from 'typeorm';
+import {
+  Brackets,
+  type DataSource,
+  In,
+  type ObjectLiteral,
+  type SelectQueryBuilder,
+} from 'typeorm';
 import { applyColumnFiltersTypeOrm, applyOperator } from './operator-resolver.js';
 
 const OPERATOR_SET = new Set<string>(FILTER_OPERATORS);
@@ -89,6 +95,23 @@ export class TypeOrmAdapter implements FilterAdapter {
         targetEntity: rel.inverseEntityMetadata.targetName,
         type: rel.relationType as EntityRelationInfo['type'],
       }));
+    } catch {
+      return null;
+    }
+  }
+
+  getRelatedFields(entity: Type<unknown>, relationName: string): EntityFieldInfo[] | null {
+    try {
+      const meta = this.dataSource.getMetadata(entity);
+      const relation = meta.relations.find((rel) => rel.propertyName === relationName);
+      if (!relation) return null;
+      return relation.inverseEntityMetadata.columns
+        .filter((col) => !col.relationMetadata)
+        .map((col) => ({
+          name: col.propertyName,
+          columnName: col.databaseName,
+          type: this.mapTypeOrmType(col.type),
+        }));
     } catch {
       return null;
     }
@@ -196,6 +219,35 @@ export class TypeOrmAdapter implements FilterAdapter {
   applyOffsetPagination(qb: unknown, page: number, size: number): void {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     queryBuilder.skip(page * size).take(size);
+  }
+
+  async getResultAndCount(qb: unknown): Promise<{ rows: unknown[]; total: number }> {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const [rows, total] = await queryBuilder.getManyAndCount();
+    return { rows, total };
+  }
+
+  async populate(rows: unknown[], relations: string[], entity: Type<unknown>): Promise<void> {
+    const meta = this.dataSource.getMetadata(entity);
+    const pk = meta.primaryColumns[0]?.propertyName;
+    if (!pk) return;
+    const typedRows = rows as Array<Record<string, unknown>>;
+    const ids = typedRows.map((row) => row[pk]).filter((id) => id != null);
+    if (ids.length === 0) return;
+    // Reload the page's rows WITH the relations in a separate query, then graft
+    // the loaded relations back onto the already-fetched rows.
+    const loaded = (await this.dataSource.getRepository(entity).find({
+      where: { [pk]: In(ids) },
+      relations,
+    })) as Array<Record<string, unknown>>;
+    const byId = new Map(loaded.map((row) => [row[pk], row]));
+    for (const row of typedRows) {
+      const match = byId.get(row[pk]);
+      if (!match) continue;
+      for (const relation of relations) {
+        row[relation] = match[relation];
+      }
+    }
   }
 
   private mapTypeOrmType(ormType: string | Function): EntityFieldInfo['type'] {

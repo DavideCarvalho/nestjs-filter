@@ -113,6 +113,24 @@ export interface FilterAdapter {
   getEntityRelations?(entity: Type<unknown>): EntityRelationInfo[] | null;
 
   /**
+   * Introspects the ORM's metadata and returns the scalar (non-relation)
+   * field descriptors of the entity reached by following `relationName` from
+   * `entity` (one hop).
+   *
+   * Used by `FilterRunner.describe()` to expand one level of relations into
+   * their own fields (e.g. `base.id`, `base.name`) for dynamic column
+   * discovery, without the consumer maintaining a parallel field map.
+   *
+   * Optional — when absent or when it returns `null`, the relation is still
+   * listed by `describe()` but with an empty `fields` map.
+   *
+   * @param entity - The root entity class.
+   * @param relationName - The relation property name on the root entity.
+   * @returns Array of the related entity's scalar field descriptors, or `null`.
+   */
+  getRelatedFields?(entity: Type<unknown>, relationName: string): EntityFieldInfo[] | null;
+
+  /**
    * Applies a dot-notation relation field filter to the query builder.
    *
    * Auto-joins the relation (if not already joined) and applies a WHERE
@@ -205,4 +223,29 @@ export interface FilterAdapter {
    * @param size - Number of records per page.
    */
   applyOffsetPagination?(qb: unknown, page: number, size: number): void;
+
+  /**
+   * Executes the query builder and returns the page of entities plus the total
+   * count (ignoring limit/offset). Used by `FilterRunner.findAndCount`.
+   *
+   * Optional — required only if you call `findAndCount`.
+   *
+   * @param qb - The query builder instance.
+   * @returns The fetched rows and the total matching count.
+   */
+  getResultAndCount?(qb: unknown): Promise<{ rows: unknown[]; total: number }>;
+
+  /**
+   * Loads the given relations onto already-fetched rows in a **separate query**
+   * (not a join), so that pagination of the parent is unaffected. Used by
+   * `FilterRunner.findAndCount` for to-many relations, which a join would
+   * multiply.
+   *
+   * Optional — when absent, `findAndCount` skips to-many relation loading.
+   *
+   * @param rows - The already-fetched parent rows (mutated in place).
+   * @param relations - Relation paths to load.
+   * @param entity - The root entity class.
+   */
+  populate?(rows: unknown[], relations: string[], entity: Type<unknown>): Promise<void>;
 }

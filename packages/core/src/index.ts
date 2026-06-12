@@ -42,6 +42,8 @@ export {
 export type {
   ApplyFilterOptions,
   CursorPagination,
+  EntityDescription,
+  FieldMeta,
   FilterableOptions,
   FilterContext,
   FilterInput,
@@ -55,6 +57,7 @@ export type {
   InputSource,
   OffsetPagination,
   OnUnknownKey,
+  RelationMeta,
   SortItem,
   StructuredInput,
   ValidationMode,
