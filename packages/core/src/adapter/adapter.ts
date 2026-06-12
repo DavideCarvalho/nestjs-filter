@@ -173,6 +173,23 @@ export interface FilterAdapter {
   applyVectorSearch?(qb: unknown, term: string, vectorColumn: string): void;
 
   /**
+   * Restricts the query to DISTINCT values of the given field(s).
+   *
+   * Overrides the query's projection to select only the given fields with a
+   * `DISTINCT` modifier (e.g. `SELECT DISTINCT status FROM ...`). Active WHERE
+   * conditions, search, sort and pagination still apply. Used to populate
+   * filter dropdowns with the distinct values of a column.
+   *
+   * Optional — adapters that don't support distinct projection should not
+   * implement this.
+   *
+   * @param qb - The query builder instance.
+   * @param fields - Field/column names to select distinctly.
+   * @param entity - The root entity class.
+   */
+  applyDistinct?(qb: unknown, fields: string[], entity: Type<unknown>): void;
+
+  /**
    * Applies sort ordering to the query builder.
    *
    * @param qb - The query builder instance.

@@ -1065,4 +1065,49 @@ describe('FilterQueryBuilder', () => {
       expect(r1.paginate).not.toBe(r2.paginate);
     });
   });
+
+  describe('distinct()', () => {
+    it('sets a single distinct field', () => {
+      const result = filterQuery().distinct('status').build();
+      expect(result.distinct).toEqual(['status']);
+    });
+
+    it('sets multiple distinct fields', () => {
+      const result = filterQuery().distinct('status', 'type').build();
+      expect(result.distinct).toEqual(['status', 'type']);
+    });
+
+    it('deduplicates repeated fields across calls', () => {
+      const result = filterQuery().distinct('status').distinct('status', 'type').build();
+      expect(result.distinct).toEqual(['status', 'type']);
+    });
+
+    it('omits the distinct key when no distinct field is set', () => {
+      const result = filterQuery().where('status', 'active').build();
+      expect(result.distinct).toBeUndefined();
+    });
+
+    it('composes with where, sort and pagination', () => {
+      const result = filterQuery()
+        .where('baseId', 'b1')
+        .distinct('afsc')
+        .sort('afsc')
+        .page(0, 20)
+        .build();
+      expect(result.filter.where).toHaveLength(1);
+      expect(result.distinct).toEqual(['afsc']);
+      expect(result.sort).toEqual([{ field: 'afsc', direction: 'asc' }]);
+      expect(result.paginate).toEqual({ page: 0, size: 20 });
+    });
+
+    it('serializes to a query string', () => {
+      const qs = filterQuery().distinct('status', 'type').toQueryString();
+      expect(qs).toContain('distinct=status%2Ctype');
+    });
+
+    it('clear() resets distinct', () => {
+      const result = filterQuery().distinct('status').clear().build();
+      expect(result.distinct).toBeUndefined();
+    });
+  });
 });

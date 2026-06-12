@@ -87,6 +87,14 @@ const query = api.users.search
   .page(0, 25)
   .build();
 
+// Distinct values of a column — for a filter dropdown. `distinct()` is
+// field-checked too, so only this endpoint's fields are accepted:
+const statuses = api.users.search
+  .filterQuery()
+  .distinct('status')
+  .sortAsc('status')
+  .build();
+
 // ❌ Compile error — 'invalid' is not one of this endpoint's filter fields:
 // api.users.search.filterQuery().where('invalid', 'foo');
 

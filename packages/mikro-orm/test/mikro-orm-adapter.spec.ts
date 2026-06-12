@@ -96,4 +96,29 @@ describe('MikroOrmAdapter', () => {
     const sql = qb.getQuery();
     expect(sql).toContain('limit');
   });
+
+  it('applyDistinct selects distinct on the given field', async () => {
+    await initOrm();
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applyDistinct(qb, ['title'], Item as any);
+
+    const sql = qb.getQuery().toLowerCase();
+    expect(sql).toContain('distinct');
+    expect(sql).toContain('title');
+  });
+
+  it('applyDistinct on multiple fields selects distinct combinations', async () => {
+    await initOrm();
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applyDistinct(qb, ['id', 'title'], Item as any);
+
+    const sql = qb.getQuery().toLowerCase();
+    expect(sql).toContain('distinct');
+    expect(sql).toContain('id');
+    expect(sql).toContain('title');
+  });
 });

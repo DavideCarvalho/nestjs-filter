@@ -123,6 +123,12 @@ export class MikroOrmAdapter implements FilterAdapter {
     queryBuilder.andWhere({ [vectorColumn]: { $fulltext: term } });
   }
 
+  applyDistinct(qb: unknown, fields: string[]): void {
+    // Override the projection to the distinct field(s): SELECT DISTINCT a, b ...
+    const queryBuilder = qb as { select: (fields: string[], distinct?: boolean) => void };
+    queryBuilder.select(fields, true);
+  }
+
   applySort(qb: unknown, sorts: SortItem[]): void {
     const orderBy: Record<string, 'asc' | 'desc'> = {};
     for (const s of sorts) orderBy[s.field] = s.direction;

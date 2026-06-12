@@ -87,6 +87,13 @@ export interface StructuredInput {
   include?: string[] | string;
   search?: string;
   sort?: string | SortItem[];
+  /**
+   * Select DISTINCT values of the given field(s). Accepts a single field name,
+   * a comma-separated string, or an array of field names. The active filters,
+   * search, sort and pagination still apply — useful for populating filter
+   * dropdowns with the distinct values of a column.
+   */
+  distinct?: string | string[];
   paginate?: OffsetPagination | CursorPagination;
   [key: string]: unknown;
 }
