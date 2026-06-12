@@ -1,5 +1,13 @@
 # @example/mikro-orm-app
 
+## 0.0.6
+
+### Patch Changes
+
+- Updated dependencies [[`0eb0769`](https://github.com/DavideCarvalho/nestjs-filter/commit/0eb07693ebfa795391cdb2a0065b6cc06757b084)]:
+  - @dudousxd/nestjs-filter@1.3.0
+  - @dudousxd/nestjs-filter-mikro-orm@1.3.0
+
 ## 0.0.5
 
 ### Patch Changes
