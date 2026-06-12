@@ -15,4 +15,11 @@ export class UsersController {
   search(@ApplyFilter(UserFilter) qb: SelectQueryBuilder<User>, @Body() _body: unknown) {
     return qb.getMany();
   }
+
+  @Post('distinct')
+  distinct(@ApplyFilter(UserFilter) qb: SelectQueryBuilder<User>, @Body() _body: unknown) {
+    // `distinct` overrides the projection to the requested column(s);
+    // getRawMany() returns the raw distinct rows.
+    return qb.getRawMany();
+  }
 }

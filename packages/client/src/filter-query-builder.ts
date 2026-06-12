@@ -48,6 +48,7 @@ export interface FilterQueryResult {
   include?: string[];
   search?: string;
   sort?: SortItem[];
+  distinct?: string[];
   paginate?: OffsetPagination;
   [key: string]: unknown;
 }
@@ -63,6 +64,7 @@ export class FilterQueryBuilder {
   private includes: string[] = [];
   private searchTerm: string | undefined;
   private sorts: SortItem[] = [];
+  private distinctFields: string[] = [];
   private pagination: OffsetPagination | undefined;
 
   // ─── Reactivity (framework-agnostic store contract) ──────────────────────
@@ -218,6 +220,7 @@ export class FilterQueryBuilder {
     this.includes = [];
     this.searchTerm = undefined;
     this.sorts = [];
+    this.distinctFields = [];
     this.pagination = undefined;
     this.notify();
     return this;
@@ -411,6 +414,26 @@ export class FilterQueryBuilder {
     return this;
   }
 
+  /**
+   * Selects DISTINCT values of the given field(s) — the active where/search/
+   * sort/pagination still apply. Useful for populating a filter dropdown with
+   * the distinct values of a column. Repeated fields are deduplicated.
+   *
+   * @example
+   * filterQuery().where('baseId', 'b1').distinct('afsc').page(0, 20).build()
+   * // → { filter: { where: [...] }, distinct: ['afsc'], paginate: { page: 0, size: 20 } }
+   */
+  distinct(...fields: string[]): this {
+    for (const field of fields) {
+      if (typeof field !== 'string') continue;
+      if (!this.distinctFields.includes(field)) {
+        this.distinctFields.push(field);
+      }
+    }
+    this.notify();
+    return this;
+  }
+
   // ─── Sort & Pagination ──────────────────────────────────────────────────
 
   /**
@@ -568,6 +591,9 @@ export class FilterQueryBuilder {
     if (this.sorts.length > 0) {
       result.sort = [...this.sorts];
     }
+    if (this.distinctFields.length > 0) {
+      result.distinct = [...this.distinctFields];
+    }
     if (this.pagination !== undefined) {
       result.paginate = { ...this.pagination };
     }
@@ -614,6 +640,11 @@ export class FilterQueryBuilder {
         .map((s) => (s.direction === 'desc' ? `-${s.field}` : s.field))
         .join(',');
       parts.push(`sort=${encodeURIComponent(sortStr)}`);
+    }
+
+    // Build distinct
+    if (this.distinctFields.length > 0) {
+      parts.push(`distinct=${encodeURIComponent(this.distinctFields.join(','))}`);
     }
 
     // Build pagination

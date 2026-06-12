@@ -116,6 +116,10 @@ export interface TypedFilterQueryBuilder<
   sortAsc(field: Fields): this;
   sortDesc(field: Fields): this;
 
+  // ─── Distinct (typed) ───────────────────────────────────────────────────
+
+  distinct(...fields: Fields[]): this;
+
   // ─── Non-field methods (passthrough) ────────────────────────────────────
 
   include(...relations: string[]): this;

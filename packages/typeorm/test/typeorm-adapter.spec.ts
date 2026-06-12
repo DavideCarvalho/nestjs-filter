@@ -104,4 +104,29 @@ describe('TypeOrmAdapter', () => {
     const sql = qb.getSql();
     expect(sql).toContain('LIMIT');
   });
+
+  it('applyDistinct selects distinct on the given field', async () => {
+    await initDs();
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applyDistinct(qb, ['title'], Item as any);
+
+    const sql = qb.getSql().toLowerCase();
+    expect(sql).toContain('distinct');
+    expect(sql).toContain('title');
+  });
+
+  it('applyDistinct skips unsafe field names', async () => {
+    await initDs();
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applyDistinct(qb, ['title', 'bad; drop table'], Item as any);
+
+    const sql = qb.getSql().toLowerCase();
+    expect(sql).toContain('distinct');
+    expect(sql).toContain('title');
+    expect(sql).not.toContain('drop table');
+  });
 });

@@ -222,6 +222,7 @@ Beyond flat query strings, `nestjs-filter` accepts a **structured input** object
   paginate: { page: 0, size: 25 },
   search: 'fleet',                       // global ILIKE across searchable fields
   include: ['role', 'posts'],            // eager-load relations
+  distinct: 'status',                    // SELECT DISTINCT status (for filter dropdowns)
 }
 ```
 
@@ -258,6 +259,33 @@ The `search` field runs a global ILIKE query across all searchable fields:
 
 ```ts
 { search: 'fleet' }
+```
+
+### Distinct
+
+The `distinct` field selects `DISTINCT` values of one or more columns while the
+active `filter`, `search`, `sort` and `paginate` still apply. It's built for
+populating a filter dropdown with the distinct values of a column:
+
+```ts
+// "Which statuses exist among the rows matching the current filters?"
+{ filter: { baseId: 'b1' }, distinct: 'status', sort: 'status' }
+// → SELECT DISTINCT status FROM ... WHERE base_id = 'b1' ORDER BY status
+```
+
+Accepts a single field, a comma-separated string, or an array (`distinct: ['status', 'type']`
+selects distinct *combinations*). Fields are validated against the entity's
+columns — unknown fields are dropped, same as `sort`. The endpoint returns the
+raw projected rows, so execute the builder with the raw API for your ORM
+(`qb.execute()` in MikroORM, `qb.getRawMany()` in TypeORM) rather than the
+entity-hydrating one.
+
+```ts
+// controller
+@Post('search')
+listStatuses(@ApplyFilter(WorkOrderFilter) qb: QueryBuilder<WorkOrder>) {
+  return qb.execute(); // [{ status: 'OPEN' }, { status: 'CLOSED' }]
+}
 ```
 
 ### Dot-notation auto-joins

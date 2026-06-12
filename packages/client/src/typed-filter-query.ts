@@ -12,5 +12,6 @@ export type TypedFilterQuery<
   include?: string[];
   search?: string;
   sort?: Array<{ field: Fields; direction: 'asc' | 'desc' }>;
+  distinct?: Fields[];
   paginate?: { page: number; size: number };
 };

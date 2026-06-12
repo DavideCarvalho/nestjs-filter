@@ -39,6 +39,8 @@ Full documentation: **[davidecarvalho.github.io/nestjs-filter](https://davidecar
 - **`resolve` option** on `@ApplyFilter` for dynamic filter class selection per request
 - **AsyncLocalStorage-based state isolation** -- singleton filters with zero cross-request contamination
 - **ORM-agnostic core** with native QueryBuilder access per adapter
+- **Structured input** -- `filter` + `sort` + `paginate` + `search` + `include` + `distinct` in one request
+- **`distinct`** -- `SELECT DISTINCT` projection for filter dropdowns (filters/search/sort still apply)
 - **`FilterRunner.apply()`** for programmatic use in services
 - **`FilterTestingModule` + `makeMockQueryBuilder`** for isolated unit tests
 - **`FilterExceptionFilter`** maps validation errors to 400 responses

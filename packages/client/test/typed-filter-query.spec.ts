@@ -34,6 +34,13 @@ describe('TypedFilterQuery type', () => {
     expect(q.include).toEqual(['role', 'posts']);
   });
 
+  it('accepts distinct', () => {
+    const q: TypedFilterQuery<UserFields> = {
+      distinct: ['status'],
+    };
+    expect(q.distinct).toEqual(['status']);
+  });
+
   it('accepts full structured input', () => {
     const q: TypedFilterQuery<UserFields> = {
       filter: { name: 'Al', status: 'active' },
@@ -110,6 +117,12 @@ describe('filterQueryTyped', () => {
     const result = q.build();
     expect(result.include).toEqual(['role', 'posts']);
     expect(result.search).toBe('fleet');
+  });
+
+  it('distinct() accepts valid fields and builds', () => {
+    const q = filterQueryTyped<UserFields>().distinct('status').sortAsc('status').page(0, 20);
+    const result = q.build();
+    expect(result.distinct).toEqual(['status']);
   });
 
   it('clear resets everything', () => {

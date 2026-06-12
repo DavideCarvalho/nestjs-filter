@@ -15,4 +15,11 @@ export class UsersController {
   search(@ApplyFilter(UserFilter) qb: QueryBuilder<User>, @Body() _body: unknown) {
     return qb.getResultList();
   }
+
+  @Post('distinct')
+  distinct(@ApplyFilter(UserFilter) qb: QueryBuilder<User>, @Body() _body: unknown) {
+    // `distinct` overrides the projection to the requested column(s); execute()
+    // returns the raw distinct rows (e.g. `[{ role: 'admin' }, ...]`).
+    return qb.execute();
+  }
 }

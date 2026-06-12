@@ -173,6 +173,17 @@ export class TypeOrmAdapter implements FilterAdapter {
     queryBuilder.andWhere(`${alias}.${vectorColumn} @@ to_tsquery(:${param})`, { [param]: term });
   }
 
+  applyDistinct(qb: unknown, fields: string[]): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const alias = queryBuilder.alias;
+    const columns = fields
+      .filter((field) => SAFE_FIELD.test(field)) // silently skip unsafe field names
+      .map((field) => `${alias}.${field}`);
+    if (columns.length === 0) return;
+    // Override the projection to the distinct field(s): SELECT DISTINCT a, b ...
+    queryBuilder.distinct(true).select(columns);
+  }
+
   applySort(qb: unknown, sorts: SortItem[]): void {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = queryBuilder.alias;

@@ -75,6 +75,7 @@ export class FilterRunner {
     const rawInclude = rawInput.include;
     const rawSearch = rawInput.search;
     const rawSort = rawInput.sort;
+    const rawDistinct = rawInput.distinct;
     const rawPaginate = rawInput.paginate;
 
     // Extract column filters from the filter portion before normalization
@@ -252,6 +253,26 @@ export class FilterRunner {
           this.applyGlobalSearch(qb, rawSearch.trim(), FilterClass, adapter, filterableMeta);
         }
 
+        // Apply distinct projection (SELECT DISTINCT) — before sort/pagination
+        const distinctFields = this.parseDistinct(rawDistinct);
+        if (distinctFields.length > 0 && adapter?.applyDistinct && filterableMeta) {
+          const allowedDistinct = (FilterClass as unknown as { distinct?: readonly string[] })
+            .distinct;
+          const validDistinct = this.validateDistinct(
+            distinctFields,
+            allowedDistinct as string[] | undefined,
+            adapter,
+            filterableMeta.entity,
+          );
+          if (validDistinct.length > 0) {
+            adapter.applyDistinct(qb as unknown, validDistinct, filterableMeta.entity);
+          }
+        } else if (distinctFields.length > 0 && !adapter?.applyDistinct) {
+          this.logger.warn(
+            'Distinct requested but adapter does not support applyDistinct. Skipping.',
+          );
+        }
+
         // Apply sort
         const sorts = this.parseSorts(rawSort);
         if (sorts.length > 0 && adapter?.applySort) {
@@ -351,6 +372,7 @@ export class FilterRunner {
     include: unknown;
     search: unknown;
     sort: unknown;
+    distinct: unknown;
     paginate: unknown;
   } {
     if (input == null || typeof input !== 'object') {
@@ -359,6 +381,7 @@ export class FilterRunner {
         include: undefined,
         search: undefined,
         sort: undefined,
+        distinct: undefined,
         paginate: undefined,
       };
     }
@@ -370,6 +393,7 @@ export class FilterRunner {
         include: inputObj.include ?? undefined,
         search: inputObj.search ?? undefined,
         sort: inputObj.sort ?? undefined,
+        distinct: inputObj.distinct ?? undefined,
         paginate: inputObj.paginate ?? undefined,
       };
     }
@@ -379,6 +403,7 @@ export class FilterRunner {
       include: undefined,
       search: undefined,
       sort: undefined,
+      distinct: undefined,
       paginate: undefined,
     };
   }
@@ -589,12 +614,13 @@ export class FilterRunner {
   ): Promise<Q> {
     const adapter = this.resolveAdapter();
 
-    // Extract structured input: { filter, include, search, sort, paginate }
+    // Extract structured input: { filter, include, search, sort, distinct, paginate }
     const rawInput = this.extractStructuredInput(input);
     const filterInput = rawInput.filter;
     const rawInclude = rawInput.include;
     const rawSearch = rawInput.search;
     const rawSort = rawInput.sort;
+    const rawDistinct = rawInput.distinct;
     const rawPaginate = rawInput.paginate;
 
     // Extract column filters before normalization
@@ -659,6 +685,15 @@ export class FilterRunner {
     // Search — auto-detect all string columns from entity metadata
     if (rawSearch && typeof rawSearch === 'string' && rawSearch.trim()) {
       this.applyGlobalSearchDynamic(qb, rawSearch.trim(), entity, adapter);
+    }
+
+    // Distinct projection (SELECT DISTINCT) — validate against entity metadata
+    const distinctFields = this.parseDistinct(rawDistinct);
+    if (distinctFields.length > 0 && adapter?.applyDistinct) {
+      const validDistinct = this.validateDistinct(distinctFields, undefined, adapter, entity);
+      if (validDistinct.length > 0) {
+        adapter.applyDistinct(qb as unknown, validDistinct, entity);
+      }
     }
 
     // Sort — validate against entity metadata only (no filter class)
@@ -770,6 +805,55 @@ export class FilterRunner {
     }
     // No metadata available — pass through
     return sorts;
+  }
+
+  /**
+   * Parses raw distinct input into an array of field names.
+   *
+   * Supports:
+   * - String: `"status"` or `"status, type"` → `['status', 'type']`
+   * - Array of strings: passed through (trimmed, empties dropped)
+   * - Falsy / non-string / non-array values: returns empty array
+   */
+  parseDistinct(raw: unknown): string[] {
+    if (!raw) return [];
+    if (typeof raw === 'string') {
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    if (Array.isArray(raw)) {
+      return raw
+        .filter((s): s is string => typeof s === 'string')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    return [];
+  }
+
+  /**
+   * Validates distinct fields against the allowlist (if defined) or entity
+   * metadata. Silently skips invalid fields to prevent arbitrary-column probing.
+   */
+  private validateDistinct(
+    fields: string[],
+    allowlist: string[] | undefined,
+    adapter: FilterAdapter,
+    entity: Type<unknown> | undefined,
+  ): string[] {
+    if (allowlist) {
+      return fields.filter((f) => allowlist.includes(f));
+    }
+    if (entity && adapter.getEntityFields) {
+      const entityFields = adapter.getEntityFields(entity);
+      if (entityFields) {
+        const fieldNames = new Set(entityFields.map((f) => f.name));
+        return fields.filter((f) => fieldNames.has(f));
+      }
+    }
+    // No metadata available — pass through
+    return fields;
   }
 
   /**

@@ -113,4 +113,25 @@ describe('MikroORM + MySQL integration', () => {
     expect(res.status).toBe(201);
     expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Bob']);
   });
+
+  it('returns DISTINCT values of a column', async () => {
+    await seed();
+    const res = await request(app.getHttpServer())
+      .post('/users/distinct')
+      .send({ filter: {}, distinct: 'role', sort: 'role' });
+
+    expect(res.status).toBe(201);
+    // 3 users with roles admin/user/admin → distinct, ordered asc
+    expect(res.body.map((r: { role: string }) => r.role)).toEqual(['admin', 'user']);
+  });
+
+  it('DISTINCT respects active filters', async () => {
+    await seed();
+    const res = await request(app.getHttpServer())
+      .post('/users/distinct')
+      .send({ filter: { name: 'Alice' }, distinct: 'role' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.map((r: { role: string }) => r.role)).toEqual(['admin']);
+  });
 });

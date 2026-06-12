@@ -102,4 +102,27 @@ describe('TypeORM + MySQL integration', () => {
     expect(res.status).toBe(201);
     expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Bob']);
   });
+
+  it('returns DISTINCT values of a column', async () => {
+    await seed();
+    const res = await request(app.getHttpServer())
+      .post('/users/distinct')
+      .send({ filter: {}, distinct: 'role', sort: 'role' });
+
+    expect(res.status).toBe(201);
+    // Raw key shape is ORM-specific; assert on the values regardless of key.
+    const roles = res.body.map((row: Record<string, unknown>) => Object.values(row)[0]).sort();
+    expect(roles).toEqual(['admin', 'user']);
+  });
+
+  it('DISTINCT respects active filters', async () => {
+    await seed();
+    const res = await request(app.getHttpServer())
+      .post('/users/distinct')
+      .send({ filter: { name: 'Alice' }, distinct: 'role' });
+
+    expect(res.status).toBe(201);
+    const roles = res.body.map((row: Record<string, unknown>) => Object.values(row)[0]);
+    expect(roles).toEqual(['admin']);
+  });
 });
