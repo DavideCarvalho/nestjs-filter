@@ -1,5 +1,18 @@
 # @dudousxd/nestjs-filter
 
+## 1.4.3
+
+### Patch Changes
+
+- [#18](https://github.com/DavideCarvalho/nestjs-filter/pull/18) [`b9d2a87`](https://github.com/DavideCarvalho/nestjs-filter/commit/b9d2a87ae636608f50c5e6bc023e583c7a679b4e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix pure OR/AND group nodes (global-search OR-of-iContains). The client builder
+  serializes an OR/AND group as `{ field: "", operator: "equals", OR: [...] }`
+  (empty field), but `validateColumnFilter` rejected the empty field and the
+  mikro-orm/typeorm resolvers emitted a broken base condition for it. Now a node
+  with `AND`/`OR` and no (or empty) `field` is treated as a pure group: validation
+  skips field/operator/value and recurses into the arrays, and the resolvers
+  contribute only the nested conditions. Unblocks `.or(...)`/`.and(...)` and
+  multi-column global search.
+
 ## 1.4.1
 
 ### Patch Changes
