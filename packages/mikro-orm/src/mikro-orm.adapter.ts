@@ -79,7 +79,13 @@ export class MikroOrmAdapter implements FilterAdapter {
   private scalarFieldsOf(meta: {
     properties?: Record<
       string,
-      { kind: ReferenceKind; name: string; fieldNames?: string[]; runtimeType?: string }
+      {
+        kind: ReferenceKind;
+        name: string;
+        fieldNames?: string[];
+        runtimeType?: string;
+        columnTypes?: string[];
+      }
     >;
   }): EntityFieldInfo[] | null {
     if (!meta?.properties) return null;
@@ -88,8 +94,18 @@ export class MikroOrmAdapter implements FilterAdapter {
       .map((prop) => ({
         name: prop.name,
         columnName: prop.fieldNames?.[0] ?? prop.name,
-        type: this.mapMikroOrmType(prop.runtimeType),
+        type: this.isJsonProp(prop.columnTypes) ? 'json' : this.mapMikroOrmType(prop.runtimeType),
       }));
+  }
+
+  /**
+   * Whether a property maps to a JSON column, keyed off the ORM's resolved DB
+   * column type (`json`/`jsonb`). The TS runtime type of a JSON column is
+   * unreliable for this — `T[]` reflects as `array` and `Record<…>` as `any`,
+   * neither of which is the `object` that `mapMikroOrmType` looks for.
+   */
+  private isJsonProp(columnTypes: string[] | undefined): boolean {
+    return (columnTypes ?? []).some((columnType) => columnType.toLowerCase().includes('json'));
   }
 
   getEntityRelations(entity: Type<unknown>): EntityRelationInfo[] | null {
