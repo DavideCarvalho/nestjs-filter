@@ -1,5 +1,16 @@
 # @dudousxd/nestjs-filter-mikro-orm
 
+## 1.4.2
+
+### Patch Changes
+
+- [#16](https://github.com/DavideCarvalho/nestjs-filter/pull/16) [`4d33c3f`](https://github.com/DavideCarvalho/nestjs-filter/commit/4d33c3f8b565b23b047a0216fbe0577c1619f0db) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Classify JSON columns as type `json` in `describe()`/`getEntityFields`. The TS
+  runtime type of a JSON column is unreliable (`T[]` reflects as `array`,
+  `Record<…>` as `any`), so a JSON array column was previously reported as
+  `unknown`. We now key off the ORM's resolved DB column type (`json`/`jsonb`),
+  so JSON arrays and objects are both classified correctly — consumers can render
+  them as JSON instead of `String(value)` (`[object Object],…`).
+
 ## 1.4.0
 
 ### Minor Changes
