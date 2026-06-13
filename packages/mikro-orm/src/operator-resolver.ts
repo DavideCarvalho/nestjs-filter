@@ -1,5 +1,6 @@
 import { MAX_FILTER_DEPTH, escapeLike } from '@dudousxd/nestjs-filter';
 import type { ColumnFilter } from '@dudousxd/nestjs-filter';
+import { raw } from '@mikro-orm/core';
 
 /**
  * Translates a ColumnFilter into a MikroORM FilterQuery condition object.
@@ -20,8 +21,17 @@ export function resolveOperator(filter: ColumnFilter): Record<string, unknown> {
     case 'notContains':
       return { $not: { [field]: { $like: `%${escapeLike(String(value))}%` } } };
 
-    case 'iContains':
-      return { [field]: { $ilike: `%${escapeLike(String(value))}%` } };
+    case 'iContains': {
+      // MySQL/MariaDB have no ILIKE keyword, so `$ilike` produces invalid SQL
+      // there. Emit a portable case-insensitive match — lower(col) like lower(?)
+      // — matching the TypeORM adapter. Relation paths (field with a dot) fall
+      // back to `$ilike` since the raw callback only exposes the root alias.
+      const pattern = `%${escapeLike(String(value)).toLowerCase()}%`;
+      if (field.includes('.')) {
+        return { [field]: { $ilike: pattern } };
+      }
+      return { [raw((alias) => `lower(${alias}.${field})`)]: { $like: pattern } };
+    }
 
     case 'startsWith':
       return { [field]: { $like: `${escapeLike(String(value))}%` } };

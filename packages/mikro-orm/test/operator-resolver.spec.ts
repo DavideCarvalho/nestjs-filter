@@ -169,9 +169,22 @@ describe('MikroORM resolveOperator', () => {
     expect(result).toEqual({ $not: { name: { $like: '%100\\%%' } } });
   });
 
-  it('iContains uses $ilike for case-insensitive matching', () => {
-    expect(resolveOperator({ field: 'name', operator: 'iContains', value: 'alice' })).toEqual({
-      name: { $ilike: '%alice%' },
+  it('iContains uses a portable lower()-based LIKE (no PG-only $ilike) for plain columns', () => {
+    const result = resolveOperator({ field: 'name', operator: 'iContains', value: 'Alice' });
+    // Key is a raw `lower(<alias>.name)` fragment (Symbol key), value lowercased.
+    const symbolKeys = Object.getOwnPropertySymbols(result);
+    expect(symbolKeys).toHaveLength(1);
+    expect(String(symbolKeys[0])).toContain('lower(');
+    expect(result[symbolKeys[0] as unknown as string]).toEqual({ $like: '%alice%' });
+    // No $ilike anywhere (MySQL/MariaDB have no ILIKE keyword).
+    expect(JSON.stringify(result)).not.toContain('ilike');
+  });
+
+  it('iContains on a relation path keeps $ilike (raw alias unavailable for joins)', () => {
+    expect(
+      resolveOperator({ field: 'posts.title', operator: 'iContains', value: 'GraphQL' }),
+    ).toEqual({
+      'posts.title': { $ilike: '%graphql%' },
     });
   });
 
@@ -457,13 +470,16 @@ describe('MikroOrmAdapter.applyColumnFilters (with SQLite)', () => {
     expect(results.every((u) => !u.name.toLowerCase().includes('ob'))).toBe(true);
   });
 
-  it('filters with iContains operator (case-insensitive) — skipped on SQLite (no ILIKE support)', async () => {
+  it('filters with iContains operator (case-insensitive) across databases', async () => {
     const adapter = new MikroOrmAdapter(orm.em);
     const qb = orm.em.createQueryBuilder(User);
+    // Uppercase term must still match lowercase-stored names. iContains now
+    // renders as `lower(col) like lower(?)`, which runs on SQLite/MySQL/PG
+    // alike (no PG-only ILIKE keyword that MySQL would reject).
     adapter.applyColumnFilters(qb, [{ field: 'name', operator: 'iContains', value: 'ALICE' }]);
-    // SQLite does not support ILIKE. The correct $ilike operator is generated
-    // for PostgreSQL. On SQLite this will throw a syntax error, which is expected.
-    await expect(qb.getResultList()).rejects.toThrow(/ilike/i);
+    const results = await qb.getResultList();
+    // Alice and Alice Jr match 'ALICE' case-insensitively.
+    expect(results.map((u) => u.name).sort()).toEqual(['Alice', 'Alice Jr']);
   });
 
   it('filters with nested AND composition', async () => {

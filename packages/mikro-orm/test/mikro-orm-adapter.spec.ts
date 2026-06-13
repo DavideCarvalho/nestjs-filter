@@ -97,6 +97,21 @@ describe('MikroOrmAdapter', () => {
     expect(sql).toContain('limit');
   });
 
+  it('applyColumnFilters renders iContains as portable lower()-like (no ilike keyword)', async () => {
+    await initOrm();
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applyColumnFilters(qb, [{ field: 'title', operator: 'iContains', value: 'Alice' }]);
+
+    // MySQL/MariaDB have no ILIKE keyword — iContains must render as a
+    // portable case-insensitive LIKE (lower(col) like lower(?)).
+    const sql = qb.getQuery().toLowerCase();
+    expect(sql).not.toContain('ilike');
+    expect(sql).toContain('lower(');
+    expect(sql).toContain('like');
+  });
+
   it('applyDistinct selects distinct on the given field', async () => {
     await initOrm();
     const adapter = new MikroOrmAdapter(orm.em);
