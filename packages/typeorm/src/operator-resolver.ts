@@ -191,8 +191,12 @@ function applySingleFilter<E extends ObjectLiteral>(
     qb[method](
       new Brackets((sub) => {
         const subQb = sub as unknown as SelectQueryBuilder<E>;
-        // Apply the base condition
-        applyOperator(subQb, alias, filter, 'andWhere');
+        // Apply the base condition — unless this is a pure group node
+        // (AND/OR with no column of its own), which has nothing to apply.
+        const isGroupNode = filter.field === undefined || filter.field === '';
+        if (!isGroupNode) {
+          applyOperator(subQb, alias, filter, 'andWhere');
+        }
 
         // Apply nested AND conditions
         if (filter.AND) {

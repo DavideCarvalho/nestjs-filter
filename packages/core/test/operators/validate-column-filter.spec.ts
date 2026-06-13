@@ -280,3 +280,37 @@ describe('validateColumnFilters', () => {
     ).toThrow(InvalidColumnFilterError);
   });
 });
+
+describe('validateColumnFilter — group nodes', () => {
+  it('accepts a pure OR group with no field (client builder shape)', () => {
+    expect(() =>
+      validateColumnFilter({
+        field: '',
+        operator: 'equals',
+        value: undefined,
+        OR: [
+          { field: 'afsc', operator: 'iContains', value: 'x' },
+          { field: 'comments', operator: 'iContains', value: 'x' },
+        ],
+      } as ColumnFilter),
+    ).not.toThrow();
+  });
+
+  it('accepts a pure AND group with absent field', () => {
+    expect(() =>
+      validateColumnFilter({
+        AND: [{ field: 'name', operator: 'equals', value: 'a' }],
+      } as unknown as ColumnFilter),
+    ).not.toThrow();
+  });
+
+  it('still rejects an invalid child inside a group', () => {
+    expect(() =>
+      validateColumnFilter({
+        field: '',
+        operator: 'equals',
+        OR: [{ field: '', operator: 'equals', value: 'x' }],
+      } as ColumnFilter),
+    ).toThrow(InvalidColumnFilterError);
+  });
+});

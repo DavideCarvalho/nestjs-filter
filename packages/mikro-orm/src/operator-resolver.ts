@@ -103,8 +103,13 @@ function resolveSingleFilter(filter: ColumnFilter, depth = 0): Record<string, un
     throw new Error(`Filter nesting exceeds maximum depth (${MAX_FILTER_DEPTH}).`);
   }
 
-  const baseCondition = resolveOperator(filter);
-  const parts: Record<string, unknown>[] = [baseCondition];
+  // A pure group node (AND/OR with no column of its own) contributes only its
+  // nested conditions — there's no base column condition to resolve.
+  const isGroupNode =
+    (filter.field === undefined || filter.field === '') &&
+    ((filter.AND !== undefined && filter.AND.length > 0) ||
+      (filter.OR !== undefined && filter.OR.length > 0));
+  const parts: Record<string, unknown>[] = isGroupNode ? [] : [resolveOperator(filter)];
 
   // Handle nested AND
   if (filter.AND && filter.AND.length > 0) {

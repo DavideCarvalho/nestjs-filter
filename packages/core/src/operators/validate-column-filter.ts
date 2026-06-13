@@ -58,6 +58,28 @@ export function validateColumnFilter(filter: ColumnFilter, depth = 0): void {
     throw new InvalidColumnFilterError('Column filter must be a non-null object.');
   }
 
+  // Pure group node: `{ AND: [...] }` / `{ OR: [...] }` with no column of its
+  // own composes child filters and has no field/operator/value to validate.
+  // The client builder emits these (sometimes with an empty `field`), so treat
+  // an empty field as absent. Validate only the nested arrays, then stop.
+  const isGroupNode =
+    (filter.AND !== undefined || filter.OR !== undefined) &&
+    (filter.field === undefined || filter.field === '');
+  if (isGroupNode) {
+    for (const key of ['AND', 'OR'] as const) {
+      const group = filter[key];
+      if (group !== undefined) {
+        if (!Array.isArray(group)) {
+          throw new InvalidColumnFilterError(`"${key}" must be an array of ColumnFilter.`);
+        }
+        for (const sub of group) {
+          validateColumnFilter(sub, depth + 1);
+        }
+      }
+    }
+    return;
+  }
+
   // Validate field
   if (typeof filter.field !== 'string' || filter.field.length === 0) {
     throw new InvalidColumnFilterError('Column filter "field" must be a non-empty string.');
