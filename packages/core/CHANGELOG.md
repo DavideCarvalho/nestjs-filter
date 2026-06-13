@@ -1,5 +1,17 @@
 # @dudousxd/nestjs-filter
 
+## 1.4.1
+
+### Patch Changes
+
+- [#14](https://github.com/DavideCarvalho/nestjs-filter/pull/14) [`5566c47`](https://github.com/DavideCarvalho/nestjs-filter/commit/5566c4743eece08bbb961e84f49777a071d245b5) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `applyDynamic` (and `findAndCount`) now validate `where` column-filter fields
+  against entity metadata — the same way `sort`, `distinct` and auto-fields are
+  validated. Clauses referencing an unknown column/relation are silently dropped
+  (recursing AND/OR groups) instead of being passed to the ORM, where a bad
+  client filter (e.g. a base-scope `baseId` on a base-less table) would throw
+  "Trying to query by not existing property". No-op when the adapter exposes no
+  metadata.
+
 ## 1.4.0
 
 ### Minor Changes
