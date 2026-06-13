@@ -679,10 +679,15 @@ export class FilterRunner {
       ...(this.options.stripEmpty !== undefined && { stripEmpty: this.options.stripEmpty }),
     });
 
-    // Apply column filters via adapter
+    // Apply column filters via adapter — dynamic mode validates the filter
+    // fields against entity metadata (like sort/auto-fields), dropping
+    // unknown columns so a bad client `where` can't crash the ORM.
     if (columnFilters.length > 0 && adapter?.applyColumnFilters) {
-      validateColumnFilters(columnFilters);
-      adapter.applyColumnFilters(qb, columnFilters);
+      const knownFilters = this.pruneUnknownColumnFilters(columnFilters, entity, adapter);
+      if (knownFilters.length > 0) {
+        validateColumnFilters(knownFilters);
+        adapter.applyColumnFilters(qb, knownFilters);
+      }
     } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
       this.logger.warn(
         'Column filters (where) provided but adapter does not support applyColumnFilters. Skipping.',
@@ -844,6 +849,40 @@ export class FilterRunner {
       }
     }
     return { joinIncludes, deferredIncludes };
+  }
+
+  /**
+   * Drops `where` column-filter clauses whose field is not a known scalar
+   * column, relation, or dotted relation path on the entity — so a client
+   * filter on an absent column (e.g. a base-scope `baseId` on a base-less
+   * table) is silently ignored instead of crashing the ORM. Recurses AND/OR.
+   * No-op (pass-through) when the adapter exposes no metadata.
+   */
+  private pruneUnknownColumnFilters(
+    filters: ColumnFilter[],
+    entity: Type<unknown>,
+    adapter: FilterAdapter,
+  ): ColumnFilter[] {
+    const fieldNames = new Set((adapter.getEntityFields?.(entity) ?? []).map((f) => f.name));
+    const relationNames = new Set((adapter.getEntityRelations?.(entity) ?? []).map((r) => r.name));
+    if (fieldNames.size === 0 && relationNames.size === 0) return filters;
+
+    const isKnown = (field: string): boolean => {
+      if (fieldNames.has(field) || relationNames.has(field)) return true;
+      const dot = field.indexOf('.');
+      return dot > 0 && relationNames.has(field.slice(0, dot));
+    };
+
+    const prune = (clauses: ColumnFilter[]): ColumnFilter[] =>
+      clauses
+        .filter((clause) => !clause.field || isKnown(clause.field))
+        .map((clause) => ({
+          ...clause,
+          ...(clause.AND && { AND: prune(clause.AND) }),
+          ...(clause.OR && { OR: prune(clause.OR) }),
+        }));
+
+    return prune(filters);
   }
 
   /**
