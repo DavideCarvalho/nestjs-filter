@@ -1,11 +1,26 @@
 import { MAX_FILTER_DEPTH, escapeLike } from '@dudousxd/nestjs-filter';
 import type { ColumnFilter } from '@dudousxd/nestjs-filter';
-import { raw } from '@mikro-orm/core';
+
+/**
+ * Dialect-dependent knobs the adapter feeds in so the resolver can emit
+ * portable SQL without reaching for the EntityManager itself.
+ */
+export interface ResolveContext {
+  /**
+   * True only on PostgreSQL, which has a native `ILIKE` keyword. Everywhere
+   * else (MySQL/MariaDB/SQLite) the default collations are already
+   * case-insensitive, so a plain `$like` matches case-insensitively.
+   */
+  usesIlike?: boolean;
+}
 
 /**
  * Translates a ColumnFilter into a MikroORM FilterQuery condition object.
  */
-export function resolveOperator(filter: ColumnFilter): Record<string, unknown> {
+export function resolveOperator(
+  filter: ColumnFilter,
+  ctx?: ResolveContext,
+): Record<string, unknown> {
   const { field, operator, value } = filter;
 
   switch (operator) {
@@ -22,15 +37,15 @@ export function resolveOperator(filter: ColumnFilter): Record<string, unknown> {
       return { $not: { [field]: { $like: `%${escapeLike(String(value))}%` } } };
 
     case 'iContains': {
-      // MySQL/MariaDB have no ILIKE keyword, so `$ilike` produces invalid SQL
-      // there. Emit a portable case-insensitive match — lower(col) like lower(?)
-      // — matching the TypeORM adapter. Relation paths (field with a dot) fall
-      // back to `$ilike` since the raw callback only exposes the root alias.
-      const pattern = `%${escapeLike(String(value)).toLowerCase()}%`;
-      if (field.includes('.')) {
-        return { [field]: { $ilike: pattern } };
-      }
-      return { [raw((alias) => `lower(${alias}.${field})`)]: { $like: pattern } };
+      // Case-insensitive "contains". PostgreSQL has a native ILIKE. MySQL/
+      // MariaDB/SQLite have no ILIKE keyword, but their default collations are
+      // already case-insensitive, so a plain `$like` matches case-insensitively
+      // there. Crucially `$like`/`$ilike` keep MikroORM's property→column
+      // mapping, so columns with `fieldName` overrides (e.g. "Asset Id") work —
+      // unlike the old `raw('lower(alias.<prop>)')` which emitted the unmapped
+      // property name and blew up with "unknown column" on such entities.
+      const pattern = `%${escapeLike(String(value))}%`;
+      return ctx?.usesIlike ? { [field]: { $ilike: pattern } } : { [field]: { $like: pattern } };
     }
 
     case 'startsWith':
@@ -99,16 +114,23 @@ export function resolveOperator(filter: ColumnFilter): Record<string, unknown> {
  * Resolves an array of ColumnFilter conditions into a single MikroORM
  * FilterQuery condition, handling AND/OR composition recursively.
  */
-export function resolveColumnFilters(filters: ColumnFilter[]): Record<string, unknown> {
+export function resolveColumnFilters(
+  filters: ColumnFilter[],
+  ctx?: ResolveContext,
+): Record<string, unknown> {
   if (filters.length === 0) return {};
-  if (filters.length === 1) return resolveSingleFilter(filters[0]!);
+  if (filters.length === 1) return resolveSingleFilter(filters[0]!, ctx);
 
   // Multiple top-level filters are implicitly ANDed
-  const conditions = filters.map((f) => resolveSingleFilter(f));
+  const conditions = filters.map((f) => resolveSingleFilter(f, ctx));
   return { $and: conditions };
 }
 
-function resolveSingleFilter(filter: ColumnFilter, depth = 0): Record<string, unknown> {
+function resolveSingleFilter(
+  filter: ColumnFilter,
+  ctx?: ResolveContext,
+  depth = 0,
+): Record<string, unknown> {
   if (depth > MAX_FILTER_DEPTH) {
     throw new Error(`Filter nesting exceeds maximum depth (${MAX_FILTER_DEPTH}).`);
   }
@@ -119,18 +141,18 @@ function resolveSingleFilter(filter: ColumnFilter, depth = 0): Record<string, un
     (filter.field === undefined || filter.field === '') &&
     ((filter.AND !== undefined && filter.AND.length > 0) ||
       (filter.OR !== undefined && filter.OR.length > 0));
-  const parts: Record<string, unknown>[] = isGroupNode ? [] : [resolveOperator(filter)];
+  const parts: Record<string, unknown>[] = isGroupNode ? [] : [resolveOperator(filter, ctx)];
 
   // Handle nested AND
   if (filter.AND && filter.AND.length > 0) {
     for (const sub of filter.AND) {
-      parts.push(resolveSingleFilter(sub, depth + 1));
+      parts.push(resolveSingleFilter(sub, ctx, depth + 1));
     }
   }
 
   // Handle nested OR
   if (filter.OR && filter.OR.length > 0) {
-    const orConditions = filter.OR.map((sub) => resolveSingleFilter(sub, depth + 1));
+    const orConditions = filter.OR.map((sub) => resolveSingleFilter(sub, ctx, depth + 1));
     parts.push({ $or: orConditions });
   }
 

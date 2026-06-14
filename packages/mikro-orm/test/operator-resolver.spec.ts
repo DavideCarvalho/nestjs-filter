@@ -169,22 +169,39 @@ describe('MikroORM resolveOperator', () => {
     expect(result).toEqual({ $not: { name: { $like: '%100\\%%' } } });
   });
 
-  it('iContains uses a portable lower()-based LIKE (no PG-only $ilike) for plain columns', () => {
-    const result = resolveOperator({ field: 'name', operator: 'iContains', value: 'Alice' });
-    // Key is a raw `lower(<alias>.name)` fragment (Symbol key), value lowercased.
-    const symbolKeys = Object.getOwnPropertySymbols(result);
-    expect(symbolKeys).toHaveLength(1);
-    expect(String(symbolKeys[0])).toContain('lower(');
-    expect(result[symbolKeys[0] as unknown as string]).toEqual({ $like: '%alice%' });
-    // No $ilike anywhere (MySQL/MariaDB have no ILIKE keyword).
-    expect(JSON.stringify(result)).not.toContain('ilike');
+  it('iContains defaults to a plain $like that keeps property→column mapping (MySQL/MariaDB/SQLite)', () => {
+    // No ctx → non-PG default. A plain `$like` on the property name lets
+    // MikroORM map it to the real (possibly fieldName-overridden) column, and
+    // the DB's default case-insensitive collation makes the match CI. The old
+    // `raw('lower(alias.name)')` emitted the unmapped property and blew up on
+    // fieldName-overridden columns.
+    expect(resolveOperator({ field: 'name', operator: 'iContains', value: 'Alice' })).toEqual({
+      name: { $like: '%Alice%' },
+    });
   });
 
-  it('iContains on a relation path keeps $ilike (raw alias unavailable for joins)', () => {
+  it('iContains uses native $ilike on PostgreSQL (ctx.usesIlike)', () => {
+    expect(
+      resolveOperator(
+        { field: 'name', operator: 'iContains', value: 'Alice' },
+        { usesIlike: true },
+      ),
+    ).toEqual({ name: { $ilike: '%Alice%' } });
+  });
+
+  it('iContains on a relation path also maps the property (no raw alias needed)', () => {
     expect(
       resolveOperator({ field: 'posts.title', operator: 'iContains', value: 'GraphQL' }),
     ).toEqual({
-      'posts.title': { $ilike: '%graphql%' },
+      'posts.title': { $like: '%GraphQL%' },
+    });
+    expect(
+      resolveOperator(
+        { field: 'posts.title', operator: 'iContains', value: 'GraphQL' },
+        { usesIlike: true },
+      ),
+    ).toEqual({
+      'posts.title': { $ilike: '%GraphQL%' },
     });
   });
 
@@ -473,9 +490,10 @@ describe('MikroOrmAdapter.applyColumnFilters (with SQLite)', () => {
   it('filters with iContains operator (case-insensitive) across databases', async () => {
     const adapter = new MikroOrmAdapter(orm.em);
     const qb = orm.em.createQueryBuilder(User);
-    // Uppercase term must still match lowercase-stored names. iContains now
-    // renders as `lower(col) like lower(?)`, which runs on SQLite/MySQL/PG
-    // alike (no PG-only ILIKE keyword that MySQL would reject).
+    // Uppercase term must still match mixed-case stored names. iContains
+    // renders as a plain `$like` off the active platform (PG would use
+    // $ilike); SQLite/MySQL/MariaDB default collations are case-insensitive,
+    // and no PG-only ILIKE keyword leaks to a driver that would reject it.
     adapter.applyColumnFilters(qb, [{ field: 'name', operator: 'iContains', value: 'ALICE' }]);
     const results = await qb.getResultList();
     // Alice and Alice Jr match 'ALICE' case-insensitively.

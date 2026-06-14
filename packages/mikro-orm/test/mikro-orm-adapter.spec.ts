@@ -97,19 +97,22 @@ describe('MikroOrmAdapter', () => {
     expect(sql).toContain('limit');
   });
 
-  it('applyColumnFilters renders iContains as portable lower()-like (no ilike keyword)', async () => {
+  it('applyColumnFilters renders iContains as a property-mapped LIKE (no ilike keyword, no raw lower)', async () => {
     await initOrm();
     const adapter = new MikroOrmAdapter(orm.em);
     const qb = adapter.createQueryBuilder(Item as any) as any;
 
     adapter.applyColumnFilters(qb, [{ field: 'title', operator: 'iContains', value: 'Alice' }]);
 
-    // MySQL/MariaDB have no ILIKE keyword — iContains must render as a
-    // portable case-insensitive LIKE (lower(col) like lower(?)).
+    // Non-PG driver (SQLite here): iContains renders as a plain LIKE on the
+    // mapped column — no PG-only ILIKE keyword (MySQL would reject it) and no
+    // raw `lower(alias.<prop>)` fragment (which used the unmapped property name
+    // and broke on fieldName-overridden columns). The column is properly
+    // quoted/aliased because MikroORM mapped the property.
     const sql = qb.getQuery().toLowerCase();
     expect(sql).not.toContain('ilike');
-    expect(sql).toContain('lower(');
-    expect(sql).toContain('like');
+    expect(sql).not.toContain('lower(');
+    expect(sql).toContain('`title` like');
   });
 
   it('applyDistinct selects distinct on the given field', async () => {

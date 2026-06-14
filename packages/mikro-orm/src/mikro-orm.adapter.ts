@@ -35,9 +35,22 @@ export class MikroOrmAdapter implements FilterAdapter {
 
   applyColumnFilters(qb: unknown, filters: ColumnFilter[]): void {
     if (filters.length === 0) return;
-    const condition = resolveColumnFilters(filters);
+    const condition = resolveColumnFilters(filters, { usesIlike: this.usesIlike() });
     const queryBuilder = qb as { andWhere: (condition: unknown) => void };
     queryBuilder.andWhere(condition);
+  }
+
+  /**
+   * Whether the active driver has a native `ILIKE` keyword (PostgreSQL). MySQL/
+   * MariaDB/SQLite don't, but their default collations are case-insensitive, so
+   * `iContains` falls back to a plain `$like` there.
+   */
+  private usesIlike(): boolean {
+    try {
+      return /postgre/i.test(this.em.getPlatform().constructor.name);
+    } catch {
+      return false;
+    }
   }
 
   applyAutoField(qb: unknown, field: string, value: unknown): void {
@@ -94,8 +107,35 @@ export class MikroOrmAdapter implements FilterAdapter {
       .map((prop) => ({
         name: prop.name,
         columnName: prop.fieldNames?.[0] ?? prop.name,
-        type: this.isJsonProp(prop.columnTypes) ? 'json' : this.mapMikroOrmType(prop.runtimeType),
+        type: this.resolveFieldType(prop.columnTypes, prop.runtimeType),
       }));
+  }
+
+  /**
+   * Resolves a scalar property's logical type, preferring the ORM-resolved DB
+   * column type over the reflected TS runtime type. The runtime type is
+   * unreliable for nullable/optional string columns: `string | null` and the
+   * ORM's `Opt<string>` wrapper reflect as `Object`, not `String`, which used
+   * to drop them from the global-search column set entirely. The DB columnType
+   * (e.g. `varchar(200)`, `text`) is authoritative, so key off it first.
+   */
+  private resolveFieldType(
+    columnTypes: string[] | undefined,
+    runtimeType: string | undefined,
+  ): EntityFieldInfo['type'] {
+    if (this.isJsonProp(columnTypes)) return 'json';
+    if (this.isStringColumn(columnTypes)) return 'string';
+    return this.mapMikroOrmType(runtimeType);
+  }
+
+  /**
+   * Whether the property maps to a textual DB column (`varchar`, `char`,
+   * `text`, `enum`, `clob`, `citext`…). Checked before falling back to the
+   * reflected runtime type so optional/nullable string columns are still
+   * recognised as searchable.
+   */
+  private isStringColumn(columnTypes: string[] | undefined): boolean {
+    return (columnTypes ?? []).some((columnType) => /char|text|enum|clob/i.test(columnType));
   }
 
   /**
