@@ -16,11 +16,11 @@ A single filter condition is represented as a `ColumnFilter` object:
 
 ```ts
 interface ColumnFilter {
-  field: string;           // column name (e.g. 'name', 'age')
-  operator: FilterOperator; // one of 22 operators
-  value?: unknown;          // the filter value (omitted for unary operators)
-  AND?: ColumnFilter[];     // nested AND conditions
-  OR?: ColumnFilter[];      // nested OR conditions
+  field: string;                // column name (e.g. 'name', 'age')
+  operator: FilterOperatorInput; // one of 22 operators (or a symbol alias like '=')
+  value?: unknown;              // the filter value (omitted for unary operators)
+  AND?: ColumnFilter[];         // nested AND conditions
+  OR?: ColumnFilter[];          // nested OR conditions
 }
 ```
 
@@ -78,6 +78,51 @@ interface ColumnFilter {
 | `isNotEmpty` | `IS NOT NULL AND != ''` | `{ field: 'bio', operator: 'isNotEmpty' }` |
 | `exists` | `IS NOT NULL` | `{ field: 'avatar', operator: 'exists' }` |
 | `notExists` | `IS NULL` | `{ field: 'avatar', operator: 'notExists' }` |
+
+---
+
+## Operator aliases
+
+For the common comparison operators you can also use their familiar SQL symbols.
+Aliases are normalized to the canonical operator before validation and query
+building, so `{ operator: '=' }` behaves exactly like `{ operator: 'equals' }`.
+
+| Alias | Canonical |
+|-------|-----------|
+| `=`, `==` | `equals` |
+| `!=`, `<>` | `notEquals` |
+| `>` | `gt` |
+| `>=` | `gte` |
+| `<` | `lt` |
+| `<=` | `lte` |
+
+```json
+{
+  "where": [
+    { "field": "status", "operator": "=", "value": "active" },
+    { "field": "age", "operator": ">=", "value": 18 }
+  ]
+}
+```
+
+This makes migrating from a hand-rolled SQL-style query builder painless — the
+symbol operators your clients already send keep working. If you need the
+canonical form programmatically, the `normalizeOperator()` helper (and the
+`OPERATOR_ALIASES` map) are exported from the core package:
+
+```ts
+import { normalizeOperator } from '@dudousxd/nestjs-filter';
+
+normalizeOperator('='); // 'equals'
+normalizeOperator('<>'); // 'notEquals'
+normalizeOperator('iContains'); // 'iContains' (canonical operators pass through)
+```
+
+<Callout type="info">
+  Only scalar comparison operators have symbol aliases. Array, range, and unary
+  operators (`in`, `between`, `isNull`, …) have no symbol form — use the
+  canonical name.
+</Callout>
 
 ---
 
@@ -245,7 +290,7 @@ try {
 
 The validator checks:
 - `field` is a non-empty string with only letters, digits, underscores, and dots
-- `operator` is one of the 22 known operators
+- `operator` is one of the 22 known operators (or a [symbol alias](#operator-aliases), which is normalized in place to its canonical form)
 - `value` matches the operator's expected type (scalar, array, tuple, or none for unary)
 - `AND`/`OR` arrays are validated recursively
 
