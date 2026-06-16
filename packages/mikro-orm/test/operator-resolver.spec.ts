@@ -43,6 +43,21 @@ describe('MikroORM resolveOperator', () => {
     });
   });
 
+  it('resolves SQL-symbol aliases the same as their canonical operators', () => {
+    expect(resolveOperator({ field: 'name', operator: '=', value: 'Alice' })).toEqual({
+      name: 'Alice',
+    });
+    expect(resolveOperator({ field: 'name', operator: '!=', value: 'Alice' })).toEqual({
+      name: { $ne: 'Alice' },
+    });
+    expect(resolveOperator({ field: 'age', operator: '>', value: 18 })).toEqual({
+      age: { $gt: 18 },
+    });
+    expect(resolveOperator({ field: 'age', operator: '<=', value: 65 })).toEqual({
+      age: { $lte: 65 },
+    });
+  });
+
   it('contains escapes special LIKE characters', () => {
     const result = resolveOperator({ field: 'name', operator: 'contains', value: '100%' });
     expect(result).toEqual({ name: { $like: '%100\\%%' } });

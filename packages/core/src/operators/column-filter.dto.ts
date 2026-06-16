@@ -1,6 +1,12 @@
 import { Type } from 'class-transformer';
 import { IsArray, IsIn, IsOptional, IsString, ValidateNested } from 'class-validator';
-import { FILTER_OPERATORS } from './types.js';
+import { FILTER_OPERATORS, OPERATOR_ALIASES } from './types.js';
+
+/** Canonical operators plus SQL-symbol aliases accepted on input. */
+const ACCEPTED_OPERATORS: readonly string[] = [
+  ...FILTER_OPERATORS,
+  ...Object.keys(OPERATOR_ALIASES),
+];
 
 /**
  * Reusable DTO for ColumnFilter with class-validator decorators.
@@ -21,7 +27,7 @@ export class ColumnFilterDto {
   field!: string;
 
   @IsString()
-  @IsIn(FILTER_OPERATORS as unknown as string[])
+  @IsIn(ACCEPTED_OPERATORS)
   operator!: string;
 
   @IsOptional()

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ColumnFilter } from '../../src/operators/types.js';
 import {
   InvalidColumnFilterError,
+  normalizeOperator,
   validateColumnFilter,
   validateColumnFilters,
 } from '../../src/operators/validate-column-filter.js';
@@ -44,6 +45,46 @@ describe('validateColumnFilter', () => {
         validateColumnFilter({ field: 'col', operator, value } as ColumnFilter),
       ).not.toThrow();
     }
+  });
+
+  it('accepts SQL-symbol operator aliases and normalizes them in place', () => {
+    const cases = [
+      { input: '=', canonical: 'equals' },
+      { input: '==', canonical: 'equals' },
+      { input: '!=', canonical: 'notEquals' },
+      { input: '<>', canonical: 'notEquals' },
+      { input: '>', canonical: 'gt' },
+      { input: '>=', canonical: 'gte' },
+      { input: '<', canonical: 'lt' },
+      { input: '<=', canonical: 'lte' },
+    ] as const;
+
+    for (const { input, canonical } of cases) {
+      const filter = { field: 'col', operator: input, value: 1 } as ColumnFilter;
+      expect(() => validateColumnFilter(filter)).not.toThrow();
+      // The alias is rewritten to its canonical form so query builders never
+      // see a symbol operator.
+      expect(filter.operator).toBe(canonical);
+    }
+  });
+
+  it('normalizes aliases nested inside AND/OR groups', () => {
+    const filter = {
+      field: 'status',
+      operator: '=',
+      value: 'open',
+      AND: [{ field: 'level', operator: '!=', value: 'ARC' }],
+    } as ColumnFilter;
+    validateColumnFilter(filter);
+    expect(filter.operator).toBe('equals');
+    expect(filter.AND?.[0]?.operator).toBe('notEquals');
+  });
+
+  it('normalizeOperator resolves aliases and passes canonical operators through', () => {
+    expect(normalizeOperator('=')).toBe('equals');
+    expect(normalizeOperator('<>')).toBe('notEquals');
+    expect(normalizeOperator('equals')).toBe('equals');
+    expect(normalizeOperator('iContains')).toBe('iContains');
   });
 
   it('rejects unknown operator', () => {

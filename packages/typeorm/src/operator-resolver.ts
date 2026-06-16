@@ -1,4 +1,4 @@
-import { MAX_FILTER_DEPTH, escapeLike } from '@dudousxd/nestjs-filter';
+import { MAX_FILTER_DEPTH, escapeLike, normalizeOperator } from '@dudousxd/nestjs-filter';
 import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 import { Brackets, type ObjectLiteral, type SelectQueryBuilder } from 'typeorm';
 
@@ -19,7 +19,8 @@ export function applyOperator<E extends ObjectLiteral>(
   filter: ColumnFilter,
   method: 'andWhere' | 'orWhere' = 'andWhere',
 ): void {
-  const { field, operator, value } = filter;
+  const { field, value } = filter;
+  const operator = normalizeOperator(filter.operator);
   const col = `${alias}.${field}`;
 
   switch (operator) {

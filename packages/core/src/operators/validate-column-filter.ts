@@ -1,6 +1,20 @@
-import { type ColumnFilter, FILTER_OPERATORS, type FilterOperator } from './types.js';
+import {
+  type ColumnFilter,
+  FILTER_OPERATORS,
+  type FilterOperator,
+  OPERATOR_ALIASES,
+} from './types.js';
 
 const operatorSet = new Set<string>(FILTER_OPERATORS);
+
+/**
+ * Normalizes an operator string to its canonical {@link FilterOperator},
+ * resolving SQL-symbol aliases (`=` -> `equals`, `!=` -> `notEquals`, ...).
+ * Canonical operators (and unknown strings) pass through unchanged.
+ */
+export function normalizeOperator(operator: string): FilterOperator {
+  return (OPERATOR_ALIASES[operator] ?? operator) as FilterOperator;
+}
 
 /**
  * Operators that require no value (unary operators).
@@ -91,15 +105,16 @@ export function validateColumnFilter(filter: ColumnFilter, depth = 0): void {
     );
   }
 
-  // Validate operator
-  if (!operatorSet.has(filter.operator)) {
+  // Validate operator, accepting SQL-symbol aliases (`=`, `!=`, `<`, ...).
+  const op = normalizeOperator(filter.operator);
+  if (!operatorSet.has(op)) {
     throw new InvalidColumnFilterError(
       `Unknown filter operator "${filter.operator}". ` +
         `Valid operators: ${FILTER_OPERATORS.join(', ')}.`,
     );
   }
-
-  const op = filter.operator as FilterOperator;
+  // Persist the canonical form so downstream query builders never see aliases.
+  filter.operator = op;
 
   // Reject null for non-unary operators (point to isNull instead)
   if (!UNARY_OPERATORS.has(op) && filter.value === null) {

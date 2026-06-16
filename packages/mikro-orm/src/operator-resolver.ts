@@ -1,4 +1,4 @@
-import { MAX_FILTER_DEPTH, escapeLike } from '@dudousxd/nestjs-filter';
+import { MAX_FILTER_DEPTH, escapeLike, normalizeOperator } from '@dudousxd/nestjs-filter';
 import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 
 /**
@@ -21,7 +21,8 @@ export function resolveOperator(
   filter: ColumnFilter,
   ctx?: ResolveContext,
 ): Record<string, unknown> {
-  const { field, operator, value } = filter;
+  const { field, value } = filter;
+  const operator = normalizeOperator(filter.operator);
 
   switch (operator) {
     case 'equals':
