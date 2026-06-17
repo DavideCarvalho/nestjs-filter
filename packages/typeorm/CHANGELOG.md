@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter-typeorm
 
+## 1.7.1
+
+### Patch Changes
+
+- [`cedbf3c`](https://github.com/DavideCarvalho/nestjs-filter/commit/cedbf3c201c349e692f29e3a9148da96c4bda0ea) - perf: cache immutable ORM metadata and decorator maps — `WeakMap`-cache `getEntityFields`/`getEntityRelations`/`resolveFieldPath` in the MikroORM and TypeORM adapters (previously recomputed 3–6× per request), memoize `getFilterForMap`, and build a reverse index for `resolveRelation`.
+
 ## 1.5.0
 
 ### Patch Changes
