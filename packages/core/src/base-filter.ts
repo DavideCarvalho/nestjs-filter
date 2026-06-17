@@ -1,5 +1,6 @@
 import type { FilterAdapter } from './adapter/adapter.js';
 import { filterAls } from './als-store.js';
+import type { UserRef } from './context-accessor.js';
 import { FilterStateUnavailableException } from './errors/exceptions.js';
 import type { FilterContext } from './types.js';
 
@@ -26,6 +27,39 @@ export abstract class BaseFilter<TQuery = unknown> {
     const s = filterAls.getStore();
     if (!s) throw new FilterStateUnavailableException();
     return s.$adapter;
+  }
+
+  /**
+   * The current tenant id from the optional context accessor
+   * (`@dudousxd/nestjs-context`), or `undefined` when no context is bound.
+   *
+   * Lets a filter scope by tenant without plumbing it in by hand:
+   *
+   * ```ts
+   * setup() {
+   *   const tenant = this.tenantId();
+   *   if (tenant) this.$query.andWhere({ tenantId: tenant });
+   * }
+   * ```
+   *
+   * Returns `undefined` (never throws) when nestjs-context is not installed or
+   * the helper is read outside an active filter run.
+   */
+  protected tenantId(): string | undefined {
+    return filterAls.getStore()?.$contextAccessor?.tenantId();
+  }
+
+  /**
+   * The current user reference (`{ type, id }`) from the optional context
+   * accessor (`@dudousxd/nestjs-context`), or `undefined` when unauthenticated
+   * or no context is bound. Use it to scope rows by owner, e.g.
+   * `this.$query.andWhere({ ownerId: this.currentUserRef()?.id })`.
+   *
+   * Returns `undefined` (never throws) when nestjs-context is not installed or
+   * the helper is read outside an active filter run.
+   */
+  protected currentUserRef(): UserRef | undefined {
+    return filterAls.getStore()?.$contextAccessor?.userRef();
   }
 
   /**

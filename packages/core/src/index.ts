@@ -15,6 +15,11 @@ export type {
 export { ApplyFilter, getApplyFilterMetadata } from './decorator/apply-filter.decorator.js';
 export { Relations, getRelationsMap, resolveRelation } from './decorator/relations.decorator.js';
 export type { RelationConfig, RelationsMap } from './decorator/relations.decorator.js';
+export {
+  TenantScoped,
+  getTenantScopedField,
+} from './decorator/tenant-scoped.decorator.js';
+export type { ContextAccessor, ContextStore, UserRef } from './context-accessor.js';
 export { ApplyFilterInterceptor } from './interceptor/apply-filter.interceptor.js';
 export { FilterExceptionFilter } from './filter/filter-exception.filter.js';
 export { FilterRunner } from './runner.js';
@@ -38,6 +43,8 @@ export {
   FILTER_RELATIONS_METADATA,
   APPLY_FILTER_METADATA,
   APPLY_FILTER_REQ_KEY,
+  TENANT_SCOPED_METADATA,
+  CONTEXT_ACCESSOR,
 } from './tokens.js';
 export type {
   ApplyFilterOptions,
