@@ -1,10 +1,12 @@
-import { Inject, Injectable, Logger, type Type } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type Type } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import type { FilterAdapter } from './adapter/adapter.js';
 import { runWithFilterState } from './als-store.js';
+import type { ContextAccessor } from './context-accessor.js';
 import { getFilterForMap } from './decorator/filter-for.decorator.js';
 import { getFilterableMetadata } from './decorator/filterable.decorator.js';
 import { type RelationConfig, resolveRelation } from './decorator/relations.decorator.js';
+import { getTenantScopedField } from './decorator/tenant-scoped.decorator.js';
 import {
   FilterMethodException,
   FilterNotRegisteredException,
@@ -15,7 +17,7 @@ import { normalizeInput } from './input/normalizer.js';
 import { validateInput } from './input/validator.js';
 import type { ColumnFilter } from './operators/types.js';
 import { validateColumnFilters } from './operators/validate-column-filter.js';
-import { FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
+import { CONTEXT_ACCESSOR, FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
 import type {
   EntityDescription,
   FieldMeta,
@@ -47,8 +49,28 @@ export class FilterRunner {
     private readonly moduleRef: ModuleRef,
     @Inject(FILTER_MODULE_OPTIONS) private readonly options: FilterModuleOptions,
     @Inject(FILTER_ADAPTER) injectedAdapter: FilterAdapter | null,
+    @Optional()
+    @Inject(CONTEXT_ACCESSOR)
+    private readonly contextAccessor?: ContextAccessor,
   ) {
     this.adapter = injectedAdapter;
+  }
+
+  /**
+   * Soft-detects the current-request context accessor owned by
+   * `@dudousxd/nestjs-context`. Prefers the value injected into this module;
+   * falls back to a non-strict {@link ModuleRef} lookup so an accessor provided
+   * by ANY module (e.g. a global ContextModule) is still found. Returns
+   * `undefined` when nestjs-context is not installed/bound — the filter context
+   * helpers then return undefined and behavior is unchanged.
+   */
+  private resolveContextAccessor(): ContextAccessor | undefined {
+    if (this.contextAccessor) return this.contextAccessor;
+    try {
+      return this.moduleRef.get<ContextAccessor>(CONTEXT_ACCESSOR, { strict: false }) ?? undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -57,6 +79,33 @@ export class FilterRunner {
    * (e.g. MikroOrmFilterModule) is imported after FilterModule.forRoot()
    * and the FilterRunner's local injection gets null.
    */
+  /**
+   * Applies the opt-in `@TenantScoped(field)` constraint: `where field = tenantId()`.
+   *
+   * Strictly opt-in and additive — a no-op unless the filter class carries the
+   * decorator, a context accessor is bound, and that accessor resolves a tenant
+   * id. The constraint is applied via the adapter's auto-field mechanism (the
+   * same path equality filters use), so it stays portable across ORMs.
+   */
+  private applyTenantScope<Q>(
+    FilterClass: Function,
+    qb: Q,
+    adapter: FilterAdapter | null,
+    contextAccessor: ContextAccessor | undefined,
+  ): void {
+    const field = getTenantScopedField(FilterClass);
+    if (!field) return;
+    const tenantId = contextAccessor?.tenantId();
+    if (tenantId === undefined) return;
+    if (!adapter?.applyAutoField) {
+      this.logger.warn(
+        `@TenantScoped("${field}") on ${FilterClass.name} requires an adapter that implements applyAutoField. Skipping tenant scope.`,
+      );
+      return;
+    }
+    adapter.applyAutoField(qb as unknown, field, tenantId);
+  }
+
   private resolveAdapter(): FilterAdapter | null {
     if (this.adapter) return this.adapter;
     try {
@@ -142,6 +191,8 @@ export class FilterRunner {
 
     const $pushed: Array<[string, unknown]> = [];
 
+    const contextAccessor = this.resolveContextAccessor();
+
     return runWithFilterState(
       {
         $query: qb,
@@ -151,9 +202,14 @@ export class FilterRunner {
         $whitelisted,
         $blacklisted,
         $pushed,
+        ...(contextAccessor && { $contextAccessor: contextAccessor }),
       },
       async () => {
         await this.runSetup(filter);
+
+        // Opt-in tenant auto-scope (@TenantScoped). Only applies when an accessor
+        // is bound AND resolves a tenant id; otherwise a no-op.
+        this.applyTenantScope(FilterClass, qb, adapter, contextAccessor);
 
         // Apply column filters via adapter before @FilterFor dispatch
         if (columnFilters.length > 0 && adapter?.applyColumnFilters) {
