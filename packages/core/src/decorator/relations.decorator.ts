@@ -34,6 +34,32 @@ export function getRelationsMap(target: object): RelationsMap | undefined {
 }
 
 /**
+ * Per-class reverse index: input key → [relationName, RelationConfig].
+ * The relations map is fixed at decoration time, so the flattened lookup is
+ * computed once on first access and cached.
+ */
+const reverseIndexCache = new WeakMap<object, Map<string, [string, RelationConfig]>>();
+
+function getReverseIndex(target: object): Map<string, [string, RelationConfig]> {
+  const cached = reverseIndexCache.get(target);
+  if (cached) return cached;
+
+  const index = new Map<string, [string, RelationConfig]>();
+  const map = getRelationsMap(target);
+  if (map) {
+    for (const [relationName, config] of Object.entries(map)) {
+      for (const inputKey of config.keys) {
+        // Preserve current scan semantics: first relation declaring the key wins.
+        if (!index.has(inputKey)) index.set(inputKey, [relationName, config]);
+      }
+    }
+  }
+
+  reverseIndexCache.set(target, index);
+  return index;
+}
+
+/**
  * Resolves which relation (if any) owns a given input key.
  * Returns [relationName, RelationConfig] or undefined.
  */
@@ -41,12 +67,5 @@ export function resolveRelation(
   target: object,
   inputKey: string,
 ): [string, RelationConfig] | undefined {
-  const map = getRelationsMap(target);
-  if (!map) return undefined;
-  for (const [relationName, config] of Object.entries(map)) {
-    if (config.keys.includes(inputKey)) {
-      return [relationName, config];
-    }
-  }
-  return undefined;
+  return getReverseIndex(target).get(inputKey);
 }

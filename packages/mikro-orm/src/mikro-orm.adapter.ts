@@ -17,6 +17,12 @@ const OPERATOR_SET = new Set<string>(FILTER_OPERATORS);
 export class MikroOrmAdapter implements FilterAdapter {
   constructor(private readonly em: SqlEntityManager) {}
 
+  // ORM metadata is immutable after bootstrap, so reflection results are cached
+  // per entity class. `.has()` is used so null results are cached too.
+  private fieldCache = new WeakMap<object, EntityFieldInfo[] | null>();
+  private relationCache = new WeakMap<object, EntityRelationInfo[] | null>();
+  private fieldPathCache = new WeakMap<object, Map<string, 'field' | 'relation' | null>>();
+
   createQueryBuilder<E>(entity: Type<E>): unknown {
     return this.em.createQueryBuilder(entity as unknown as new () => E);
   }
@@ -69,12 +75,16 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   getEntityFields(entity: Type<unknown>): EntityFieldInfo[] | null {
+    if (this.fieldCache.has(entity)) return this.fieldCache.get(entity)!;
+    let result: EntityFieldInfo[] | null;
     try {
       const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
-      return this.scalarFieldsOf(meta);
+      result = this.scalarFieldsOf(meta);
     } catch {
-      return null;
+      result = null;
     }
+    this.fieldCache.set(entity, result);
+    return result;
   }
 
   getRelatedFields(entity: Type<unknown>, relationName: string): EntityFieldInfo[] | null {
@@ -90,6 +100,21 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   resolveFieldPath(entity: Type<unknown>, path: string): 'field' | 'relation' | null {
+    let pathMap = this.fieldPathCache.get(entity);
+    if (!pathMap) {
+      pathMap = new Map<string, 'field' | 'relation' | null>();
+      this.fieldPathCache.set(entity, pathMap);
+    }
+    if (pathMap.has(path)) return pathMap.get(path)!;
+    const result = this.computeFieldPath(entity, path);
+    pathMap.set(path, result);
+    return result;
+  }
+
+  private computeFieldPath(
+    entity: Type<unknown>,
+    path: string,
+  ): 'field' | 'relation' | null {
     try {
       const segments = path.split('.');
       let meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
@@ -172,20 +197,26 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   getEntityRelations(entity: Type<unknown>): EntityRelationInfo[] | null {
+    if (this.relationCache.has(entity)) return this.relationCache.get(entity)!;
+    let result: EntityRelationInfo[] | null;
     try {
       const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
-      if (!meta?.properties) return null;
-
-      return Object.values(meta.properties)
-        .filter((prop) => prop.kind !== ReferenceKind.SCALAR)
-        .map((prop) => ({
-          name: prop.name as string,
-          targetEntity: prop.type,
-          type: this.mapRelationType(prop.kind),
-        }));
+      if (!meta?.properties) {
+        result = null;
+      } else {
+        result = Object.values(meta.properties)
+          .filter((prop) => prop.kind !== ReferenceKind.SCALAR)
+          .map((prop) => ({
+            name: prop.name as string,
+            targetEntity: prop.type,
+            type: this.mapRelationType(prop.kind),
+          }));
+      }
     } catch {
-      return null;
+      result = null;
     }
+    this.relationCache.set(entity, result);
+    return result;
   }
 
   applyAutoRelationField(qb: unknown, relationName: string, field: string, value: unknown): void {

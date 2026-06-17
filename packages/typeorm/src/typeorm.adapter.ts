@@ -28,6 +28,11 @@ const SAFE_FIELD = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 export class TypeOrmAdapter implements FilterAdapter {
   constructor(private readonly dataSource: DataSource) {}
 
+  // ORM metadata is immutable after bootstrap, so reflection results are cached
+  // per entity class. `.has()` is used so null results are cached too.
+  private fieldCache = new WeakMap<object, EntityFieldInfo[] | null>();
+  private relationCache = new WeakMap<object, EntityRelationInfo[] | null>();
+
   createQueryBuilder<E>(entity: Type<E>): unknown {
     const repo = this.dataSource.getRepository(entity as unknown as { new (): E & ObjectLiteral });
     const alias = (entity as unknown as { name: string }).name.toLowerCase();
@@ -73,9 +78,11 @@ export class TypeOrmAdapter implements FilterAdapter {
   }
 
   getEntityFields(entity: Type<unknown>): EntityFieldInfo[] | null {
+    if (this.fieldCache.has(entity)) return this.fieldCache.get(entity)!;
+    let result: EntityFieldInfo[] | null;
     try {
       const meta = this.dataSource.getMetadata(entity);
-      return meta.columns
+      result = meta.columns
         .filter((col) => !col.relationMetadata)
         .map((col) => ({
           name: col.propertyName,
@@ -83,21 +90,27 @@ export class TypeOrmAdapter implements FilterAdapter {
           type: this.mapTypeOrmType(col.type),
         }));
     } catch {
-      return null;
+      result = null;
     }
+    this.fieldCache.set(entity, result);
+    return result;
   }
 
   getEntityRelations(entity: Type<unknown>): EntityRelationInfo[] | null {
+    if (this.relationCache.has(entity)) return this.relationCache.get(entity)!;
+    let result: EntityRelationInfo[] | null;
     try {
       const meta = this.dataSource.getMetadata(entity);
-      return meta.relations.map((rel) => ({
+      result = meta.relations.map((rel) => ({
         name: rel.propertyName,
         targetEntity: rel.inverseEntityMetadata.targetName,
         type: rel.relationType as EntityRelationInfo['type'],
       }));
     } catch {
-      return null;
+      result = null;
     }
+    this.relationCache.set(entity, result);
+    return result;
   }
 
   getRelatedFields(entity: Type<unknown>, relationName: string): EntityFieldInfo[] | null {

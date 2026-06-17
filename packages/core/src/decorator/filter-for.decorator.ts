@@ -44,7 +44,12 @@ export function FilterFor(inputKey?: string, opts?: FilterForOptions): MethodDec
   };
 }
 
+const filterForMapCache = new WeakMap<Function, Map<string, string>>();
+
 export function getFilterForMap(target: object): Map<string, string> {
+  const cached = filterForMapCache.get(target as Function);
+  if (cached) return cached;
+
   const result = new Map<string, string>();
   let current: object | null = target;
   while (current && current !== Function.prototype && current !== Object) {
@@ -58,6 +63,8 @@ export function getFilterForMap(target: object): Map<string, string> {
     }
     current = Object.getPrototypeOf(current);
   }
+
+  filterForMapCache.set(target as Function, result);
   return result;
 }
 
