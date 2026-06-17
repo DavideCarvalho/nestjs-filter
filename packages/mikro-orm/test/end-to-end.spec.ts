@@ -58,6 +58,11 @@ class User {
   @Property({ nullable: true })
   bio?: string;
 
+  // Self-referencing to-one relation, used to exercise multi-hop relation
+  // paths (`author.manager.name`) in sort + where.
+  @ManyToOne(() => User, { nullable: true })
+  manager?: User;
+
   @OneToMany(
     () => Post,
     (post) => post.author,
@@ -220,6 +225,12 @@ describe('MikroORM end-to-end filter', () => {
       bio: '',
     });
     diana.tags.add(tagNest, tagTs);
+
+    // Manager chain (to-one), for multi-hop path tests via `author.manager.*`:
+    //   Alice → Charlie, Bob → Alice, Diana → Bob, Charlie → (none)
+    alice.manager = charlie;
+    bob.manager = alice;
+    diana.manager = bob;
 
     em.persist([alice, bob, charlie, diana]);
     await em.flush();
@@ -621,6 +632,111 @@ describe('MikroORM end-to-end filter', () => {
       await runner.applyDynamic(User, { filter: { role: ['admin', 'moderator'] } }, qb);
       const rows = await qb.getResultList();
       expect(rows.map((r) => r.name).sort()).toEqual(['Alice', 'Charlie']);
+    });
+  });
+
+  // ─── Relation column paths (dotted) in where + sort ─────────────────────────
+
+  describe('relation column paths (dotted)', () => {
+    it('38. filters by a relation column path in where (author.name contains)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(Post);
+      await runner.applyDynamic(
+        Post,
+        { filter: { where: [{ field: 'author.name', operator: 'contains', value: 'Ali' }] } },
+        qb,
+      );
+      const rows = await qb.getResultList();
+      // Only Alice's posts match author.name LIKE %Ali%
+      expect(rows.map((r) => r.title).sort()).toEqual(['Draft Post', 'GraphQL Tips']);
+    });
+
+    it('39. sorts by a relation column path desc (author.name)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(Post);
+      await runner.applyDynamic(Post, { filter: {}, sort: '-author.name' }, qb);
+      const rows = await qb.getResultList();
+      // user ids after manager-chain insert order (Charlie=1, Alice=2, Bob=3, Diana=4)
+      // authors desc by name: Diana(4), Bob(3), Alice(2), Alice(2)
+      expect(rows.map((r) => r.author.id)).toEqual([4, 3, 2, 2]);
+    });
+
+    it('40. sorts by a relation column path asc (author.name)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(Post);
+      await runner.applyDynamic(Post, { filter: {}, sort: 'author.name' }, qb);
+      const rows = await qb.getResultList();
+      // authors asc by name: Alice(2), Alice(2), Bob(3), Diana(4)
+      expect(rows.map((r) => r.author.id)).toEqual([2, 2, 3, 4]);
+    });
+
+    it('41. drops a sort on an unknown relation sub-field (no crash)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(Post);
+      // `author.nope` is not a scalar of User → sort is dropped, query still runs
+      await runner.applyDynamic(Post, { filter: {}, sort: 'author.nope' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.author.id)).toEqual([2, 2, 3, 4]);
+    });
+
+    it('42. drops a sort on an unknown relation (no crash)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(Post);
+      await runner.applyDynamic(Post, { filter: {}, sort: 'bogus.name' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.author.id)).toEqual([2, 2, 3, 4]);
+    });
+
+    it('43. sorts by a multi-hop relation path (author.manager.name, tie-broken by id)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(Post);
+      await runner.applyDynamic(Post, { filter: {}, sort: 'author.manager.name,id' }, qb);
+      const rows = await qb.getResultList();
+      // post → author → manager name:
+      //   REST(3)→Bob→Alice, MikroORM(4)→Diana→Bob, GraphQL(1)→Alice→Charlie, Draft(2)→Alice→Charlie
+      // asc by manager name, then id: Alice, Bob, Charlie, Charlie
+      expect(rows.map((r) => r.id)).toEqual([3, 4, 1, 2]);
+    });
+
+    it('44. filters by a multi-hop relation path in where (author.manager.name contains)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(Post);
+      await runner.applyDynamic(
+        Post,
+        {
+          filter: { where: [{ field: 'author.manager.name', operator: 'contains', value: 'har' }] },
+        },
+        qb,
+      );
+      const rows = await qb.getResultList();
+      // Only posts whose author's manager is Charlie → Alice's posts
+      expect(rows.map((r) => r.title).sort()).toEqual(['Draft Post', 'GraphQL Tips']);
+    });
+
+    it('45. drops a multi-hop sort with an unknown leaf (no crash)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(Post);
+      await runner.applyDynamic(Post, { filter: {}, sort: 'author.manager.bogus' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.author.id)).toEqual([2, 2, 3, 4]);
+    });
+
+    it('46. drops a sort that ends on a relation (not a scalar leaf)', async () => {
+      await createModule();
+      const em = await seed();
+      const qb = em.createQueryBuilder(Post);
+      // `author.manager` resolves to a relation, not a scalar column → dropped
+      await runner.applyDynamic(Post, { filter: {}, sort: 'author.manager' }, qb);
+      const rows = await qb.getResultList();
+      expect(rows.map((r) => r.author.id)).toEqual([2, 2, 3, 4]);
     });
   });
 });

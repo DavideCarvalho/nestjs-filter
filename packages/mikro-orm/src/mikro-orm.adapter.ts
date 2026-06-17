@@ -89,6 +89,29 @@ export class MikroOrmAdapter implements FilterAdapter {
     }
   }
 
+  resolveFieldPath(entity: Type<unknown>, path: string): 'field' | 'relation' | null {
+    try {
+      const segments = path.split('.');
+      let meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+      for (let i = 0; i < segments.length; i++) {
+        const prop = meta?.properties?.[segments[i]!];
+        if (!prop) return null;
+        const isLeaf = i === segments.length - 1;
+        if (prop.kind === ReferenceKind.SCALAR) {
+          // A scalar can only be the leaf — you can't traverse through it.
+          return isLeaf ? 'field' : null;
+        }
+        // Relation segment.
+        if (isLeaf) return 'relation';
+        meta = this.em.getMetadata().get(prop.type as unknown as new () => unknown);
+        if (!meta) return null;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private scalarFieldsOf(meta: {
     properties?: Record<
       string,
@@ -206,9 +229,24 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   applySort(qb: unknown, sorts: SortItem[]): void {
-    const orderBy: Record<string, 'asc' | 'desc'> = {};
-    for (const s of sorts) orderBy[s.field] = s.direction;
-    const queryBuilder = qb as { orderBy: (order: Record<string, 'asc' | 'desc'>) => void };
+    const orderBy: Record<string, unknown> = {};
+    for (const s of sorts) {
+      // Relation path (`base.name`, `author.profile.country`) → nested object
+      // (`{ base: { name: dir } }`) so MikroORM auto-joins each relation for the
+      // ORDER BY. A flat `{ 'base.name': dir }` key is emitted as a raw column
+      // against an unjoined alias and silently produces wrong/no ordering.
+      const segments = s.field.split('.');
+      let cursor = orderBy;
+      for (let i = 0; i < segments.length - 1; i++) {
+        const segment = segments[i]!;
+        if (typeof cursor[segment] !== 'object' || cursor[segment] === null) {
+          cursor[segment] = {};
+        }
+        cursor = cursor[segment] as Record<string, unknown>;
+      }
+      cursor[segments[segments.length - 1]!] = s.direction;
+    }
+    const queryBuilder = qb as { orderBy: (order: Record<string, unknown>) => void };
     queryBuilder.orderBy(orderBy);
   }
 

@@ -120,11 +120,61 @@ export function resolveColumnFilters(
   ctx?: ResolveContext,
 ): Record<string, unknown> {
   if (filters.length === 0) return {};
-  if (filters.length === 1) return resolveSingleFilter(filters[0]!, ctx);
 
-  // Multiple top-level filters are implicitly ANDed
-  const conditions = filters.map((f) => resolveSingleFilter(f, ctx));
-  return { $and: conditions };
+  const condition =
+    filters.length === 1
+      ? resolveSingleFilter(filters[0]!, ctx)
+      : // Multiple top-level filters are implicitly ANDed
+        { $and: filters.map((f) => resolveSingleFilter(f, ctx)) };
+
+  // Expand dotted relation paths (e.g. `base.name`) into nested objects so
+  // MikroORM auto-joins the relation. A flat `{ 'base.name': … }` key is
+  // emitted by the QueryBuilder as a raw `base.name` column reference against
+  // an alias that was never joined → "Unknown column 'base.name'".
+  return expandRelationPaths(condition);
+}
+
+/**
+ * Recursively rewrites flat dotted property keys (`base.name`) into nested
+ * objects (`{ base: { name: … } }`). Logical/operator keys (`$and`, `$or`,
+ * `$not`, `$like`, …) are preserved and their values recursed into; scalar
+ * column keys are left untouched. This is what lets MikroORM resolve a
+ * relation-column condition with an automatic join instead of treating the
+ * dotted string as a raw column on the root alias.
+ */
+function expandRelationPaths(node: unknown): Record<string, unknown> {
+  return expand(node) as Record<string, unknown>;
+}
+
+function expand(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(expand);
+  if (node === null || typeof node !== 'object') return node;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key.startsWith('$')) {
+      // Operator/logical key — recurse into the value (condition or array of
+      // conditions), but keep the key as-is.
+      out[key] = expand(value);
+    } else if (key.includes('.')) {
+      // Relation path — nest into a chain of objects, with the (operator) value
+      // as the leaf. The leaf is the column condition (e.g. `{ $like: … }`) and
+      // is not itself a relation path, so it is left intact.
+      const parts = key.split('.');
+      let cursor = out;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i]!;
+        if (typeof cursor[part] !== 'object' || cursor[part] === null) {
+          cursor[part] = {};
+        }
+        cursor = cursor[part] as Record<string, unknown>;
+      }
+      cursor[parts[parts.length - 1]!] = value;
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 function resolveSingleFilter(

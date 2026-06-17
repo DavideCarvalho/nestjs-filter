@@ -923,11 +923,18 @@ export class FilterRunner {
     const relationNames = new Set((adapter.getEntityRelations?.(entity) ?? []).map((r) => r.name));
     if (fieldNames.size === 0 && relationNames.size === 0) return filters;
 
-    const isKnown = (field: string): boolean => {
-      if (fieldNames.has(field) || relationNames.has(field)) return true;
-      const dot = field.indexOf('.');
-      return dot > 0 && relationNames.has(field.slice(0, dot));
-    };
+    // When the adapter can resolve relation paths, validate the full chain
+    // (`author.profile.country`) so a bad deep path is dropped instead of
+    // reaching the ORM as an unknown column. Both scalar leaves and bare
+    // relations (FK / nested constraints) are filterable. Otherwise fall back
+    // to a single-hop check (scalar, bare relation, or `relation.field`).
+    const isKnown = adapter.resolveFieldPath
+      ? (field: string): boolean => adapter.resolveFieldPath!(entity, field) !== null
+      : (field: string): boolean => {
+          if (fieldNames.has(field) || relationNames.has(field)) return true;
+          const dot = field.indexOf('.');
+          return dot > 0 && relationNames.has(field.slice(0, dot));
+        };
 
     const prune = (clauses: ColumnFilter[]): ColumnFilter[] =>
       clauses
@@ -1029,6 +1036,14 @@ export class FilterRunner {
     if (entity && adapter.getEntityFields) {
       const fields = adapter.getEntityFields(entity);
       if (fields) {
+        // When the adapter can resolve relation paths, accept any path that
+        // ends in a scalar column — `name`, `author.name`, or a deeper chain
+        // like `author.profile.country`. A bare relation (`author`) is rejected
+        // for sorting (you can't order by a relation object).
+        if (adapter.resolveFieldPath) {
+          return sorts.filter((s) => adapter.resolveFieldPath!(entity, s.field) === 'field');
+        }
+        // Fallback: scalar columns only.
         const fieldNames = new Set(fields.map((f) => f.name));
         return sorts.filter((s) => fieldNames.has(s.field));
       }

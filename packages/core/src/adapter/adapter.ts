@@ -131,6 +131,30 @@ export interface FilterAdapter {
   getRelatedFields?(entity: Type<unknown>, relationName: string): EntityFieldInfo[] | null;
 
   /**
+   * Classifies a field path against the entity's metadata, following relations
+   * across arbitrary depth. The path is a property name (`name`), a relation
+   * property (`author`), or a dotted relation chain (`author.profile.country`).
+   *
+   * Returns:
+   * - `'field'` — the path resolves to a scalar column (possibly through one or
+   *   more relations). Valid for both `where` filtering and `sort`.
+   * - `'relation'` — the path resolves to a relation reference. Valid for
+   *   `where` (filtering by the relation's foreign key / nested constraint),
+   *   but not for `sort` (you can't order by a relation object).
+   * - `null` — some segment is unknown, or a non-relation segment is traversed
+   *   as if it were one. The caller drops the path so it never reaches the ORM.
+   *
+   * This lets the runner validate relation paths of any depth without the
+   * caller knowing the ORM's metadata shape. Optional — when absent, the
+   * runner falls back to single-hop scalar/relation checks.
+   *
+   * @param entity - The root entity class.
+   * @param path - The (possibly dotted) field path to classify.
+   * @returns `'field'`, `'relation'`, or `null`.
+   */
+  resolveFieldPath?(entity: Type<unknown>, path: string): 'field' | 'relation' | null;
+
+  /**
    * Applies a dot-notation relation field filter to the query builder.
    *
    * Auto-joins the relation (if not already joined) and applies a WHERE
