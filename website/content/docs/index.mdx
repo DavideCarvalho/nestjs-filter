@@ -1,17 +1,152 @@
 ---
-title: Documentation
-description: Declarative, ORM-agnostic filter classes for NestJS — inspired by eloquent-filter and adonis-lucid-filter.
+title: Introduction
+description: Declarative, ORM-agnostic filter classes for NestJS — turn query strings into safe, validated database queries.
 ---
 
-Welcome to the **nestjs-filter** documentation.
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-Head to the [Getting Started](/docs/getting-started) guide to set up your first filter in under 5 minutes, or use the sidebar to explore guides, packages, and API reference.
+**`@dudousxd/nestjs-filter`** turns messy `?name=Al&minAge=18` query strings into safe, validated database queries. You declare a *filter class* — one method per input key — and the library does the dispatch: it reads the request, normalizes and validates the input, and calls only the methods that match. Each method receives the parsed value and mutates your ORM's native query builder directly, so you keep full control over the SQL while the boilerplate disappears.
 
-## Quick links
+The idiom is borrowed from `eloquent-filter` and `adonis-lucid-filter`, redesigned for NestJS: filters are first-class injectables, so you get full dependency injection inside them, and your filter class can double as the validation DTO.
 
-- [Getting Started](/docs/getting-started) -- install, define a filter, and go
-- [Filter Classes](/docs/guides/filter-classes) -- validated mode, lean mode, auto-fields
-- [Controllers](/docs/guides/controllers) -- `@ApplyFilter` options and error handling
-- [Operators](/docs/guides/operators) -- 22 built-in operators with bracket notation
-- [Testing](/docs/guides/testing) -- `FilterTestingModule` and mock query builders
-- [Configuration](/docs/guides/configuration) -- all `FilterModule.forRoot()` options
+## The problem it solves
+
+List endpoints accumulate filtering logic fast. Without a structure, every controller grows a tangle of `if (query.name) { ... }` branches, ad-hoc validation, and string concatenation that invites injection bugs. nestjs-filter replaces that with a declarative contract:
+
+- **One method per input key.** A `@FilterFor('name')` method owns the `name` parameter. No central `switch`, no order-dependent `if` chains.
+- **The filter is the DTO.** Add class-validator decorators to the same class and unrecognized or malformed input is rejected before it ever reaches the database.
+- **ORM-agnostic core.** The core knows nothing about your database. You add a thin adapter — MikroORM or TypeORM — and write against its *native* query builder, not a lossy abstraction.
+- **No cross-request leakage.** Filters are singletons backed by `AsyncLocalStorage`, so per-request state never bleeds between concurrent requests.
+
+## Quickstart
+
+The whole loop — install, define a filter, register the module, use it on a route — in four steps. For the full walkthrough (including TypeORM, structured input, and `FilterRunner`), see [Getting Started](/docs/getting-started).
+
+<Steps>
+<Step>
+
+Install the core package and an ORM adapter:
+
+```bash
+pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-mikro-orm
+```
+
+For validation support (optional but recommended), also add `class-validator` and `class-transformer`.
+
+</Step>
+<Step>
+
+Define a filter — each `@FilterFor` method handles one input key:
+
+```ts title="user.filter.ts"
+import { Injectable } from '@nestjs/common';
+import { Filterable, FilterFor, escapeLike } from '@dudousxd/nestjs-filter';
+import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
+import { IsOptional, IsString, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
+import { User } from './user.entity.js';
+
+@Injectable()
+@Filterable({ entity: User })
+export class UserFilter extends MikroOrmFilter<User> {
+  @IsOptional() @IsString()
+  name?: string;
+
+  @IsOptional() @IsNumber()
+  @Type(() => Number)
+  minAge?: number;
+
+  @FilterFor('name')
+  applyName(value: string) {
+    this.$query.andWhere({ name: { $like: `%${escapeLike(value)}%` } });
+  }
+
+  @FilterFor('minAge')
+  applyMinAge(value: number) {
+    this.$query.andWhere({ age: { $gte: value } });
+  }
+}
+```
+
+</Step>
+<Step>
+
+Register the module — wire the core, the adapter, and your filters:
+
+```ts title="app.module.ts"
+import { Module } from '@nestjs/common';
+import { FilterModule } from '@dudousxd/nestjs-filter';
+import { MikroOrmFilterModule } from '@dudousxd/nestjs-filter-mikro-orm';
+import { UserFilter } from './user.filter.js';
+import { UsersController } from './users.controller.js';
+
+@Module({
+  imports: [
+    FilterModule.forRoot({ inputNormalizer: 'camelCase' }),
+    MikroOrmFilterModule.forRoot(),
+    FilterModule.forFeature([UserFilter]),
+  ],
+  controllers: [UsersController],
+})
+export class AppModule {}
+```
+
+</Step>
+<Step>
+
+Apply it to a route with `@ApplyFilter` — done:
+
+```ts title="users.controller.ts"
+import { Controller, Get } from '@nestjs/common';
+import { ApplyFilter } from '@dudousxd/nestjs-filter';
+import { UserFilter } from './user.filter.js';
+
+@Controller('users')
+export class UsersController {
+  @Get()
+  list(@ApplyFilter(UserFilter) qb: QueryBuilder<User>) {
+    return qb.getResultList();
+  }
+}
+```
+
+A request to `GET /users?name=Al&minAge=18` extracts the input, normalizes the keys, validates with class-validator (if installed), dispatches `name` and `minAge` to their methods, and hands you a ready-to-execute query builder.
+
+</Step>
+</Steps>
+
+<Callout type="info" title="Zero-config auto-fields">
+For simple equality and contains checks you can skip `@FilterFor` entirely — an empty `@Filterable` class will match input keys against the entity's own columns automatically. Bracket notation (`?age[gte]=18`) unlocks the full operator set. See [Filter Classes](/docs/guides/filter-classes#auto-fields) and [Generic Operators](/docs/guides/operators).
+</Callout>
+
+## More than a `WHERE` clause
+
+Flat query strings are just the entry point. The same machinery accepts a **structured input** object that combines filtering, sorting, pagination, global search, eager-loading, and `DISTINCT` projection in a single request:
+
+```ts
+{
+  filter: { status: 'active' },
+  sort: ['-createdAt', 'name'],   // - prefix = descending
+  paginate: { page: 0, size: 25 },
+  search: 'fleet',                // global ILIKE across searchable fields
+  include: ['role', 'posts'],     // eager-load relations
+  distinct: 'status',             // SELECT DISTINCT — for filter dropdowns
+}
+```
+
+For generic, table-driven endpoints, `applyDynamic` builds a query for any entity with no filter class at all, `runner.findAndCount` executes it with pagination-safe relation loading, and `runner.describe(entity)` returns the entity's fields and relations from ORM metadata to drive dynamic UIs. See [Getting Started](/docs/getting-started) for the details.
+
+## Where to go next
+
+<Cards>
+  <Card title="Getting Started" href="/docs/getting-started" description="Install, define a filter, register the module, and run your first query — for both MikroORM and TypeORM." />
+  <Card title="Filter Classes" href="/docs/guides/filter-classes" description="Validated mode, lean mode, setup(), and the $query / $input / $context accessors." />
+  <Card title="Controller Integration" href="/docs/guides/controllers" description="@ApplyFilter options — method-aware sources, dynamic filter selection, and error handling." />
+  <Card title="Using Filters in Services" href="/docs/guides/repositories" description="Apply filters programmatically with FilterRunner.apply() outside of controllers." />
+  <Card title="Relation Filtering" href="/docs/guides/relations" description="Cross-entity filtering with @Relations — delegate input keys through ORM joins." />
+  <Card title="Input Validation" href="/docs/guides/validation" description="class-validator integration, the filter-as-DTO pattern, and FilterExceptionFilter." />
+  <Card title="Generic Operators" href="/docs/guides/operators" description="22 operators, bracket-notation query strings, AND/OR composition, and security." />
+  <Card title="Testing" href="/docs/guides/testing" description="FilterTestingModule, makeMockQueryBuilder, and integration tests against real databases." />
+  <Card title="Typed Client (codegen)" href="/docs/guides/codegen" description="Generate a type-safe filterQuery() builder for your filter endpoints." />
+</Cards>
