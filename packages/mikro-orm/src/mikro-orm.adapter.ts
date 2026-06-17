@@ -111,10 +111,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     return result;
   }
 
-  private computeFieldPath(
-    entity: Type<unknown>,
-    path: string,
-  ): 'field' | 'relation' | null {
+  private computeFieldPath(entity: Type<unknown>, path: string): 'field' | 'relation' | null {
     try {
       const segments = path.split('.');
       let meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
