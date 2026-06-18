@@ -167,7 +167,7 @@ export interface FilterAdapter {
    * @param path - The (possibly dotted) field path to classify.
    * @returns `'field'`, `'relation'`, or `null`.
    */
-  resolveFieldPath?(entity: Type<unknown>, path: string): 'field' | 'relation' | null;
+  resolveFieldPath?(entity: Type<unknown>, path: string): 'field' | 'relation' | 'json' | null;
 
   /**
    * Applies a dot-notation relation field filter to the query builder.
