@@ -7,6 +7,12 @@
  *
  * Run:  pnpm --filter @dudousxd/nestjs-filter-mikro-orm test:db json-path-filter
  *       (requires docker compose up first, or the containers already healthy)
+ *
+ * ISOLATION: Each describe block uses orm.schema.update({ safe: true }) so it
+ * only creates the tables it knows about (json_path_db_items,
+ * json_path_sort_items_mysql, json_path_sort_items_pg) and never drops or
+ * truncates tables owned by other packages (posts, users, contract_*).
+ * afterAll drops ONLY this spec's own tables.
  */
 
 import 'reflect-metadata';
@@ -81,7 +87,9 @@ describe('MySQL — JSON sub-path column filters', () => {
       allowGlobalContext: true,
       metadataProvider: ReflectMetadataProvider,
     });
-    await orm.schema.refresh();
+    // Non-destructive: only creates tables for THIS orm's entities; never drops
+    // tables owned by other packages (posts, users, contract_*).
+    await orm.schema.update({ safe: true });
   });
 
   afterEach(async () => {
@@ -93,7 +101,14 @@ describe('MySQL — JSON sub-path column filters', () => {
   });
 
   afterAll(async () => {
-    if (orm) await orm.close(true);
+    if (orm) {
+      // Drop only the tables owned by this spec, leave all others untouched.
+      const conn = orm.em.getConnection();
+      await conn.execute('SET FOREIGN_KEY_CHECKS = 0');
+      await conn.execute('DROP TABLE IF EXISTS json_path_db_items');
+      await conn.execute('SET FOREIGN_KEY_CHECKS = 1');
+      await orm.close(true);
+    }
   });
 
   it('equals: tier=pro → [a, c]', async () => {
@@ -196,7 +211,8 @@ describe('MySQL — JSON sub-path sort via FilterRunner', () => {
 
     orm = mod.get(MikroORM);
     runner = mod.get(FilterRunner);
-    await orm.schema.refresh();
+    // Non-destructive: only creates tables for THIS orm's entities.
+    await orm.schema.update({ safe: true });
   });
 
   afterEach(async () => {
@@ -208,7 +224,14 @@ describe('MySQL — JSON sub-path sort via FilterRunner', () => {
   });
 
   afterAll(async () => {
-    if (orm) await orm.close(true);
+    if (orm) {
+      // Drop only the tables owned by this spec, leave all others untouched.
+      const conn = orm.em.getConnection();
+      await conn.execute('SET FOREIGN_KEY_CHECKS = 0');
+      await conn.execute('DROP TABLE IF EXISTS json_path_sort_items_mysql');
+      await conn.execute('SET FOREIGN_KEY_CHECKS = 1');
+      await orm.close(true);
+    }
   });
 
   async function seed(): Promise<void> {
@@ -274,7 +297,9 @@ describe('PostgreSQL — JSON sub-path column filters', () => {
       allowGlobalContext: true,
       metadataProvider: ReflectMetadataProvider,
     });
-    await orm.schema.refresh();
+    // Non-destructive: only creates tables for THIS orm's entities; never drops
+    // tables owned by other packages (posts, users, contract_*).
+    await orm.schema.update({ safe: true });
   });
 
   afterEach(async () => {
@@ -283,7 +308,11 @@ describe('PostgreSQL — JSON sub-path column filters', () => {
   });
 
   afterAll(async () => {
-    if (orm) await orm.close(true);
+    if (orm) {
+      // Drop only the tables owned by this spec, leave all others untouched.
+      await orm.em.getConnection().execute('DROP TABLE IF EXISTS json_path_db_items');
+      await orm.close(true);
+    }
   });
 
   it('equals: tier=pro → [a, c]', async () => {
@@ -387,7 +416,8 @@ describe('PostgreSQL — JSON sub-path sort via FilterRunner', () => {
 
     orm = mod.get(MikroORM);
     runner = mod.get(FilterRunner);
-    await orm.schema.refresh();
+    // Non-destructive: only creates tables for THIS orm's entities.
+    await orm.schema.update({ safe: true });
   });
 
   afterEach(async () => {
@@ -396,7 +426,11 @@ describe('PostgreSQL — JSON sub-path sort via FilterRunner', () => {
   });
 
   afterAll(async () => {
-    if (orm) await orm.close(true);
+    if (orm) {
+      // Drop only the tables owned by this spec, leave all others untouched.
+      await orm.em.getConnection().execute('DROP TABLE IF EXISTS json_path_sort_items_pg');
+      await orm.close(true);
+    }
   });
 
   async function seed(): Promise<void> {
