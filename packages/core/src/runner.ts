@@ -1465,7 +1465,10 @@ export class FilterRunner {
         // like `author.profile.country`. A bare relation (`author`) is rejected
         // for sorting (you can't order by a relation object).
         if (adapter.resolveFieldPath) {
-          return accept((s) => adapter.resolveFieldPath!(entity, s.field) === 'field');
+          return accept((s) => {
+            const kind = adapter.resolveFieldPath!(entity, s.field);
+            return kind === 'field' || kind === 'json';
+          });
         }
         // Fallback: scalar columns only.
         const fieldNames = new Set(fields.map((f) => f.name));

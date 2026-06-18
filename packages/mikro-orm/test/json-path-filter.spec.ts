@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { FilterModule, FilterRunner } from '@dudousxd/nestjs-filter';
 import { JsonType, MikroORM } from '@mikro-orm/core';
 import {
   Entity,
@@ -6,9 +7,12 @@ import {
   Property,
   ReflectMetadataProvider,
 } from '@mikro-orm/decorators/legacy';
+import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { SqliteDriver } from '@mikro-orm/sqlite';
+import { Test } from '@nestjs/testing';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
+import { MikroOrmFilterModule } from '../src/module.js';
 import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 
 @Entity({ tableName: 'json_filter_items' })
@@ -169,5 +173,105 @@ describe('JSON sub-path column filters', () => {
     });
     // SQLite JSON path: absent key evaluates to null, so $ne null → no rows match.
     expect(result).toEqual([]);
+  });
+});
+
+// ─── JSON sub-path sort via FilterRunner ──────────────────────────────────────
+//
+// These tests exercise the runner's sort-gate validation:  when the adapter's
+// resolveFieldPath returns 'json' for a dotted path like `metadata.tier`, the
+// runner must accept it for sorting (not silently drop it as an unknown field).
+//
+// NOTE: Postgres numeric JSON-path sort is lexical — `metadata->>'amount' asc`
+// extracts text so numeric ordering is wrong on Postgres.  That is a known
+// limitation documented for Task 6; the tests here run SQLite only (where
+// json_extract() in ORDER BY is numeric-aware and produces correct ordering).
+describe('JSON sub-path sort via FilterRunner', () => {
+  let orm: MikroORM;
+  let runner: FilterRunner;
+
+  @Entity({ tableName: 'json_sort_items' })
+  class SortItem {
+    @PrimaryKey()
+    id!: number;
+
+    @Property()
+    label!: string;
+
+    @Property({ type: JsonType, nullable: true })
+    metadata!: Record<string, unknown>;
+  }
+
+  afterEach(async () => {
+    if (orm) await orm.close(true);
+  });
+
+  async function setup() {
+    const mod = await Test.createTestingModule({
+      imports: [
+        MikroOrmModule.forRoot({
+          driver: SqliteDriver,
+          dbName: ':memory:',
+          entities: [SortItem],
+          allowGlobalContext: true,
+          metadataProvider: ReflectMetadataProvider,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        MikroOrmFilterModule.forRoot(),
+      ],
+    }).compile();
+
+    orm = mod.get(MikroORM);
+    runner = mod.get(FilterRunner);
+    await orm.schema.create();
+
+    const em = orm.em.fork();
+    // row a: tier='pro',   amount=200
+    em.create(SortItem, { label: 'a', metadata: { tier: 'pro', amount: 200 } });
+    // row b: tier='alpha', amount=30
+    em.create(SortItem, { label: 'b', metadata: { tier: 'alpha', amount: 30 } });
+    // row c: tier='zeta',  amount=500
+    em.create(SortItem, { label: 'c', metadata: { tier: 'zeta', amount: 500 } });
+    await em.flush();
+    return em;
+  }
+
+  it('sorts by metadata.tier asc via runner (string JSON sub-path)', async () => {
+    const em = await setup();
+    const qb = em.createQueryBuilder(SortItem);
+    await runner.applyDynamic(SortItem, { filter: {}, sort: 'metadata.tier' }, qb);
+    const rows = (await qb.getResultList()) as SortItem[];
+    // alpha < pro < zeta → [b, a, c]
+    expect(rows.map((r) => r.label)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('sorts by metadata.tier desc via runner (string JSON sub-path)', async () => {
+    const em = await setup();
+    const qb = em.createQueryBuilder(SortItem);
+    await runner.applyDynamic(SortItem, { filter: {}, sort: '-metadata.tier' }, qb);
+    const rows = (await qb.getResultList()) as SortItem[];
+    // zeta > pro > alpha → [c, a, b]
+    expect(rows.map((r) => r.label)).toEqual(['c', 'a', 'b']);
+  });
+
+  // SQLite only: json_extract() in ORDER BY is numeric-aware — 30 < 200 < 500.
+  // Postgres uses ->>'key' (text) in ORDER BY so would give lexical order: 200 < 30 < 500.
+  // That Postgres limitation is documented in the changeset (Task 6).
+  it('sorts by metadata.amount asc via runner (numeric JSON sub-path, SQLite only)', async () => {
+    const em = await setup();
+    const qb = em.createQueryBuilder(SortItem);
+    await runner.applyDynamic(SortItem, { filter: {}, sort: 'metadata.amount' }, qb);
+    const rows = (await qb.getResultList()) as SortItem[];
+    // numeric asc: 30, 200, 500 → [b, a, c]
+    expect(rows.map((r) => r.label)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('sorts by metadata.amount desc via runner (numeric JSON sub-path, SQLite only)', async () => {
+    const em = await setup();
+    const qb = em.createQueryBuilder(SortItem);
+    await runner.applyDynamic(SortItem, { filter: {}, sort: '-metadata.amount' }, qb);
+    const rows = (await qb.getResultList()) as SortItem[];
+    // numeric desc: 500, 200, 30 → [c, a, b]
+    expect(rows.map((r) => r.label)).toEqual(['c', 'a', 'b']);
   });
 });
