@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter
 
+## 1.8.1
+
+### Patch Changes
+
+- [`daf7ae5`](https://github.com/DavideCarvalho/nestjs-filter/commit/daf7ae5ca8c6a1c82f60e07bec6719c4427ee708) - perf: `ApplyFilterInterceptor` memoizes the `FilterRunner` and adapter resolution after first use instead of resolving them from the DI container on every request. Preserves the no-filter early return and the missing-adapter tolerance (error still thrown only when a filter actually needs the adapter).
+
 ## 1.8.0
 
 ### Minor Changes
