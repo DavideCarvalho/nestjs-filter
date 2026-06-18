@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { FilterModule, FilterRunner } from '@dudousxd/nestjs-filter';
+import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 import { JsonType, MikroORM } from '@mikro-orm/core';
 import {
   Entity,
@@ -13,7 +14,6 @@ import { Test } from '@nestjs/testing';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
 import { MikroOrmFilterModule } from '../src/module.js';
-import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 
 @Entity({ tableName: 'json_filter_items' })
 class Item {

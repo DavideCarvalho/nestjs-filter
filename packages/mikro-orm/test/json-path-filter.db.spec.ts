@@ -17,6 +17,7 @@
 
 import 'reflect-metadata';
 import { FilterModule, FilterRunner } from '@dudousxd/nestjs-filter';
+import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 import { JsonType, MikroORM } from '@mikro-orm/core';
 import {
   Entity,
@@ -31,7 +32,6 @@ import { Test } from '@nestjs/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
 import { MikroOrmFilterModule } from '../src/module.js';
-import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 
 // ─── Shared entity ────────────────────────────────────────────────────────────
 
@@ -78,11 +78,11 @@ describe('MySQL — JSON sub-path column filters', () => {
   beforeAll(async () => {
     orm = await MikroORM.init({
       driver: MySqlDriver,
-      host: process.env['DB_HOST'] ?? 'localhost',
-      port: Number(process.env['DB_PORT'] ?? '3306'),
-      user: process.env['DB_USER'] ?? 'test',
-      password: process.env['DB_PASSWORD'] ?? 'test',
-      dbName: process.env['DB_NAME'] ?? 'nestjs_filter_test',
+      host: process.env.DB_HOST ?? 'localhost',
+      port: Number(process.env.DB_PORT ?? '3306'),
+      user: process.env.DB_USER ?? 'test',
+      password: process.env.DB_PASSWORD ?? 'test',
+      dbName: process.env.DB_NAME ?? 'nestjs_filter_test',
       entities: [Item],
       allowGlobalContext: true,
       metadataProvider: ReflectMetadataProvider,
@@ -195,11 +195,11 @@ describe('MySQL — JSON sub-path sort via FilterRunner', () => {
       imports: [
         MikroOrmModule.forRoot({
           driver: MySqlDriver,
-          host: process.env['DB_HOST'] ?? 'localhost',
-          port: Number(process.env['DB_PORT'] ?? '3306'),
-          user: process.env['DB_USER'] ?? 'test',
-          password: process.env['DB_PASSWORD'] ?? 'test',
-          dbName: process.env['DB_NAME'] ?? 'nestjs_filter_test',
+          host: process.env.DB_HOST ?? 'localhost',
+          port: Number(process.env.DB_PORT ?? '3306'),
+          user: process.env.DB_USER ?? 'test',
+          password: process.env.DB_PASSWORD ?? 'test',
+          dbName: process.env.DB_NAME ?? 'nestjs_filter_test',
           entities: [SortItem],
           allowGlobalContext: true,
           metadataProvider: ReflectMetadataProvider,
@@ -288,11 +288,11 @@ describe('PostgreSQL — JSON sub-path column filters', () => {
   beforeAll(async () => {
     orm = await MikroORM.init({
       driver: PostgreSqlDriver,
-      host: process.env['PG_HOST'] ?? 'localhost',
-      port: Number(process.env['PG_PORT'] ?? '5432'),
-      user: process.env['PG_USER'] ?? 'test',
-      password: process.env['PG_PASSWORD'] ?? 'test',
-      dbName: process.env['PG_NAME'] ?? 'nestjs_filter_test',
+      host: process.env.PG_HOST ?? 'localhost',
+      port: Number(process.env.PG_PORT ?? '5432'),
+      user: process.env.PG_USER ?? 'test',
+      password: process.env.PG_PASSWORD ?? 'test',
+      dbName: process.env.PG_NAME ?? 'nestjs_filter_test',
       entities: [Item],
       allowGlobalContext: true,
       metadataProvider: ReflectMetadataProvider,
@@ -400,11 +400,11 @@ describe('PostgreSQL — JSON sub-path sort via FilterRunner', () => {
       imports: [
         MikroOrmModule.forRoot({
           driver: PostgreSqlDriver,
-          host: process.env['PG_HOST'] ?? 'localhost',
-          port: Number(process.env['PG_PORT'] ?? '5432'),
-          user: process.env['PG_USER'] ?? 'test',
-          password: process.env['PG_PASSWORD'] ?? 'test',
-          dbName: process.env['PG_NAME'] ?? 'nestjs_filter_test',
+          host: process.env.PG_HOST ?? 'localhost',
+          port: Number(process.env.PG_PORT ?? '5432'),
+          user: process.env.PG_USER ?? 'test',
+          password: process.env.PG_PASSWORD ?? 'test',
+          dbName: process.env.PG_NAME ?? 'nestjs_filter_test',
           entities: [SortItemPg],
           allowGlobalContext: true,
           metadataProvider: ReflectMetadataProvider,
