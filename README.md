@@ -235,9 +235,22 @@ Registers the core filter infrastructure globally.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `inputNormalizer` | `'camelCase' \| 'snakeCase' \| (key: string) => string` | `'camelCase'` | How to normalize input keys before dispatch. |
+| `inputFormat` | `'native' \| 'spatie'` | `'native'` | Input query format. `'native'` is the library's structured model. `'spatie'` opts into spatie-laravel-query-builder / JSON:API style query strings (`filter[field]=…`, `filter[field][op]=…`, `sort=-a,b`, `include=a,b`, `fields[resource]=a,b`, `page[number]`/`page[after]`). Parsed into the native model first, so allowlist / operator-allowlist / `throwOnInvalid` safety still applies. |
 | `dropId` | `boolean` | `false` | Strip trailing `Id` / `_id` from keys (e.g. `companyId` -> `company`). |
 | `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | What to do when an input key has no matching `@FilterFor`. |
 | `validation` | `'auto' \| 'off'` | `'auto'` | `'auto'` uses class-validator if installed. `'off'` skips validation. |
+| `throwOnInvalid` | `boolean` | `false` | When `true`, invalid sorts, distinct fields, and unknown `where` columns raise a `BadRequestException` instead of being silently dropped. Overridable per `@Filterable`. |
+| `defaultSort` | `string \| SortItem[]` | – | Sort applied when the client provides no `sort` (stable ordering). Accepts a JSON:API string (`'-createdAt'`) or `SortItem[]`. Overridable per `@Filterable`. |
+
+Both `throwOnInvalid` and `defaultSort` can also be set per filter class via
+`@Filterable({ entity, throwOnInvalid: true, defaultSort: '-createdAt' })`, which
+takes precedence over the module-level option.
+
+> **Full-text search (Postgres).** The TypeORM adapter's vector search uses
+> `websearch_to_tsquery`, so arbitrary multi-word input (e.g. `"foo bar"`) is
+> parsed safely instead of throwing a syntax error. Opt into relevance ordering
+> with `search = { vector: 'search_vector', rank: true }` on the filter class
+> (adds `ORDER BY ts_rank(...) DESC`).
 
 ### `FilterModule.forFeature(filters)`
 

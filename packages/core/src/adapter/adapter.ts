@@ -30,6 +30,18 @@ export interface EntityRelationInfo {
   type: 'one-to-one' | 'many-to-one' | 'one-to-many' | 'many-to-many';
 }
 
+/**
+ * Behavior flags for full-text vector search ({@link FilterAdapter.applyVectorSearch}).
+ */
+export interface VectorSearchOptions {
+  /**
+   * When true, add relevance ordering for matched rows (e.g. Postgres
+   * `ORDER BY ts_rank(...) DESC`). Off by default because it changes the
+   * query's default ordering.
+   */
+  rank?: boolean;
+}
+
 export interface FilterAdapter {
   createQueryBuilder<E>(entity: Type<E>): unknown;
 
@@ -60,8 +72,11 @@ export interface FilterAdapter {
    *
    * @param qb - The query builder instance.
    * @param filters - Array of ColumnFilter conditions to apply.
+   * @param entity - The entity being queried. When provided, lets the adapter
+   *   resolve column types (e.g. so `isEmpty`/`isNotEmpty` only compare against
+   *   `''` on string columns — a DATE/number `col = ''` errors on MySQL).
    */
-  applyColumnFilters?(qb: unknown, filters: ColumnFilter[]): void;
+  applyColumnFilters?(qb: unknown, filters: ColumnFilter[], entity?: Type<unknown>): void;
 
   /**
    * Applies an auto-field value to the query builder.
@@ -206,13 +221,26 @@ export interface FilterAdapter {
   /**
    * Applies a full-text vector search using a tsvector column.
    *
+   * Implementations must parse arbitrary user input safely (e.g. Postgres
+   * `websearch_to_tsquery`, not the raw `to_tsquery`, which throws a syntax
+   * error on ordinary multi-word input like `"foo bar"`).
+   *
+   * When `opts.rank` is true, the adapter may add relevance ordering
+   * (e.g. `ts_rank`) for the matched rows.
+   *
    * Optional — adapters that don't support vector search should not implement this.
    *
    * @param qb - The query builder instance.
-   * @param term - The search term.
+   * @param term - The search term (arbitrary user text).
    * @param vectorColumn - The tsvector column name.
+   * @param opts - Optional behavior flags (e.g. `{ rank: true }`).
    */
-  applyVectorSearch?(qb: unknown, term: string, vectorColumn: string): void;
+  applyVectorSearch?(
+    qb: unknown,
+    term: string,
+    vectorColumn: string,
+    opts?: VectorSearchOptions,
+  ): void;
 
   /**
    * Restricts the query to DISTINCT values of the given field(s).
@@ -232,12 +260,57 @@ export interface FilterAdapter {
   applyDistinct?(qb: unknown, fields: string[], entity: Type<unknown>): void;
 
   /**
+   * Restricts the query's projection to the given field(s) — JSON:API "sparse
+   * fieldsets". Unlike {@link applyDistinct}, this adds **no** `DISTINCT`
+   * modifier; it only narrows the SELECT list (the primary key should remain
+   * selected so rows stay addressable). Active WHERE / search / sort /
+   * pagination are unaffected.
+   *
+   * Optional — adapters that don't support projection narrowing should not
+   * implement this.
+   *
+   * @param qb - The query builder instance.
+   * @param fields - Field/column names to select.
+   * @param entity - The root entity class.
+   */
+  applySelect?(qb: unknown, fields: string[], entity: Type<unknown>): void;
+
+  /**
    * Applies sort ordering to the query builder.
    *
    * @param qb - The query builder instance.
    * @param sorts - Array of SortItem directives (field + direction).
    */
   applySort?(qb: unknown, sorts: SortItem[]): void;
+
+  /**
+   * Applies a WHERE condition on a **computed/virtual field** — a developer-
+   * provided SQL expression declared via `@Filterable.computed`. Behaves like
+   * {@link applyAutoField} (scalar → equals, array → IN, operator object →
+   * those operators) but evaluates the raw `expression` instead of a column
+   * reference. The expression is dev-provided (never client input); values are
+   * always parameterized.
+   *
+   * Optional — adapters that don't support computed fields should not
+   * implement this.
+   *
+   * @param qb - The query builder instance.
+   * @param expression - The raw SQL expression for the computed field.
+   * @param value - The filter value (scalar, array, or operator object).
+   */
+  applyComputedField?(qb: unknown, expression: string, value: unknown): void;
+
+  /**
+   * Applies an ORDER BY on a computed/virtual field's SQL expression.
+   *
+   * Optional — adapters that don't support computed fields should not
+   * implement this.
+   *
+   * @param qb - The query builder instance.
+   * @param expression - The raw SQL expression for the computed field.
+   * @param direction - Sort direction.
+   */
+  applyComputedSort?(qb: unknown, expression: string, direction: 'asc' | 'desc'): void;
 
   /**
    * Applies offset-based pagination to the query builder.
@@ -258,6 +331,62 @@ export interface FilterAdapter {
    * @returns The fetched rows and the total matching count.
    */
   getResultAndCount?(qb: unknown): Promise<{ rows: unknown[]; total: number }>;
+
+  /**
+   * Executes the query builder and returns the matching rows (no count). Used
+   * by `FilterRunner.findPage` for cursor/keyset pagination, where a total
+   * count is intentionally not computed.
+   *
+   * Optional — required only if you call `findPage`.
+   *
+   * @param qb - The query builder instance.
+   * @returns The fetched rows.
+   */
+  getResult?(qb: unknown): Promise<unknown[]>;
+
+  /**
+   * Returns the primary-key property name of the entity, used as the stable
+   * tiebreaker for keyset/cursor pagination. Returns `null` when no single
+   * primary key can be determined.
+   *
+   * Optional — required only for `findPage` cursor pagination.
+   *
+   * @param entity - The entity class.
+   */
+  getPrimaryKey?(entity: Type<unknown>): string | null;
+
+  /**
+   * Applies a keyset (cursor) WHERE predicate to the query builder for
+   * row-value comparison across the keyset columns.
+   *
+   * Given a keyset (the active sort columns plus a primary-key tiebreaker, each
+   * with a direction) and the boundary row's column values, the adapter adds a
+   * predicate equivalent to a lexicographic tuple comparison that selects rows
+   * strictly *after* the boundary in keyset order. Columns sorted `asc` use
+   * `>` and `desc` use `<` at each tier; ties on a column fall through to the
+   * next. Implementations must parameterize all values.
+   *
+   * Optional — required only for `findPage` cursor pagination.
+   *
+   * @param qb - The query builder instance.
+   * @param keyset - The keyset columns with directions (sort cols + pk).
+   * @param values - The boundary row's values, positionally aligned to keyset.
+   */
+  applyKeysetPagination?(qb: unknown, keyset: SortItem[], values: unknown[]): void;
+
+  /**
+   * Applies an ORDER BY for the keyset columns and a row LIMIT — the ordering
+   * and slice for a cursor page. Separate from {@link applySort} so `findPage`
+   * controls the keyset ordering (including direction reversal for backward
+   * paging) independently of the request `sort`.
+   *
+   * Optional — required only for `findPage` cursor pagination.
+   *
+   * @param qb - The query builder instance.
+   * @param keyset - The keyset columns with directions.
+   * @param limit - Max rows to fetch.
+   */
+  applyKeysetOrderAndLimit?(qb: unknown, keyset: SortItem[], limit: number): void;
 
   /**
    * Loads the given relations onto already-fetched rows in a **separate query**

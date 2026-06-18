@@ -131,6 +131,28 @@ describe('MikroORM resolveOperator', () => {
     });
   });
 
+  it('isEmpty on a string column keeps the empty-string check', () => {
+    const ctx = { stringFields: new Set(['bio']) };
+    expect(resolveOperator({ field: 'bio', operator: 'isEmpty' }, ctx)).toEqual({
+      $or: [{ bio: null }, { bio: '' }],
+    });
+  });
+
+  it("isEmpty on a non-string column is NULL-only (no `= ''`)", () => {
+    // A DATE/number column: `col = ''` errors on MySQL ("Incorrect DATE value").
+    const ctx = { stringFields: new Set(['bio']) };
+    expect(resolveOperator({ field: 'serviceEndDate', operator: 'isEmpty' }, ctx)).toEqual({
+      serviceEndDate: null,
+    });
+  });
+
+  it('isNotEmpty on a non-string column is NOT-NULL only', () => {
+    const ctx = { stringFields: new Set(['bio']) };
+    expect(resolveOperator({ field: 'serviceEndDate', operator: 'isNotEmpty' }, ctx)).toEqual({
+      serviceEndDate: { $ne: null },
+    });
+  });
+
   it('isNotNull', () => {
     expect(resolveOperator({ field: 'bio', operator: 'isNotNull' })).toEqual({
       bio: { $ne: null },

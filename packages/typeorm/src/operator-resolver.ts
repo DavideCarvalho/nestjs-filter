@@ -3,10 +3,29 @@ import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 import { Brackets, type ObjectLiteral, type SelectQueryBuilder } from 'typeorm';
 
 /**
- * Generates a unique parameter name to avoid collisions.
+ * Per-query monotonic counter for parameter names.
+ *
+ * Keyed on the builder's `expressionMap` (shared between a SelectQueryBuilder
+ * and any `Brackets` sub-builders it spawns), so a single query gets one
+ * increasing sequence. This makes param names deterministic for a given query
+ * shape — unlike a `Math.random()` suffix — which preserves TypeORM's
+ * query-plan caching and keeps generated SQL stable across runs (and tests).
  */
-function uniqueParam(field: string, suffix: string): string {
-  return `${field}_${suffix}_${Math.random().toString(36).slice(2, 10)}`;
+const paramCounters = new WeakMap<object, number>();
+
+function nextParamIndex(qb: { expressionMap?: object }): number {
+  // Fall back to the builder itself if expressionMap is unavailable (e.g. mocks).
+  const key = (qb.expressionMap ?? qb) as object;
+  const current = paramCounters.get(key) ?? 0;
+  paramCounters.set(key, current + 1);
+  return current;
+}
+
+/**
+ * Generates a deterministic, collision-free parameter name for a query.
+ */
+function uniqueParam(qb: { expressionMap?: object }, field: string, suffix: string): string {
+  return `${field}_${suffix}_${nextParamIndex(qb)}`;
 }
 
 /**
@@ -18,103 +37,110 @@ export function applyOperator<E extends ObjectLiteral>(
   alias: string,
   filter: ColumnFilter,
   method: 'andWhere' | 'orWhere' = 'andWhere',
+  /**
+   * Optional raw column/expression reference to compare against, overriding the
+   * default `alias.field`. Used for computed/virtual fields whose "column" is a
+   * dev-provided SQL expression. The `field` is still used only to build a safe,
+   * unique parameter name.
+   */
+  colOverride?: string,
 ): void {
   const { field, value } = filter;
   const operator = normalizeOperator(filter.operator);
-  const col = `${alias}.${field}`;
+  const col = colOverride ?? `${alias}.${field}`;
 
   switch (operator) {
     case 'equals': {
-      const p = uniqueParam(field, 'eq');
+      const p = uniqueParam(qb, field, 'eq');
       qb[method](`${col} = :${p}`, { [p]: value });
       break;
     }
 
     case 'notEquals': {
-      const p = uniqueParam(field, 'neq');
+      const p = uniqueParam(qb, field, 'neq');
       qb[method](`${col} != :${p}`, { [p]: value });
       break;
     }
 
     case 'contains': {
-      const p = uniqueParam(field, 'contains');
+      const p = uniqueParam(qb, field, 'contains');
       qb[method](`${col} LIKE :${p}`, { [p]: `%${escapeLike(String(value))}%` });
       break;
     }
 
     case 'notContains': {
-      const p = uniqueParam(field, 'ncontains');
+      const p = uniqueParam(qb, field, 'ncontains');
       qb[method](`${col} NOT LIKE :${p}`, { [p]: `%${escapeLike(String(value))}%` });
       break;
     }
 
     case 'iContains': {
-      const p = uniqueParam(field, 'icontains');
+      const p = uniqueParam(qb, field, 'icontains');
       qb[method](`LOWER(${col}) LIKE LOWER(:${p})`, { [p]: `%${escapeLike(String(value))}%` });
       break;
     }
 
     case 'startsWith': {
-      const p = uniqueParam(field, 'starts');
+      const p = uniqueParam(qb, field, 'starts');
       qb[method](`${col} LIKE :${p}`, { [p]: `${escapeLike(String(value))}%` });
       break;
     }
 
     case 'endsWith': {
-      const p = uniqueParam(field, 'ends');
+      const p = uniqueParam(qb, field, 'ends');
       qb[method](`${col} LIKE :${p}`, { [p]: `%${escapeLike(String(value))}` });
       break;
     }
 
     case 'gt': {
-      const p = uniqueParam(field, 'gt');
+      const p = uniqueParam(qb, field, 'gt');
       qb[method](`${col} > :${p}`, { [p]: value });
       break;
     }
 
     case 'gte': {
-      const p = uniqueParam(field, 'gte');
+      const p = uniqueParam(qb, field, 'gte');
       qb[method](`${col} >= :${p}`, { [p]: value });
       break;
     }
 
     case 'lt': {
-      const p = uniqueParam(field, 'lt');
+      const p = uniqueParam(qb, field, 'lt');
       qb[method](`${col} < :${p}`, { [p]: value });
       break;
     }
 
     case 'lte': {
-      const p = uniqueParam(field, 'lte');
+      const p = uniqueParam(qb, field, 'lte');
       qb[method](`${col} <= :${p}`, { [p]: value });
       break;
     }
 
     case 'between': {
       const [low, high] = value as [unknown, unknown];
-      const pLow = uniqueParam(field, 'btwLow');
-      const pHigh = uniqueParam(field, 'btwHigh');
+      const pLow = uniqueParam(qb, field, 'btwLow');
+      const pHigh = uniqueParam(qb, field, 'btwHigh');
       qb[method](`${col} BETWEEN :${pLow} AND :${pHigh}`, { [pLow]: low, [pHigh]: high });
       break;
     }
 
     case 'notBetween': {
       const [low, high] = value as [unknown, unknown];
-      const pLow = uniqueParam(field, 'nbtwLow');
-      const pHigh = uniqueParam(field, 'nbtwHigh');
+      const pLow = uniqueParam(qb, field, 'nbtwLow');
+      const pHigh = uniqueParam(qb, field, 'nbtwHigh');
       qb[method](`${col} NOT BETWEEN :${pLow} AND :${pHigh}`, { [pLow]: low, [pHigh]: high });
       break;
     }
 
     case 'in':
     case 'isAnyOf': {
-      const p = uniqueParam(field, 'in');
+      const p = uniqueParam(qb, field, 'in');
       qb[method](`${col} IN (:...${p})`, { [p]: value });
       break;
     }
 
     case 'notIn': {
-      const p = uniqueParam(field, 'nin');
+      const p = uniqueParam(qb, field, 'nin');
       qb[method](`${col} NOT IN (:...${p})`, { [p]: value });
       break;
     }

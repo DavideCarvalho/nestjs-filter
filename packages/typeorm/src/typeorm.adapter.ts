@@ -5,6 +5,7 @@ import {
   FILTER_OPERATORS,
   type FilterAdapter,
   type SortItem,
+  type VectorSearchOptions,
   escapeLike,
 } from '@dudousxd/nestjs-filter';
 import type { Type } from '@nestjs/common';
@@ -24,6 +25,20 @@ const OPERATOR_SET = new Set<string>(FILTER_OPERATORS);
  * followed by letters, digits, or underscores.
  */
 const SAFE_FIELD = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/**
+ * Per-query monotonic counter for keyset parameter-name prefixes, keyed on the
+ * builder's `expressionMap` so repeated keyset applications on one builder don't
+ * collide. Keeps generated SQL deterministic.
+ */
+const keysetCounters = new WeakMap<object, number>();
+
+function nextKeysetSeq(qb: { expressionMap?: object }): number {
+  const key = (qb.expressionMap ?? qb) as object;
+  const current = keysetCounters.get(key) ?? 0;
+  keysetCounters.set(key, current + 1);
+  return current;
+}
 
 export class TypeOrmAdapter implements FilterAdapter {
   constructor(private readonly dataSource: DataSource) {}
@@ -201,12 +216,27 @@ export class TypeOrmAdapter implements FilterAdapter {
     queryBuilder.andWhere(brackets);
   }
 
-  applyVectorSearch(qb: unknown, term: string, vectorColumn: string): void {
+  applyVectorSearch(
+    qb: unknown,
+    term: string,
+    vectorColumn: string,
+    opts?: VectorSearchOptions,
+  ): void {
     if (!SAFE_FIELD.test(vectorColumn)) return;
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = queryBuilder.alias;
     const param = 'search_vector_0';
-    queryBuilder.andWhere(`${alias}.${vectorColumn} @@ to_tsquery(:${param})`, { [param]: term });
+    // `websearch_to_tsquery` parses arbitrary user input (e.g. "foo bar",
+    // quoted phrases, `-exclude`) without throwing a syntax error — unlike the
+    // raw `to_tsquery`, which requires already-formatted tsquery syntax.
+    const tsquery = `websearch_to_tsquery(:${param})`;
+    queryBuilder.andWhere(`${alias}.${vectorColumn} @@ ${tsquery}`, { [param]: term });
+
+    // Optional relevance ordering. Off by default since it changes the query's
+    // default ordering; opt in via `search = { vector, rank: true }`.
+    if (opts?.rank) {
+      queryBuilder.addOrderBy(`ts_rank(${alias}.${vectorColumn}, ${tsquery})`, 'DESC');
+    }
   }
 
   applyDistinct(qb: unknown, fields: string[]): void {
@@ -220,6 +250,19 @@ export class TypeOrmAdapter implements FilterAdapter {
     queryBuilder.distinct(true).select(columns);
   }
 
+  applySelect(qb: unknown, fields: string[], entity: Type<unknown>): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const alias = queryBuilder.alias;
+    const safe = fields.filter((field) => SAFE_FIELD.test(field));
+    if (safe.length === 0) return;
+    // Keep the primary key selected so rows stay addressable (hydration,
+    // relations, keyset cursors). It is merged in without duplication.
+    const pk = this.getPrimaryKey(entity);
+    const cols = new Set<string>(safe);
+    if (pk && SAFE_FIELD.test(pk)) cols.add(pk);
+    queryBuilder.select([...cols].map((field) => `${alias}.${field}`));
+  }
+
   applySort(qb: unknown, sorts: SortItem[]): void {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = queryBuilder.alias;
@@ -227,6 +270,51 @@ export class TypeOrmAdapter implements FilterAdapter {
       if (!SAFE_FIELD.test(s.field)) continue;
       queryBuilder.addOrderBy(`${alias}.${s.field}`, s.direction.toUpperCase() as 'ASC' | 'DESC');
     }
+  }
+
+  applyComputedField(qb: unknown, expression: string, value: unknown): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const alias = queryBuilder.alias;
+    // A stable, safe field token for parameter names (the expression itself is
+    // not safe as an identifier). Dev-provided expression is used verbatim as
+    // the comparison target; client values stay parameterized.
+    const token = 'computed';
+    if (Array.isArray(value)) {
+      applyOperator(
+        queryBuilder,
+        alias,
+        { field: token, operator: 'in', value },
+        'andWhere',
+        expression,
+      );
+    } else if (this.isOperatorObject(value)) {
+      for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
+        applyOperator(
+          queryBuilder,
+          alias,
+          {
+            field: token,
+            operator: op as import('@dudousxd/nestjs-filter').FilterOperator,
+            value: opVal,
+          },
+          'andWhere',
+          expression,
+        );
+      }
+    } else {
+      applyOperator(
+        queryBuilder,
+        alias,
+        { field: token, operator: 'equals', value },
+        'andWhere',
+        expression,
+      );
+    }
+  }
+
+  applyComputedSort(qb: unknown, expression: string, direction: 'asc' | 'desc'): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    queryBuilder.addOrderBy(expression, direction.toUpperCase() as 'ASC' | 'DESC');
   }
 
   applyOffsetPagination(qb: unknown, page: number, size: number): void {
@@ -238,6 +326,96 @@ export class TypeOrmAdapter implements FilterAdapter {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const [rows, total] = await queryBuilder.getManyAndCount();
     return { rows, total };
+  }
+
+  async getResult(qb: unknown): Promise<unknown[]> {
+    return (qb as SelectQueryBuilder<ObjectLiteral>).getMany();
+  }
+
+  getPrimaryKey(entity: Type<unknown>): string | null {
+    try {
+      const meta = this.dataSource.getMetadata(entity);
+      const pk = meta.primaryColumns[0];
+      return pk?.propertyName ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Resolves a keyset field path to its qualified column reference. A bare
+   * column maps to `<rootAlias>.<col>`; a dotted relation path
+   * (`author.name`) joins the relation chain (left join, no select) reusing
+   * the include/auto-relation alias convention, and returns the leaf column.
+   * Returns `null` for unsafe segments so the caller can skip the keyset.
+   */
+  private resolveKeysetColumn(qb: SelectQueryBuilder<ObjectLiteral>, field: string): string | null {
+    if (!field.includes('.')) {
+      return SAFE_FIELD.test(field) ? `${qb.alias}.${field}` : null;
+    }
+    const segments = field.split('.');
+    const leaf = segments.pop()!;
+    let currentAlias = qb.alias;
+    for (const segment of segments) {
+      if (!SAFE_FIELD.test(segment)) return null;
+      const joinAlias = `${currentAlias}_${segment}`;
+      const hasJoin = qb.expressionMap.joinAttributes.some((j) => j.alias.name === joinAlias);
+      if (!hasJoin) qb.leftJoin(`${currentAlias}.${segment}`, joinAlias);
+      currentAlias = joinAlias;
+    }
+    if (!SAFE_FIELD.test(leaf)) return null;
+    return `${currentAlias}.${leaf}`;
+  }
+
+  applyKeysetPagination(qb: unknown, keyset: SortItem[], values: unknown[]): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    // Lexicographic tuple comparison expanded into an OR of AND tiers:
+    //   (c0 OP0 v0)
+    //   OR (c0 = v0 AND c1 OP1 v1)
+    //   OR (c0 = v0 AND c1 = v1 AND c2 OP2 v2) ...
+    // where OPi is `>` for an asc column and `<` for a desc column. This is the
+    // portable form of a row-value comparison and works across all dialects.
+    const cols: string[] = [];
+    for (const s of keyset) {
+      const col = this.resolveKeysetColumn(queryBuilder, s.field);
+      if (!col) return; // unsafe/unknown keyset column — skip predicate entirely
+      cols.push(col);
+    }
+
+    const seq = nextKeysetSeq(queryBuilder);
+    queryBuilder.andWhere(
+      new Brackets((outer) => {
+        let first = true;
+        for (let tier = 0; tier < keyset.length; tier++) {
+          const tierBracket = new Brackets((inner) => {
+            // Equality on all columns before this tier.
+            for (let i = 0; i < tier; i++) {
+              const p = `keyset_${seq}_${tier}_${i}`;
+              inner.andWhere(`${cols[i]} = :${p}`, { [p]: values[i] });
+            }
+            const cmp = keyset[tier]!.direction === 'asc' ? '>' : '<';
+            const p = `keyset_${seq}_${tier}_c`;
+            inner.andWhere(`${cols[tier]} ${cmp} :${p}`, { [p]: values[tier] });
+          });
+          if (first) {
+            outer.where(tierBracket);
+            first = false;
+          } else {
+            outer.orWhere(tierBracket);
+          }
+        }
+      }),
+    );
+  }
+
+  applyKeysetOrderAndLimit(qb: unknown, keyset: SortItem[], limit: number): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    for (const s of keyset) {
+      const col = this.resolveKeysetColumn(queryBuilder, s.field);
+      if (!col) continue;
+      queryBuilder.addOrderBy(col, s.direction.toUpperCase() as 'ASC' | 'DESC');
+    }
+    queryBuilder.limit(limit);
   }
 
   async populate(rows: unknown[], relations: string[], entity: Type<unknown>): Promise<void> {

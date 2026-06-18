@@ -129,4 +129,89 @@ describe('TypeOrmAdapter', () => {
     expect(sql).toContain('title');
     expect(sql).not.toContain('drop table');
   });
+
+  it('applySelect narrows the projection without DISTINCT and keeps the PK', async () => {
+    await initDs();
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applySelect(qb, ['title'], Item as any);
+
+    const sql = qb.getSql().toLowerCase();
+    expect(sql).not.toContain('distinct');
+    expect(sql).toContain('title');
+    // Primary key is merged back in so rows remain addressable.
+    expect(sql).toMatch(/"item"\."id"/);
+  });
+
+  it('applySelect skips unsafe field names', async () => {
+    await initDs();
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applySelect(qb, ['title', 'bad; drop table'], Item as any);
+
+    const sql = qb.getSql().toLowerCase();
+    expect(sql).toContain('title');
+    expect(sql).not.toContain('drop table');
+  });
+
+  describe('applyVectorSearch', () => {
+    it('uses websearch_to_tsquery so multi-word terms are safe', async () => {
+      await initDs();
+      const adapter = new TypeOrmAdapter(ds);
+      const qb = adapter.createQueryBuilder(Item as any) as any;
+
+      // A bare to_tsquery(:p) would throw a Postgres syntax error for "foo bar".
+      // websearch_to_tsquery accepts arbitrary user input.
+      adapter.applyVectorSearch(qb, 'foo bar', 'search_vector');
+
+      const sql = qb.getSql();
+      expect(sql).toContain('websearch_to_tsquery');
+      expect(sql).not.toMatch(/[^_]to_tsquery/); // not the raw to_tsquery
+      expect(sql).toContain('@@');
+      expect(sql).toContain('search_vector');
+
+      // The full multi-word term is bound as a single parameter (not split / injected).
+      const params = qb.expressionMap.parameters;
+      expect(Object.values(params)).toContain('foo bar');
+    });
+
+    it('skips unsafe vector column names', async () => {
+      await initDs();
+      const adapter = new TypeOrmAdapter(ds);
+      const qb = adapter.createQueryBuilder(Item as any) as any;
+
+      adapter.applyVectorSearch(qb, 'foo', 'bad; drop table');
+
+      const sql = qb.getSql();
+      expect(sql).not.toContain('websearch_to_tsquery');
+      expect(sql).not.toContain('drop table');
+    });
+
+    it('adds ts_rank ordering when rank option is enabled', async () => {
+      await initDs();
+      const adapter = new TypeOrmAdapter(ds);
+      const qb = adapter.createQueryBuilder(Item as any) as any;
+
+      adapter.applyVectorSearch(qb, 'foo bar', 'search_vector', { rank: true });
+
+      const sql = qb.getSql();
+      expect(sql).toContain('websearch_to_tsquery');
+      expect(sql).toContain('ts_rank');
+      expect(sql).toContain('ORDER BY');
+    });
+
+    it('does not add ts_rank ordering by default', async () => {
+      await initDs();
+      const adapter = new TypeOrmAdapter(ds);
+      const qb = adapter.createQueryBuilder(Item as any) as any;
+
+      adapter.applyVectorSearch(qb, 'foo bar', 'search_vector');
+
+      const sql = qb.getSql();
+      expect(sql).not.toContain('ts_rank');
+      expect(sql).not.toContain('ORDER BY');
+    });
+  });
 });
