@@ -139,4 +139,18 @@ describe('MikroOrmAdapter', () => {
     expect(sql).toContain('id');
     expect(sql).toContain('title');
   });
+
+  it('applySelect narrows the projection without DISTINCT and keeps the PK', async () => {
+    await initOrm();
+    const adapter = new MikroOrmAdapter(orm.em);
+    const qb = adapter.createQueryBuilder(Item as any) as any;
+
+    adapter.applySelect(qb, ['title'], Item as any);
+
+    const sql = qb.getQuery().toLowerCase();
+    expect(sql).not.toContain('distinct');
+    expect(sql).toContain('title');
+    // Primary key merged in so rows stay addressable.
+    expect(sql).toContain('id');
+  });
 });

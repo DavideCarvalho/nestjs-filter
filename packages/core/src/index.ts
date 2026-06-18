@@ -1,8 +1,15 @@
 export const VERSION = '0.0.0';
 
 export { BaseFilter } from './base-filter.js';
-export type { FilterAdapter, EntityFieldInfo, EntityRelationInfo } from './adapter/adapter.js';
+export type {
+  FilterAdapter,
+  EntityFieldInfo,
+  EntityRelationInfo,
+  VectorSearchOptions,
+} from './adapter/adapter.js';
 export { Filterable, getFilterableMetadata } from './decorator/filterable.decorator.js';
+export { normalizeAllowed, allowedFieldNames } from './decorator/allowed.js';
+export type { NormalizedAllowed } from './decorator/allowed.js';
 export {
   FilterFor,
   getFilterForMap,
@@ -47,7 +54,9 @@ export {
   CONTEXT_ACCESSOR,
 } from './tokens.js';
 export type {
+  AllowedFieldEntry,
   ApplyFilterOptions,
+  CursorPage,
   CursorPagination,
   EntityDescription,
   FieldMeta,
@@ -60,6 +69,7 @@ export type {
   FilterModuleOptions,
   FilterModuleOptionsFactory,
   FilterModuleAsyncOptions,
+  InputFormat,
   InputNormalizer,
   InputSource,
   OffsetPagination,
@@ -71,7 +81,15 @@ export type {
 } from './types.js';
 export { resolveInputFromRequest } from './input/source-resolver.js';
 export { normalizeInput } from './input/normalizer.js';
+export { parseSpatieInput } from './input/spatie-parser.js';
 export { escapeLike } from './utils/escape-like.js';
+export {
+  encodeCursor,
+  decodeCursor,
+  buildKeyset,
+  extractCursorValues,
+} from './pagination/cursor.js';
+export type { CursorValues } from './pagination/cursor.js';
 export type {
   ColumnFilter,
   FilterOperator,

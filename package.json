@@ -16,6 +16,7 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:db": "turbo run test:db",
     "test:watch": "turbo run test:watch",
     "typecheck": "turbo run typecheck",
     "lint": "biome check .",

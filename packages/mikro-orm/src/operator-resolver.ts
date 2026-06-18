@@ -12,6 +12,23 @@ export interface ResolveContext {
    * case-insensitive, so a plain `$like` matches case-insensitively.
    */
   usesIlike?: boolean;
+  /**
+   * Names of the entity's string-typed columns. `isEmpty`/`isNotEmpty` only
+   * add the empty-string (`= ''`) comparison for these — on a non-string
+   * column (DATE, number, …) MySQL rejects `col = ''` with "Incorrect DATE
+   * value: ''", so those fall back to a pure NULL check. When omitted, the
+   * empty-string comparison is kept for every field (legacy behaviour).
+   */
+  stringFields?: Set<string>;
+}
+
+/**
+ * Whether the `isEmpty`/`isNotEmpty` empty-string comparison is safe for this
+ * field. Without column-type info (no `stringFields`) we keep the legacy
+ * behaviour; with it, only string columns get the `= ''` branch.
+ */
+function comparesEmptyString(field: string, ctx?: ResolveContext): boolean {
+  return ctx?.stringFields ? ctx.stringFields.has(field) : true;
 }
 
 /**
@@ -85,14 +102,14 @@ export function resolveOperator(
       return { [field]: { $nin: value } };
 
     case 'isEmpty':
-      return {
-        $or: [{ [field]: null }, { [field]: '' }],
-      };
+      return comparesEmptyString(field, ctx)
+        ? { $or: [{ [field]: null }, { [field]: '' }] }
+        : { [field]: null };
 
     case 'isNotEmpty':
-      return {
-        $and: [{ [field]: { $ne: null } }, { [field]: { $ne: '' } }],
-      };
+      return comparesEmptyString(field, ctx)
+        ? { $and: [{ [field]: { $ne: null } }, { [field]: { $ne: '' } }] }
+        : { [field]: { $ne: null } };
 
     case 'isNull':
       return { [field]: null };
@@ -121,31 +138,32 @@ export function resolveColumnFilters(
 ): Record<string, unknown> {
   if (filters.length === 0) return {};
 
-  const condition =
-    filters.length === 1
-      ? resolveSingleFilter(filters[0]!, ctx)
-      : // Multiple top-level filters are implicitly ANDed
-        { $and: filters.map((f) => resolveSingleFilter(f, ctx)) };
-
-  // Expand dotted relation paths (e.g. `base.name`) into nested objects so
-  // MikroORM auto-joins the relation. A flat `{ 'base.name': … }` key is
-  // emitted by the QueryBuilder as a raw `base.name` column reference against
-  // an alias that was never joined → "Unknown column 'base.name'".
-  return expandRelationPaths(condition);
+  // Dotted relation paths (e.g. `base.name`) are expanded into nested objects
+  // (`{ base: { name: … } }`) at leaf-emit time inside `resolveSingleFilter`,
+  // so the condition tree is already join-ready. A flat `{ 'base.name': … }`
+  // key would otherwise be emitted by the QueryBuilder as a raw `base.name`
+  // column reference against an alias that was never joined → "Unknown column
+  // 'base.name'".
+  return filters.length === 1
+    ? resolveSingleFilter(filters[0]!, ctx)
+    : // Multiple top-level filters are implicitly ANDed
+      { $and: filters.map((f) => resolveSingleFilter(f, ctx)) };
 }
 
 /**
- * Recursively rewrites flat dotted property keys (`base.name`) into nested
- * objects (`{ base: { name: … } }`). Logical/operator keys (`$and`, `$or`,
- * `$not`, `$like`, …) are preserved and their values recursed into; scalar
- * column keys are left untouched. This is what lets MikroORM resolve a
+ * Rewrites flat dotted property keys (`base.name`) emitted by `resolveOperator`
+ * into nested objects (`{ base: { name: … } }`). Logical/operator keys (`$and`,
+ * `$or`, `$not`, `$like`, …) are preserved and their values recursed into;
+ * scalar column keys are left untouched. This is what lets MikroORM resolve a
  * relation-column condition with an automatic join instead of treating the
  * dotted string as a raw column on the root alias.
+ *
+ * Applied locally to each `resolveOperator` result (which is the only producer
+ * of dotted keys) rather than as a second full traversal of the whole tree:
+ * the `$and`/`$or` composition built by `resolveSingleFilter` never co-locates
+ * dotted keys in a shared object, so per-operator expansion is byte-identical
+ * to expanding the assembled tree while avoiding a second pass.
  */
-function expandRelationPaths(node: unknown): Record<string, unknown> {
-  return expand(node) as Record<string, unknown>;
-}
-
 function expand(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(expand);
   if (node === null || typeof node !== 'object') return node;
@@ -192,7 +210,11 @@ function resolveSingleFilter(
     (filter.field === undefined || filter.field === '') &&
     ((filter.AND !== undefined && filter.AND.length > 0) ||
       (filter.OR !== undefined && filter.OR.length > 0));
-  const parts: Record<string, unknown>[] = isGroupNode ? [] : [resolveOperator(filter, ctx)];
+  // Expand dotted relation paths in the operator's condition as it is emitted,
+  // folding the old post-hoc full-tree pass into construction.
+  const parts: Record<string, unknown>[] = isGroupNode
+    ? []
+    : [expand(resolveOperator(filter, ctx)) as Record<string, unknown>];
 
   // Handle nested AND
   if (filter.AND && filter.AND.length > 0) {

@@ -331,4 +331,38 @@ describe('TypeORM operator resolver (with better-sqlite3)', () => {
     // With the nesting: (age >= 20 AND age <= 35 OR name = 'Charlie')
     expect(results.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('generates deterministic parameter names (no Math.random)', async () => {
+    const adapter = new TypeOrmAdapter(ds);
+
+    const buildParamNames = () => {
+      const qb = adapter.createQueryBuilder(User as any) as any;
+      adapter.applyColumnFilters(qb, [
+        { field: 'name', operator: 'equals', value: 'Alice' },
+        { field: 'age', operator: 'gt', value: 18 },
+      ]);
+      // Bound parameter map keys are the generated param names.
+      return Object.keys(qb.expressionMap.parameters).sort();
+    };
+
+    const namesA = buildParamNames();
+    const namesB = buildParamNames();
+    // Same query shape → identical param names across independent builds.
+    expect(namesA).toEqual(namesB);
+    // Monotonic, stable identifiers (not random base36 suffixes).
+    expect(namesA).toEqual(['age_gt_1', 'name_eq_0']);
+  });
+
+  it('keeps distinct param names for repeated operators on the same field', async () => {
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = adapter.createQueryBuilder(User as any) as any;
+    adapter.applyColumnFilters(qb, [
+      { field: 'age', operator: 'gte', value: 20 },
+      { field: 'age', operator: 'lte', value: 35 },
+    ]);
+    // Both clauses present and bound to different params → no collision.
+    const results = await qb.getMany();
+    expect(results.every((u: any) => u.age >= 20 && u.age <= 35)).toBe(true);
+    expect(Object.keys(qb.expressionMap.parameters).sort()).toEqual(['age_gte_0', 'age_lte_1']);
+  });
 });

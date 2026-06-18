@@ -1,4 +1,15 @@
 import type { Type } from '@nestjs/common';
+import type { FilterOperator } from './operators/types.js';
+
+/**
+ * A single entry in a `@Filterable` `allowed` list. Either:
+ * - a plain field-name string — the field is allowed with **all** operators
+ *   (backward-compatible behavior); or
+ * - an object restricting which operators may be applied to that field.
+ *   Any operator not in `operators` is rejected/dropped per the
+ *   `throwOnInvalid` policy.
+ */
+export type AllowedFieldEntry = string | { field: string; operators: readonly FilterOperator[] };
 
 export type InputSource =
   | 'auto'
@@ -15,7 +26,14 @@ export interface FilterContext {
 
 export interface FilterableOptions {
   entity: Type<unknown>;
-  allowed?: readonly string[];
+  /**
+   * Allowlist of filterable field keys. Each entry is either a plain field
+   * name (allows all operators on that field — backward-compatible) or an
+   * object `{ field, operators }` restricting which operators are accepted
+   * for that field. Disallowed operators are rejected/dropped per the
+   * `throwOnInvalid` policy.
+   */
+  allowed?: readonly AllowedFieldEntry[];
   blocked?: readonly string[];
   /**
    * Control auto-field behavior for declared fields without @FilterFor.
@@ -29,6 +47,29 @@ export interface FilterableOptions {
    * - `string[]` — only the listed field names get auto-applied
    */
   autoFields?: boolean | readonly string[];
+  /**
+   * When true, invalid sorts, distinct fields, and unknown `where` columns raise
+   * a `BadRequestException` instead of being silently dropped. Overrides the
+   * module-level `throwOnInvalid`. Defaults to the module option (then `false`).
+   */
+  throwOnInvalid?: boolean;
+  /**
+   * Sort applied when the client provides no `sort`, for stable ordering.
+   * Accepts the same shapes as the request `sort` (a JSON:API string like
+   * `"-createdAt"` or a `SortItem[]`). Overrides the module-level `defaultSort`.
+   */
+  defaultSort?: string | SortItem[];
+  /**
+   * Declares virtual/computed fields: a map of alias → **dev-provided** SQL
+   * expression. The alias becomes filterable and sortable as if it were a real
+   * column (e.g. `{ fullName: "first || ' ' || last" }` lets clients filter or
+   * sort by `fullName`).
+   *
+   * Safety: the expression is provided by the developer at declaration time —
+   * never by the client. The client only references the declared alias; the
+   * value is always parameterized. Alias names must be safe identifiers.
+   */
+  computed?: Record<string, string>;
 }
 
 export type InputNormalizer = 'camelCase' | 'snakeCase' | ((key: string) => string);
@@ -37,8 +78,29 @@ export type OnUnknownKey = 'ignore' | 'warn' | 'throw';
 
 export type ValidationMode = 'auto' | 'off';
 
+/**
+ * Selects how raw request input is interpreted before it reaches the filter
+ * pipeline.
+ *
+ * - `'native'` (default) — the library's own structured model
+ *   (`{ filter, where, include, search, sort, distinct, paginate }`). Fully
+ *   backward-compatible.
+ * - `'spatie'` — opt-in spatie-laravel-query-builder / JSON:API style input
+ *   (`filter[field]=…`, `filter[field][op]=…`, `sort=-a,b`, `include=a,b`,
+ *   `fields[resource]=a,b`, `page[number]`/`page[after]`). Parsed into the
+ *   native model first, so all allowlist / operator-allowlist / `throwOnInvalid`
+ *   safety still applies.
+ */
+export type InputFormat = 'native' | 'spatie';
+
 export interface FilterModuleOptions {
   inputNormalizer?: InputNormalizer;
+  /**
+   * The input query format. Defaults to `'native'` (the library's structured
+   * model). Set to `'spatie'` to accept spatie-laravel-query-builder / JSON:API
+   * style query strings. See {@link InputFormat}.
+   */
+  inputFormat?: InputFormat;
   dropId?: boolean;
   onUnknownKey?: OnUnknownKey;
   validation?: ValidationMode;
@@ -48,6 +110,18 @@ export interface FilterModuleOptions {
   maxIncludeDepth?: number;
   /** Maximum page size for offset pagination. Default: 100. */
   maxPageSize?: number;
+  /**
+   * When true, invalid sorts, distinct fields, and unknown `where` columns raise
+   * a `BadRequestException` instead of being silently dropped. Default: false
+   * (preserves the silent-drop behavior). Can be overridden per-@Filterable.
+   */
+  throwOnInvalid?: boolean;
+  /**
+   * Sort applied when the client provides no `sort`, for stable ordering.
+   * Accepts a JSON:API string (`"-createdAt"`) or a `SortItem[]`. Can be
+   * overridden per-@Filterable.
+   */
+  defaultSort?: string | SortItem[];
 }
 
 /**
@@ -100,13 +174,37 @@ export interface OffsetPagination {
 }
 
 /**
- * Cursor-based pagination parameters (not yet implemented).
+ * Cursor-based (keyset) pagination parameters.
+ *
+ * - `after` — return the page immediately following this opaque cursor (forward).
+ * - `before` — return the page immediately preceding this opaque cursor (backward).
+ * - `first` / `last` — page size for forward / backward paging respectively.
+ *
+ * `after` and `before` are mutually exclusive; if both are given, `after` wins.
  */
 export interface CursorPagination {
   after?: string;
   before?: string;
   first?: number;
   last?: number;
+}
+
+/**
+ * A single page of keyset-paginated results returned by `FilterRunner.findPage`.
+ *
+ * - `items` — the rows for this page, in the requested order.
+ * - `nextCursor` — opaque cursor for the next forward page, or `null` when this
+ *   is the last page.
+ * - `prevCursor` — opaque cursor for the previous (backward) page, or `null`
+ *   when this is the first page.
+ * - `hasNext` / `hasPrev` — convenience booleans mirroring the cursors.
+ */
+export interface CursorPage<E> {
+  items: E[];
+  nextCursor: string | null;
+  prevCursor: string | null;
+  hasNext: boolean;
+  hasPrev: boolean;
 }
 
 /**
@@ -127,6 +225,15 @@ export interface StructuredInput {
    * dropdowns with the distinct values of a column.
    */
   distinct?: string | string[];
+  /**
+   * Restricts the selected columns to the given field(s) — JSON:API "sparse
+   * fieldsets". Accepts a single field name, a comma-separated string, or an
+   * array of field names. Fields are validated against the entity / allowlist;
+   * unknown columns are dropped (or rejected under `throwOnInvalid`). Unlike
+   * `distinct`, this does not add a `DISTINCT` modifier — it only narrows the
+   * projection.
+   */
+  select?: string | string[];
   paginate?: OffsetPagination | CursorPagination;
   [key: string]: unknown;
 }
@@ -151,9 +258,12 @@ export interface ApplyFilterOptions {
 
 export interface FilterMetadata {
   entity: Type<unknown>;
-  allowed?: readonly string[];
+  allowed?: readonly AllowedFieldEntry[];
   blocked?: readonly string[];
   autoFields?: boolean | readonly string[];
+  throwOnInvalid?: boolean;
+  defaultSort?: string | SortItem[];
+  computed?: Record<string, string>;
 }
 
 /**

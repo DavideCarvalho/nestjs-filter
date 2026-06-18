@@ -39,11 +39,22 @@ export class MikroOrmAdapter implements FilterAdapter {
     await callback(qb);
   }
 
-  applyColumnFilters(qb: unknown, filters: ColumnFilter[]): void {
+  applyColumnFilters(qb: unknown, filters: ColumnFilter[], entity?: Type<unknown>): void {
     if (filters.length === 0) return;
-    const condition = resolveColumnFilters(filters, { usesIlike: this.usesIlike() });
+    const stringFields = entity ? this.stringFieldsOf(entity) : undefined;
+    const condition = resolveColumnFilters(filters, {
+      usesIlike: this.usesIlike(),
+      ...(stringFields ? { stringFields } : {}),
+    });
     const queryBuilder = qb as { andWhere: (condition: unknown) => void };
     queryBuilder.andWhere(condition);
+  }
+
+  /** Names of the entity's string-typed scalar columns (for `isEmpty` safety). */
+  private stringFieldsOf(entity: Type<unknown>): Set<string> | undefined {
+    const fields = this.getEntityFields(entity);
+    if (!fields) return undefined;
+    return new Set(fields.filter((f) => f.type === 'string').map((f) => f.name));
   }
 
   /**
@@ -256,6 +267,17 @@ export class MikroOrmAdapter implements FilterAdapter {
     queryBuilder.select(fields, true);
   }
 
+  applySelect(qb: unknown, fields: string[], entity: Type<unknown>): void {
+    if (fields.length === 0) return;
+    // Keep the primary key selected so rows stay addressable (hydration,
+    // relations, keyset cursors). Merged in without duplication.
+    const cols = new Set<string>(fields);
+    const pk = this.getPrimaryKey(entity);
+    if (pk) cols.add(pk);
+    const queryBuilder = qb as { select: (fields: string[], distinct?: boolean) => void };
+    queryBuilder.select([...cols], false);
+  }
+
   applySort(qb: unknown, sorts: SortItem[]): void {
     const orderBy: Record<string, unknown> = {};
     for (const s of sorts) {
@@ -288,6 +310,79 @@ export class MikroOrmAdapter implements FilterAdapter {
     const queryBuilder = qb as { getResultAndCount: () => Promise<[unknown[], number]> };
     const [rows, total] = await queryBuilder.getResultAndCount();
     return { rows, total };
+  }
+
+  async getResult(qb: unknown): Promise<unknown[]> {
+    const queryBuilder = qb as { getResultList: () => Promise<unknown[]> };
+    return queryBuilder.getResultList();
+  }
+
+  getPrimaryKey(entity: Type<unknown>): string | null {
+    try {
+      const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+      const pks = meta?.primaryKeys;
+      if (Array.isArray(pks) && pks.length === 1) return pks[0] ?? null;
+      // Fall back to the single `@PrimaryKey` property if `primaryKeys` is absent.
+      const pk = meta?.getPrimaryProps?.()?.[0]?.name;
+      return typeof pk === 'string' ? pk : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Builds the portable keyset WHERE predicate — a lexicographic tuple
+   * comparison expanded into an OR of AND tiers:
+   *
+   *   (c0 OP0 v0)
+   *   OR (c0 = v0 AND c1 OP1 v1)
+   *   OR (c0 = v0 AND c1 = v1 AND c2 OP2 v2) ...
+   *
+   * where OPi is `$gt` for an asc column and `$lt` for a desc column. This is
+   * the dialect-portable form of a row-value comparison; it is emitted as a
+   * MikroORM FilterQuery (`{ $or: [{ $and: [...] }, ...] }`) so the same builder
+   * works across every SQL driver. Dotted relation paths are nested so MikroORM
+   * auto-joins the relation for the comparison.
+   */
+  applyKeysetPagination(qb: unknown, keyset: SortItem[], values: unknown[]): void {
+    if (keyset.length === 0) return;
+    const tiers: Record<string, unknown>[] = [];
+    for (let tier = 0; tier < keyset.length; tier++) {
+      const ands: Record<string, unknown>[] = [];
+      // Equality on every column before this tier.
+      for (let i = 0; i < tier; i++) {
+        ands.push(this.nestPath(keyset[i]!.field, values[i]));
+      }
+      // Strict comparison on this tier's column (direction-aware).
+      const op = keyset[tier]!.direction === 'asc' ? '$gt' : '$lt';
+      ands.push(this.nestPath(keyset[tier]!.field, { [op]: values[tier] }));
+      tiers.push(ands.length === 1 ? ands[0]! : { $and: ands });
+    }
+    const condition = tiers.length === 1 ? tiers[0]! : { $or: tiers };
+    (qb as { andWhere: (c: unknown) => void }).andWhere(condition);
+  }
+
+  applyKeysetOrderAndLimit(qb: unknown, keyset: SortItem[], limit: number): void {
+    this.applySort(qb, keyset);
+    (qb as { limit: (n: number) => void }).limit(limit);
+  }
+
+  /**
+   * Nests a (possibly dotted) field path into a FilterQuery object so relation
+   * columns auto-join: `base.name` → `{ base: { name: leaf } }`; a bare column
+   * → `{ name: leaf }`.
+   */
+  private nestPath(field: string, leaf: unknown): Record<string, unknown> {
+    const segments = field.split('.');
+    const root: Record<string, unknown> = {};
+    let cursor = root;
+    for (let i = 0; i < segments.length - 1; i++) {
+      const next: Record<string, unknown> = {};
+      cursor[segments[i]!] = next;
+      cursor = next;
+    }
+    cursor[segments[segments.length - 1]!] = leaf;
+    return root;
   }
 
   async populate(rows: unknown[], relations: string[]): Promise<void> {

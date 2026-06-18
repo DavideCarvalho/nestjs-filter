@@ -1,8 +1,20 @@
-import { Inject, Injectable, Logger, Optional, type Type } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  Optional,
+  type Type,
+} from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import type { FilterAdapter } from './adapter/adapter.js';
 import { runWithFilterState } from './als-store.js';
 import type { ContextAccessor } from './context-accessor.js';
+import {
+  type NormalizedAllowed,
+  allowedFieldNames,
+  normalizeAllowed,
+} from './decorator/allowed.js';
 import { getFilterForMap } from './decorator/filter-for.decorator.js';
 import { getFilterableMetadata } from './decorator/filterable.decorator.js';
 import { type RelationConfig, resolveRelation } from './decorator/relations.decorator.js';
@@ -14,11 +26,19 @@ import {
 } from './errors/exceptions.js';
 import { resolveDispatchTarget } from './input/dispatcher.js';
 import { normalizeInput } from './input/normalizer.js';
+import { parseSpatieInput } from './input/spatie-parser.js';
 import { validateInput } from './input/validator.js';
-import type { ColumnFilter } from './operators/types.js';
-import { validateColumnFilters } from './operators/validate-column-filter.js';
+import type { ColumnFilter, FilterOperator } from './operators/types.js';
+import { normalizeOperator, validateColumnFilters } from './operators/validate-column-filter.js';
+import {
+  buildKeyset,
+  decodeCursor,
+  encodeCursor,
+  extractCursorValues,
+} from './pagination/cursor.js';
 import { CONTEXT_ACCESSOR, FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
 import type {
+  CursorPage,
   EntityDescription,
   FieldMeta,
   FilterContext,
@@ -161,17 +181,21 @@ export class FilterRunner {
     input: unknown,
     qb: Q,
     context: FilterContext = {},
+    internal: { native?: boolean } = {},
   ): Promise<Q> {
     const filter = await this.resolveFilter(FilterClass);
     const adapter = this.resolveAdapter();
 
     // Extract structured input: { filter, include, search, sort, paginate }
-    const rawInput = this.extractStructuredInput(input);
+    const rawInput = this.extractStructuredInput(input, {
+      ...(internal.native !== undefined && { native: internal.native }),
+    });
     const filterInput = rawInput.filter;
     const rawInclude = rawInput.include;
     const rawSearch = rawInput.search;
     const rawSort = rawInput.sort;
     const rawDistinct = rawInput.distinct;
+    const rawSelect = rawInput.select;
     const rawPaginate = rawInput.paginate;
 
     // Extract column filters from the filter portion before normalization
@@ -211,10 +235,21 @@ export class FilterRunner {
         // is bound AND resolves a tenant id; otherwise a no-op.
         this.applyTenantScope(FilterClass, qb, adapter, contextAccessor);
 
+        // Resolve the (possibly operator-restricting) allowlist once for this run.
+        const normalizedAllowed = normalizeAllowed(getFilterableMetadata(FilterClass)?.allowed);
+        const throwOnInvalidPolicy = this.resolveThrowOnInvalid(FilterClass);
+
         // Apply column filters via adapter before @FilterFor dispatch
         if (columnFilters.length > 0 && adapter?.applyColumnFilters) {
-          validateColumnFilters(columnFilters);
-          adapter.applyColumnFilters(qb, columnFilters);
+          const opAllowed = this.enforceOperatorAllowlist(
+            columnFilters,
+            normalizedAllowed,
+            throwOnInvalidPolicy,
+          );
+          if (opAllowed.length > 0) {
+            validateColumnFilters(opAllowed);
+            adapter.applyColumnFilters(qb, opAllowed, getFilterableMetadata(FilterClass)?.entity);
+          }
         } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
           this.logger.warn(
             'Column filters (where) provided but adapter does not support applyColumnFilters. Skipping.',
@@ -224,6 +259,7 @@ export class FilterRunner {
         // Resolve auto-fields configuration
         const autoFieldSet = this.resolveAutoFields(FilterClass);
         const filterableMeta = getFilterableMetadata(FilterClass);
+        const computed = filterableMeta?.computed;
 
         // Collect relation-bound keys for batched processing
         const relationBatches = new Map<
@@ -257,10 +293,37 @@ export class FilterRunner {
             relationBatches.get(relationName)!.entries.push([key, value]);
             continue;
           }
+          // Check if this key is a computed/virtual field (dev-declared SQL).
+          if (computed && Object.hasOwn(computed, key)) {
+            if (adapter?.applyComputedField) {
+              const filtered = this.enforceAutoFieldOperators(
+                key,
+                value,
+                normalizedAllowed,
+                throwOnInvalidPolicy,
+              );
+              if (filtered !== undefined) {
+                adapter.applyComputedField(qb as unknown, computed[key]!, filtered);
+              }
+            } else {
+              this.logger.warn(
+                `Computed field "${key}" provided but adapter does not support applyComputedField. Skipping.`,
+              );
+            }
+            continue;
+          }
           // Check if this key is an auto-field
           if (autoFieldSet?.has(key)) {
             if (adapter?.applyAutoField) {
-              adapter.applyAutoField(qb, key, value);
+              const filtered = this.enforceAutoFieldOperators(
+                key,
+                value,
+                normalizedAllowed,
+                throwOnInvalidPolicy,
+              );
+              if (filtered !== undefined) {
+                adapter.applyAutoField(qb, key, filtered);
+              }
             } else {
               this.logger.warn(
                 `Auto-field "${key}" provided but adapter does not support applyAutoField. Skipping.`,
@@ -366,6 +429,7 @@ export class FilterRunner {
             allowedDistinct as string[] | undefined,
             adapter,
             filterableMeta.entity,
+            this.resolveThrowOnInvalid(FilterClass),
           );
           if (validDistinct.length > 0) {
             adapter.applyDistinct(qb as unknown, validDistinct, filterableMeta.entity);
@@ -376,19 +440,44 @@ export class FilterRunner {
           );
         }
 
-        // Apply sort
-        const sorts = this.parseSorts(rawSort);
+        // Apply sparse fieldsets (SELECT narrowing) — validated against the
+        // allowlist / entity metadata, mirroring distinct/sort safety.
+        const selectFields = this.parseDistinct(rawSelect);
+        if (selectFields.length > 0 && adapter?.applySelect && filterableMeta) {
+          const allowedSelect = (FilterClass as unknown as { select?: readonly string[] }).select;
+          const validSelect = this.validateDistinct(
+            selectFields,
+            allowedSelect as string[] | undefined,
+            adapter,
+            filterableMeta.entity,
+            throwOnInvalidPolicy,
+          );
+          if (validSelect.length > 0) {
+            adapter.applySelect(qb as unknown, validSelect, filterableMeta.entity);
+          }
+        } else if (selectFields.length > 0 && !adapter?.applySelect) {
+          this.logger.warn(
+            'Sparse fieldsets (select) requested but adapter does not support applySelect. Skipping.',
+          );
+        }
+
+        // Apply sort — falling back to defaultSort when the client gave none.
+        const parsedSorts = this.parseSorts(rawSort);
+        const sorts =
+          parsedSorts.length > 0
+            ? parsedSorts
+            : this.parseSorts(this.resolveDefaultSort(FilterClass));
         if (sorts.length > 0 && adapter?.applySort) {
           const allowedSorts = (FilterClass as unknown as { sort?: readonly string[] }).sort;
-          const validSorts = this.validateSorts(
+          this.applySortsWithComputed(
+            qb,
             sorts,
             allowedSorts as string[] | undefined,
             adapter,
             filterableMeta?.entity,
+            this.resolveThrowOnInvalid(FilterClass),
+            computed,
           );
-          if (validSorts.length > 0) {
-            adapter.applySort(qb as unknown, validSorts);
-          }
         }
 
         // Apply pagination
@@ -459,7 +548,9 @@ export class FilterRunner {
       inputObj[key] = value;
     }
     await this.adapter.applyRelationConstraint(qb, relationName, async (relationQb: unknown) => {
-      await this.apply(RelatedFilterClass, { filter: inputObj }, relationQb, context);
+      await this.apply(RelatedFilterClass, { filter: inputObj }, relationQb, context, {
+        native: true,
+      });
     });
   }
 
@@ -470,43 +561,68 @@ export class FilterRunner {
    * - `{ filter: {...}, include: [...], search: '...', sort: '...', paginate: {...} }` (structured format)
    * - Any other shape is treated as the filter portion directly (backward compat for internal calls)
    */
-  private extractStructuredInput(input: unknown): {
+  private extractStructuredInput(
+    input: unknown,
+    internal: { native?: boolean } = {},
+  ): {
     filter: unknown;
     include: unknown;
     search: unknown;
     sort: unknown;
     distinct: unknown;
+    select: unknown;
     paginate: unknown;
   } {
-    if (input == null || typeof input !== 'object') {
+    // Opt-in spatie / JSON:API input format. Internal re-dispatch calls
+    // (relation constraints, findPage/findAndCount forwards) pass already-native
+    // structured input and set `internal.native` to bypass re-parsing.
+    const source =
+      !internal.native && this.options.inputFormat === 'spatie' ? parseSpatieInput(input) : input;
+    if (source == null || typeof source !== 'object') {
       return {
-        filter: input,
+        filter: source,
         include: undefined,
         search: undefined,
         sort: undefined,
         distinct: undefined,
+        select: undefined,
         paginate: undefined,
       };
     }
-    const inputObj = input as Record<string, unknown>;
-    // Detect structured format: must have a 'filter' key (even if undefined/null)
-    if ('filter' in inputObj) {
+    const inputObj = source as Record<string, unknown>;
+    // Detect structured format: presence of any reserved structured key
+    // (`filter`, `include`, `search`, `sort`, `distinct`, `select`, `paginate`).
+    // The original detection keyed only on `filter`; broadening it lets callers
+    // pass e.g. `{ sort, paginate }` (no filter) — as `findPage` does — while
+    // remaining backward-compatible (these keys were always reserved).
+    const STRUCTURED_KEYS = [
+      'filter',
+      'include',
+      'search',
+      'sort',
+      'distinct',
+      'select',
+      'paginate',
+    ];
+    if (STRUCTURED_KEYS.some((k) => k in inputObj)) {
       return {
         filter: inputObj.filter ?? undefined,
         include: inputObj.include ?? undefined,
         search: inputObj.search ?? undefined,
         sort: inputObj.sort ?? undefined,
         distinct: inputObj.distinct ?? undefined,
+        select: inputObj.select ?? undefined,
         paginate: inputObj.paginate ?? undefined,
       };
     }
     // Not structured — treat entire input as the filter portion
     return {
-      filter: input,
+      filter: source,
       include: undefined,
       search: undefined,
       sort: undefined,
       distinct: undefined,
+      select: undefined,
       paginate: undefined,
     };
   }
@@ -568,11 +684,12 @@ export class FilterRunner {
 
     if (autoFieldsConfig === true) {
       // When autoFields is true with an allowed list, only allowed keys are auto-applicable
-      if (meta.allowed) {
+      const allowedFields = allowedFieldNames(meta.allowed);
+      if (allowedFields) {
         // Remove keys that already have @FilterFor mappings
         const filterForMap = getFilterForMap(FilterClass);
         const set = new Set<string>();
-        for (const key of meta.allowed) {
+        for (const key of allowedFields) {
           if (!filterForMap.has(key)) set.add(key);
         }
         return set;
@@ -664,13 +781,17 @@ export class FilterRunner {
     if (!adapter || !filterableMeta) return;
 
     const searchConfig = (
-      FilterClass as unknown as { search?: readonly string[] | { vector: string } }
+      FilterClass as unknown as {
+        search?: readonly string[] | { vector: string; rank?: boolean };
+      }
     ).search;
 
     if (searchConfig && typeof searchConfig === 'object' && 'vector' in searchConfig) {
       // tsvector search
       if (adapter.applyVectorSearch) {
-        adapter.applyVectorSearch(qb, searchTerm, searchConfig.vector);
+        adapter.applyVectorSearch(qb, searchTerm, searchConfig.vector, {
+          ...(searchConfig.rank !== undefined && { rank: searchConfig.rank }),
+        });
       }
       return;
     }
@@ -714,16 +835,20 @@ export class FilterRunner {
     input: unknown,
     qb: Q,
     context: FilterContext = {},
+    internal: { skipSortAndPagination?: boolean; native?: boolean } = {},
   ): Promise<Q> {
     const adapter = this.resolveAdapter();
 
-    // Extract structured input: { filter, include, search, sort, distinct, paginate }
-    const rawInput = this.extractStructuredInput(input);
+    // Extract structured input: { filter, include, search, sort, distinct, select, paginate }
+    const rawInput = this.extractStructuredInput(input, {
+      ...(internal.native !== undefined && { native: internal.native }),
+    });
     const filterInput = rawInput.filter;
     const rawInclude = rawInput.include;
     const rawSearch = rawInput.search;
     const rawSort = rawInput.sort;
     const rawDistinct = rawInput.distinct;
+    const rawSelect = rawInput.select;
     const rawPaginate = rawInput.paginate;
 
     // Extract column filters before normalization
@@ -738,11 +863,17 @@ export class FilterRunner {
     // Apply column filters via adapter — dynamic mode validates the filter
     // fields against entity metadata (like sort/auto-fields), dropping
     // unknown columns so a bad client `where` can't crash the ORM.
+    const throwOnInvalid = this.resolveThrowOnInvalid();
     if (columnFilters.length > 0 && adapter?.applyColumnFilters) {
-      const knownFilters = this.pruneUnknownColumnFilters(columnFilters, entity, adapter);
+      const knownFilters = this.pruneUnknownColumnFilters(
+        columnFilters,
+        entity,
+        adapter,
+        throwOnInvalid,
+      );
       if (knownFilters.length > 0) {
         validateColumnFilters(knownFilters);
-        adapter.applyColumnFilters(qb, knownFilters);
+        adapter.applyColumnFilters(qb, knownFilters, entity);
       }
     } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
       this.logger.warn(
@@ -798,23 +929,51 @@ export class FilterRunner {
     // Distinct projection (SELECT DISTINCT) — validate against entity metadata
     const distinctFields = this.parseDistinct(rawDistinct);
     if (distinctFields.length > 0 && adapter?.applyDistinct) {
-      const validDistinct = this.validateDistinct(distinctFields, undefined, adapter, entity);
+      const validDistinct = this.validateDistinct(
+        distinctFields,
+        undefined,
+        adapter,
+        entity,
+        throwOnInvalid,
+      );
       if (validDistinct.length > 0) {
         adapter.applyDistinct(qb as unknown, validDistinct, entity);
       }
     }
 
-    // Sort — validate against entity metadata only (no filter class)
-    const sorts = this.parseSorts(rawSort);
-    if (sorts.length > 0 && adapter?.applySort) {
-      const validSorts = this.validateSorts(sorts, undefined, adapter, entity);
-      if (validSorts.length > 0) {
-        adapter.applySort(qb as unknown, validSorts);
+    // Sparse fieldsets (SELECT narrowing) — validate against entity metadata.
+    const selectFields = this.parseDistinct(rawSelect);
+    if (selectFields.length > 0 && adapter?.applySelect) {
+      const validSelect = this.validateDistinct(
+        selectFields,
+        undefined,
+        adapter,
+        entity,
+        throwOnInvalid,
+      );
+      if (validSelect.length > 0) {
+        adapter.applySelect(qb as unknown, validSelect, entity);
       }
     }
 
-    // Pagination
-    this.applyPagination(qb, rawPaginate, adapter);
+    // Sort and pagination are skipped when the caller (e.g. findPage with
+    // cursor pagination) owns ordering and slicing itself.
+    if (!internal.skipSortAndPagination) {
+      // Sort — validate against entity metadata only (no filter class).
+      // Fall back to defaultSort when the client gave none.
+      const parsedSorts = this.parseSorts(rawSort);
+      const sorts =
+        parsedSorts.length > 0 ? parsedSorts : this.parseSorts(this.resolveDefaultSort());
+      if (sorts.length > 0 && adapter?.applySort) {
+        const validSorts = this.validateSorts(sorts, undefined, adapter, entity, throwOnInvalid);
+        if (validSorts.length > 0) {
+          adapter.applySort(qb as unknown, validSorts);
+        }
+      }
+
+      // Pagination
+      this.applyPagination(qb, rawPaginate, adapter);
+    }
 
     return qb;
   }
@@ -856,11 +1015,13 @@ export class FilterRunner {
         search: structured.search,
         sort: structured.sort,
         distinct: structured.distinct,
+        select: structured.select,
         paginate: structured.paginate,
         include: joinIncludes,
       },
       qb,
       opts.context,
+      { native: true },
     );
 
     if (!adapter?.getResultAndCount) {
@@ -880,6 +1041,133 @@ export class FilterRunner {
     }
 
     return { rows: rows as E[], total };
+  }
+
+  /**
+   * Runs a dynamic query with **keyset (cursor) pagination** and executes it,
+   * returning a stable, non-overlapping page plus opaque forward/backward
+   * cursors. Unlike offset pagination (which drifts and re-scans as rows are
+   * inserted), keyset pagination seeks past a boundary row using a
+   * `WHERE (sortcols, pk) > (...)` predicate, so it is O(1) per page and stable
+   * under concurrent writes.
+   *
+   * The keyset is the request's effective sort (or `defaultSort`) plus the
+   * entity's primary key as a stable tiebreaker. Multi-column sort composes
+   * naturally. Direction is honored per column (asc → seek forward with `>`,
+   * desc → with `<`); for backward paging (`before`) the comparison and order
+   * are reversed internally and the result re-reversed so `items` is always in
+   * the requested order.
+   *
+   * Requires an adapter implementing `getResult`, `getPrimaryKey`,
+   * `applyKeysetPagination` and `applyKeysetOrderAndLimit`. Additive — does not
+   * change `apply`/`applyDynamic`/`findAndCount`.
+   */
+  async findPage<E>(
+    entity: Type<E>,
+    input: unknown,
+    opts: { qb?: unknown; context?: FilterContext } = {},
+  ): Promise<CursorPage<E>> {
+    const adapter = this.resolveAdapter();
+    if (
+      !adapter?.getResult ||
+      !adapter.getPrimaryKey ||
+      !adapter.applyKeysetPagination ||
+      !adapter.applyKeysetOrderAndLimit
+    ) {
+      throw new Error(
+        'findPage requires an adapter implementing getResult, getPrimaryKey, applyKeysetPagination and applyKeysetOrderAndLimit.',
+      );
+    }
+
+    const qb = opts.qb ?? adapter.createQueryBuilder(entity);
+    const structured = this.extractStructuredInput(input);
+    const paginate = (structured.paginate ?? {}) as Record<string, unknown>;
+
+    const after = typeof paginate.after === 'string' ? paginate.after : undefined;
+    const before =
+      after === undefined && typeof paginate.before === 'string' ? paginate.before : undefined;
+    const backward = before !== undefined;
+    const cursorStr = after ?? before;
+
+    const maxSize = this.options.maxPageSize ?? 100;
+    const requested = backward ? Number(paginate.last) : Number(paginate.first);
+    const limit = Math.min(Math.max(1, requested || 25), maxSize);
+
+    // Resolve the effective sort (falling back to defaultSort) and validate it
+    // against entity metadata, then append the primary key as a tiebreaker.
+    const parsedSorts = this.parseSorts(structured.sort);
+    const rawSorts =
+      parsedSorts.length > 0 ? parsedSorts : this.parseSorts(this.resolveDefaultSort());
+    const validSorts = adapter.applySort
+      ? this.validateSorts(rawSorts, undefined, adapter, entity, this.resolveThrowOnInvalid())
+      : rawSorts;
+
+    const pk = adapter.getPrimaryKey(entity);
+    if (!pk) {
+      throw new Error(`findPage: could not resolve a primary key for ${entity.name}.`);
+    }
+    const baseKeyset = buildKeyset(validSorts, pk);
+
+    // Build filters/search/includes only — findPage owns ordering and slicing.
+    await this.applyDynamic(
+      entity,
+      {
+        filter: structured.filter,
+        search: structured.search,
+        include: structured.include,
+        select: structured.select,
+      },
+      qb,
+      opts.context,
+      { skipSortAndPagination: true, native: true },
+    );
+
+    // For backward paging, reverse keyset directions so the boundary seek and
+    // ordering walk the other way; we re-reverse rows below.
+    const queryKeyset = backward ? this.reverseKeyset(baseKeyset) : baseKeyset;
+
+    // Decode and apply the cursor boundary predicate (ignored if malformed).
+    if (cursorStr) {
+      const values = decodeCursor(cursorStr);
+      if (values && values.length === queryKeyset.length) {
+        adapter.applyKeysetPagination(qb, queryKeyset, values);
+      }
+    }
+
+    // Fetch one extra row to detect whether a further page exists.
+    adapter.applyKeysetOrderAndLimit(qb, queryKeyset, limit + 1);
+    const fetched = (await adapter.getResult(qb)) as Array<Record<string, unknown>>;
+
+    const hasExtra = fetched.length > limit;
+    let pageRows = hasExtra ? fetched.slice(0, limit) : fetched;
+    if (backward) pageRows = pageRows.slice().reverse();
+
+    // Compute boundary cursors. With a cursor present, the opposite-direction
+    // page is known to exist; the same-direction page exists iff we saw an
+    // extra row.
+    const firstRow = pageRows[0];
+    const lastRow = pageRows[pageRows.length - 1];
+    const startCursor = firstRow ? encodeCursor(extractCursorValues(firstRow, baseKeyset)) : null;
+    const endCursor = lastRow ? encodeCursor(extractCursorValues(lastRow, baseKeyset)) : null;
+
+    const hasNext = backward ? cursorStr !== undefined : hasExtra;
+    const hasPrev = backward ? hasExtra : cursorStr !== undefined;
+
+    return {
+      items: pageRows as unknown as E[],
+      nextCursor: hasNext ? endCursor : null,
+      prevCursor: hasPrev ? startCursor : null,
+      hasNext,
+      hasPrev,
+    };
+  }
+
+  /** Flips every keyset column's direction (for backward cursor paging). */
+  private reverseKeyset(keyset: SortItem[]): SortItem[] {
+    return keyset.map((s) => ({
+      field: s.field,
+      direction: s.direction === 'asc' ? ('desc' as const) : ('asc' as const),
+    }));
   }
 
   /**
@@ -918,6 +1206,7 @@ export class FilterRunner {
     filters: ColumnFilter[],
     entity: Type<unknown>,
     adapter: FilterAdapter,
+    throwOnInvalid = false,
   ): ColumnFilter[] {
     const fieldNames = new Set((adapter.getEntityFields?.(entity) ?? []).map((f) => f.name));
     const relationNames = new Set((adapter.getEntityRelations?.(entity) ?? []).map((r) => r.name));
@@ -938,7 +1227,13 @@ export class FilterRunner {
 
     const prune = (clauses: ColumnFilter[]): ColumnFilter[] =>
       clauses
-        .filter((clause) => !clause.field || isKnown(clause.field))
+        .filter((clause) => {
+          const known = !clause.field || isKnown(clause.field);
+          if (!known && throwOnInvalid) {
+            throw new BadRequestException(`Unknown filter column: "${clause.field}".`);
+          }
+          return known;
+        })
         .map((clause) => ({
           ...clause,
           ...(clause.AND && { AND: prune(clause.AND) }),
@@ -946,6 +1241,98 @@ export class FilterRunner {
         }));
 
     return prune(filters);
+  }
+
+  /**
+   * Enforces per-field operator allowlists on a `where` ColumnFilter tree.
+   *
+   * For each clause whose `field` carries an operator restriction (declared as
+   * `{ field, operators }` in `@Filterable.allowed`), the clause's operator
+   * (after alias normalization) must be in the permitted set. A disallowed
+   * operator is dropped (default) or raises a `BadRequestException` when
+   * `throwOnInvalid` is set. Fields without a restriction (plain-string allowed
+   * entries, or no allowlist at all) pass through unchanged. Recurses AND/OR.
+   */
+  private enforceOperatorAllowlist(
+    filters: ColumnFilter[],
+    allowed: NormalizedAllowed | undefined,
+    throwOnInvalid: boolean,
+  ): ColumnFilter[] {
+    if (!allowed || allowed.operatorsByField.size === 0) return filters;
+
+    const prune = (clauses: ColumnFilter[]): ColumnFilter[] =>
+      clauses
+        .filter((clause) => {
+          // Group nodes (no field of their own) are not operator-checked here;
+          // their children are pruned via the recursion below.
+          if (!clause.field) return true;
+          const permitted = allowed.operatorsByField.get(clause.field);
+          if (!permitted) return true; // field allows all operators
+          const op = normalizeOperator(clause.operator);
+          if (permitted.has(op)) return true;
+          if (throwOnInvalid) {
+            throw new BadRequestException(
+              `Operator "${op}" is not allowed on field "${clause.field}".`,
+            );
+          }
+          return false;
+        })
+        .map((clause) => ({
+          ...clause,
+          ...(clause.AND && { AND: prune(clause.AND) }),
+          ...(clause.OR && { OR: prune(clause.OR) }),
+        }));
+
+    return prune(filters);
+  }
+
+  /**
+   * Enforces a per-field operator allowlist on an auto-field value, mirroring
+   * the adapter's value-shape interpretation:
+   *
+   * - scalar → `equals`
+   * - array → `in`
+   * - operator object (`{ gte, lte }`) → each key is an operator
+   *
+   * Returns the value to apply, or `undefined` when the whole auto-field should
+   * be skipped (e.g. a scalar whose implied `equals` is not permitted, or an
+   * operator object reduced to no permitted keys). For operator objects, only
+   * the disallowed keys are stripped. When `throwOnInvalid` is set, a
+   * disallowed operator raises instead of being dropped.
+   */
+  private enforceAutoFieldOperators(
+    field: string,
+    value: unknown,
+    allowed: NormalizedAllowed | undefined,
+    throwOnInvalid: boolean,
+  ): unknown {
+    const permitted = allowed?.operatorsByField.get(field);
+    if (!permitted) return value; // no restriction for this field
+
+    const reject = (op: FilterOperator): undefined => {
+      if (throwOnInvalid) {
+        throw new BadRequestException(`Operator "${op}" is not allowed on field "${field}".`);
+      }
+      return undefined;
+    };
+
+    if (Array.isArray(value)) {
+      return permitted.has('in') ? value : reject('in');
+    }
+    if (value != null && typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>);
+      const kept: Record<string, unknown> = {};
+      for (const [op, opVal] of entries) {
+        const canonical = normalizeOperator(op);
+        if (permitted.has(canonical)) {
+          kept[op] = opVal;
+        } else if (throwOnInvalid) {
+          reject(canonical);
+        }
+      }
+      return Object.keys(kept).length > 0 ? kept : undefined;
+    }
+    return permitted.has('equals') ? value : reject('equals');
   }
 
   /**
@@ -972,6 +1359,30 @@ export class FilterRunner {
     if (columns.length > 0 && adapter.applySearch) {
       adapter.applySearch(qb, searchTerm, columns, entity);
     }
+  }
+
+  /**
+   * Resolves the effective `throwOnInvalid` policy: per-@Filterable wins over
+   * the module option, which defaults to `false` (silent-drop, legacy behavior).
+   */
+  private resolveThrowOnInvalid(FilterClass?: Function): boolean {
+    if (FilterClass) {
+      const meta = getFilterableMetadata(FilterClass);
+      if (meta?.throwOnInvalid !== undefined) return meta.throwOnInvalid;
+    }
+    return this.options.throwOnInvalid ?? false;
+  }
+
+  /**
+   * Resolves the effective `defaultSort`: per-@Filterable wins over the module
+   * option. Returns undefined when neither is set.
+   */
+  private resolveDefaultSort(FilterClass?: Function): string | SortItem[] | undefined {
+    if (FilterClass) {
+      const meta = getFilterableMetadata(FilterClass);
+      if (meta?.defaultSort !== undefined) return meta.defaultSort;
+    }
+    return this.options.defaultSort;
   }
 
   private handleUnknownKey(key: string): void {
@@ -1028,9 +1439,22 @@ export class FilterRunner {
     allowlist: string[] | undefined,
     adapter: FilterAdapter,
     entity: Type<unknown> | undefined,
+    throwOnInvalid = false,
   ): SortItem[] {
+    const accept = (predicate: (s: SortItem) => boolean): SortItem[] => {
+      if (throwOnInvalid) {
+        for (const s of sorts) {
+          if (!predicate(s)) {
+            throw new BadRequestException(`Invalid sort field: "${s.field}".`);
+          }
+        }
+        return sorts;
+      }
+      return sorts.filter(predicate);
+    };
+
     if (allowlist) {
-      return sorts.filter((s) => allowlist.includes(s.field));
+      return accept((s) => allowlist.includes(s.field));
     }
     // No allowlist — validate against entity columns
     if (entity && adapter.getEntityFields) {
@@ -1041,15 +1465,65 @@ export class FilterRunner {
         // like `author.profile.country`. A bare relation (`author`) is rejected
         // for sorting (you can't order by a relation object).
         if (adapter.resolveFieldPath) {
-          return sorts.filter((s) => adapter.resolveFieldPath!(entity, s.field) === 'field');
+          return accept((s) => adapter.resolveFieldPath!(entity, s.field) === 'field');
         }
         // Fallback: scalar columns only.
         const fieldNames = new Set(fields.map((f) => f.name));
-        return sorts.filter((s) => fieldNames.has(s.field));
+        return accept((s) => fieldNames.has(s.field));
       }
     }
     // No metadata available — pass through
     return sorts;
+  }
+
+  /**
+   * Applies a list of sorts, routing computed/virtual aliases to
+   * `applyComputedSort` (their dev-provided SQL expression) and regular columns
+   * to `applySort`. Order is preserved across the mix so the resulting
+   * `ORDER BY` matches the requested column order. Regular columns are still
+   * validated against the allowlist / entity metadata; computed aliases bypass
+   * that check because they are dev-declared, not real columns.
+   */
+  private applySortsWithComputed<Q>(
+    qb: Q,
+    sorts: SortItem[],
+    allowlist: string[] | undefined,
+    adapter: FilterAdapter,
+    entity: Type<unknown> | undefined,
+    throwOnInvalid: boolean,
+    computed: Record<string, string> | undefined,
+  ): void {
+    const hasComputedSort = !!computed && sorts.some((s) => Object.hasOwn(computed, s.field));
+
+    // Fast path / backward-compatible behavior: no computed sorts → validate
+    // all sorts and apply them in a single batched `applySort` call (preserving
+    // the prior contract relied upon by existing tests and adapters).
+    if (!hasComputedSort) {
+      const validSorts = this.validateSorts(sorts, allowlist, adapter, entity, throwOnInvalid);
+      if (validSorts.length > 0 && adapter.applySort) {
+        adapter.applySort(qb as unknown, validSorts);
+      }
+      return;
+    }
+
+    // Mixed path: route computed aliases to applyComputedSort and real columns
+    // to applySort, per item, so the resulting ORDER BY honors request order.
+    for (const sort of sorts) {
+      if (computed && Object.hasOwn(computed, sort.field)) {
+        if (adapter.applyComputedSort) {
+          adapter.applyComputedSort(qb as unknown, computed[sort.field]!, sort.direction);
+        } else {
+          this.logger.warn(
+            `Computed sort "${sort.field}" requested but adapter does not support applyComputedSort. Skipping.`,
+          );
+        }
+        continue;
+      }
+      const valid = this.validateSorts([sort], allowlist, adapter, entity, throwOnInvalid);
+      if (valid.length > 0 && adapter.applySort) {
+        adapter.applySort(qb as unknown, valid);
+      }
+    }
   }
 
   /**
@@ -1086,15 +1560,28 @@ export class FilterRunner {
     allowlist: string[] | undefined,
     adapter: FilterAdapter,
     entity: Type<unknown> | undefined,
+    throwOnInvalid = false,
   ): string[] {
+    const accept = (predicate: (f: string) => boolean): string[] => {
+      if (throwOnInvalid) {
+        for (const f of fields) {
+          if (!predicate(f)) {
+            throw new BadRequestException(`Invalid distinct field: "${f}".`);
+          }
+        }
+        return fields;
+      }
+      return fields.filter(predicate);
+    };
+
     if (allowlist) {
-      return fields.filter((f) => allowlist.includes(f));
+      return accept((f) => allowlist.includes(f));
     }
     if (entity && adapter.getEntityFields) {
       const entityFields = adapter.getEntityFields(entity);
       if (entityFields) {
         const fieldNames = new Set(entityFields.map((f) => f.name));
-        return fields.filter((f) => fieldNames.has(f));
+        return accept((f) => fieldNames.has(f));
       }
     }
     // No metadata available — pass through
