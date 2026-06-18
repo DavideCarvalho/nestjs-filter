@@ -119,4 +119,55 @@ describe('JSON sub-path column filters', () => {
     });
     expect(result).toEqual(['a', 'b', 'c']);
   });
+
+  it('lte: amount<=200 → [a, b] (numeric, not lexical — b=30 included, c=500 excluded)', async () => {
+    await setup();
+    const result = await filterLabels({ field: 'metadata.amount', operator: 'lte', value: 200 });
+    expect(result).toEqual(['a', 'b']);
+    // Explicitly assert c is NOT in the result (c=500 > 200)
+    expect(result).not.toContain('c');
+  });
+
+  it('gt: amount>200 → [c]', async () => {
+    await setup();
+    const result = await filterLabels({ field: 'metadata.amount', operator: 'gt', value: 200 });
+    expect(result).toEqual(['c']);
+  });
+
+  it('lt: amount<200 → [b]', async () => {
+    await setup();
+    const result = await filterLabels({ field: 'metadata.amount', operator: 'lt', value: 200 });
+    expect(result).toEqual(['b']);
+  });
+
+  it('between: amount between [100, 400] → [a] (only amount=200 in range)', async () => {
+    await setup();
+    const result = await filterLabels({
+      field: 'metadata.amount',
+      operator: 'between',
+      value: [100, 400],
+    });
+    expect(result).toEqual(['a']);
+  });
+
+  it('isNotNull: metadata.tier present on all rows → [a, b, c]', async () => {
+    await setup();
+    const result = await filterLabels({
+      field: 'metadata.tier',
+      operator: 'isNotNull',
+      value: true,
+    });
+    expect(result).toEqual(['a', 'b', 'c']);
+  });
+
+  it('isNotNull: metadata.missing absent → [] (absent JSON key treated as null)', async () => {
+    await setup();
+    const result = await filterLabels({
+      field: 'metadata.missing',
+      operator: 'isNotNull',
+      value: true,
+    });
+    // SQLite JSON path: absent key evaluates to null, so $ne null → no rows match.
+    expect(result).toEqual([]);
+  });
 });
