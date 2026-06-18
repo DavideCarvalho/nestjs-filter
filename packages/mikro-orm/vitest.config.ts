@@ -1,5 +1,5 @@
 import swc from 'unplugin-swc';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [
@@ -11,6 +11,9 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     include: ['test/**/*.{spec,test}.ts'],
+    // *.db.spec.ts need live MySQL/Postgres (docker-compose) and run only via `test:db`.
+    // Exclude them from the default suite so the no-DB CI `test` job doesn't hit ECONNREFUSED.
+    exclude: [...configDefaults.exclude, 'test/**/*.db.spec.ts'],
     setupFiles: ['reflect-metadata'],
     pool: 'forks',
   },
