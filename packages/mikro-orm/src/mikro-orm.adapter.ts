@@ -21,7 +21,7 @@ export class MikroOrmAdapter implements FilterAdapter {
   // per entity class. `.has()` is used so null results are cached too.
   private fieldCache = new WeakMap<object, EntityFieldInfo[] | null>();
   private relationCache = new WeakMap<object, EntityRelationInfo[] | null>();
-  private fieldPathCache = new WeakMap<object, Map<string, 'field' | 'relation' | null>>();
+  private fieldPathCache = new WeakMap<object, Map<string, 'field' | 'relation' | 'json' | null>>();
 
   createQueryBuilder<E>(entity: Type<E>): unknown {
     return this.em.createQueryBuilder(entity as unknown as new () => E);
@@ -110,10 +110,10 @@ export class MikroOrmAdapter implements FilterAdapter {
     }
   }
 
-  resolveFieldPath(entity: Type<unknown>, path: string): 'field' | 'relation' | null {
+  resolveFieldPath(entity: Type<unknown>, path: string): 'field' | 'relation' | 'json' | null {
     let pathMap = this.fieldPathCache.get(entity);
     if (!pathMap) {
-      pathMap = new Map<string, 'field' | 'relation' | null>();
+      pathMap = new Map<string, 'field' | 'relation' | 'json' | null>();
       this.fieldPathCache.set(entity, pathMap);
     }
     if (pathMap.has(path)) return pathMap.get(path)!;
@@ -122,7 +122,35 @@ export class MikroOrmAdapter implements FilterAdapter {
     return result;
   }
 
-  private computeFieldPath(entity: Type<unknown>, path: string): 'field' | 'relation' | null {
+  /**
+   * Resolves the JSON column + remaining key path for a dotted path whose head
+   * segment is a JSON-typed scalar. Returns `null` when the head segment is not
+   * a JSON column, or for plain scalar/relation paths.
+   *
+   * `metadata.tier`   → `{ column: 'metadata', keys: ['tier'] }`
+   * `metadata.a.b`    → `{ column: 'metadata', keys: ['a', 'b'] }`
+   * `name.nope`       → `null`  (name is not a JSON column)
+   * `name`            → `null`  (no sub-path)
+   */
+  resolveJsonPath(entity: Type<unknown>, path: string): { column: string; keys: string[] } | null {
+    try {
+      const segments = path.split('.');
+      if (segments.length < 2) return null;
+      const [head, ...rest] = segments as [string, ...string[]];
+      const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+      const prop = meta?.properties?.[head];
+      if (!prop || prop.kind !== ReferenceKind.SCALAR) return null;
+      if (!this.isJsonProp(prop.columnTypes)) return null;
+      return { column: head, keys: rest };
+    } catch {
+      return null;
+    }
+  }
+
+  private computeFieldPath(
+    entity: Type<unknown>,
+    path: string,
+  ): 'field' | 'relation' | 'json' | null {
     try {
       const segments = path.split('.');
       let meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
@@ -131,8 +159,11 @@ export class MikroOrmAdapter implements FilterAdapter {
         if (!prop) return null;
         const isLeaf = i === segments.length - 1;
         if (prop.kind === ReferenceKind.SCALAR) {
-          // A scalar can only be the leaf — you can't traverse through it.
-          return isLeaf ? 'field' : null;
+          if (isLeaf) return 'field';
+          // A non-leaf scalar is normally a dead end — unless it's a JSON column,
+          // in which case the remaining segments are keys inside the JSON value.
+          if (this.isJsonProp(prop.columnTypes)) return 'json';
+          return null;
         }
         // Relation segment.
         if (isLeaf) return 'relation';

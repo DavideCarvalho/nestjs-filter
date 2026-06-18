@@ -614,9 +614,15 @@ importers:
       '@mikro-orm/decorators':
         specifier: ^7.0.0
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))(reflect-metadata@0.2.2)
+      '@mikro-orm/mysql':
+        specifier: ^7.0.0
+        version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))(@types/node@20.19.41)
       '@mikro-orm/nestjs':
         specifier: ^7.0.0
         version: 7.0.2(@mikro-orm/core@7.1.1(dataloader@2.2.3))(@nestjs/common@11.1.23(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.23(@nestjs/common@11.1.23(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.23)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)
+      '@mikro-orm/postgresql':
+        specifier: ^7.0.0
+        version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@mikro-orm/sql':
         specifier: ^7.0.0
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
@@ -11652,7 +11658,7 @@ snapshots:
       std-env: 3.10.0
       tinybench: 2.9.0
       tinyexec: 0.3.2
-      tinyglobby: 0.2.16
+      tinyglobby: 0.2.17
       tinypool: 1.1.1
       tinyrainbow: 2.0.0
       vite: 7.3.3(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
