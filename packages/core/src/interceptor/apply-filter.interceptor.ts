@@ -27,21 +27,24 @@ import { APPLY_FILTER_REQ_KEY, FILTER_ADAPTER } from '../tokens.js';
 export class ApplyFilterInterceptor implements NestInterceptor {
   constructor(private readonly moduleRef: ModuleRef) {}
 
-  intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const handler = ctx.getHandler();
-    const controller = ctx.getClass();
-    const entries = getApplyFilterMetadata(controller, handler.name);
-    if (entries.length === 0) return next.handle();
+  // Lazily-resolved singletons cached after the first request that needs them.
+  // The runner and adapter are application-scoped, so resolving them per request
+  // is wasteful; we memoize them on first use instead.
+  private cachedRunner: FilterRunner | null = null;
+  private adapterResolved = false;
+  private cachedAdapter: FilterAdapter | null = null;
 
-    const req = ctx
-      .switchToHttp()
-      .getRequest<Record<symbol, unknown[]> & Record<string, unknown>>();
-    if (!req[APPLY_FILTER_REQ_KEY]) {
-      (req as Record<symbol, unknown[]>)[APPLY_FILTER_REQ_KEY] = [];
+  private getRunner(): FilterRunner {
+    if (this.cachedRunner === null) {
+      const runner = this.moduleRef.get(FilterRunner, { strict: false });
+      this.cachedRunner = runner;
+      return runner;
     }
-    const slot = req[APPLY_FILTER_REQ_KEY] as unknown[];
+    return this.cachedRunner;
+  }
 
-    const runner = this.moduleRef.get(FilterRunner, { strict: false });
+  private getAdapter(): FilterAdapter | null {
+    if (this.adapterResolved) return this.cachedAdapter;
 
     // Resolve adapter: try each:true to find all providers, pick the non-null one
     let adapter: FilterAdapter | null = null;
@@ -58,6 +61,28 @@ export class ApplyFilterInterceptor implements NestInterceptor {
     } catch {
       adapter = null;
     }
+
+    this.cachedAdapter = adapter;
+    this.adapterResolved = true;
+    return this.cachedAdapter;
+  }
+
+  intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const handler = ctx.getHandler();
+    const controller = ctx.getClass();
+    const entries = getApplyFilterMetadata(controller, handler.name);
+    if (entries.length === 0) return next.handle();
+
+    const req = ctx
+      .switchToHttp()
+      .getRequest<Record<symbol, unknown[]> & Record<string, unknown>>();
+    if (!req[APPLY_FILTER_REQ_KEY]) {
+      (req as Record<symbol, unknown[]>)[APPLY_FILTER_REQ_KEY] = [];
+    }
+    const slot = req[APPLY_FILTER_REQ_KEY] as unknown[];
+
+    const runner = this.getRunner();
+    const adapter = this.getAdapter();
 
     return from(this.runAll(entries, slot, req, runner, adapter)).pipe(
       switchMap(() => next.handle()),
