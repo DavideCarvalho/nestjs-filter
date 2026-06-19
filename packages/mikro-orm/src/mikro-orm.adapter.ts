@@ -2,17 +2,15 @@ import {
   type ColumnFilter,
   type EntityFieldInfo,
   type EntityRelationInfo,
-  FILTER_OPERATORS,
   type FilterAdapter,
   type SortItem,
   escapeLike,
+  isOperatorObject,
 } from '@dudousxd/nestjs-filter';
 import { ReferenceKind } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/sql';
 import type { Type } from '@nestjs/common';
 import { resolveColumnFilters } from './operator-resolver.js';
-
-const OPERATOR_SET = new Set<string>(FILTER_OPERATORS);
 
 export class MikroOrmAdapter implements FilterAdapter {
   constructor(private readonly em: SqlEntityManager) {}
@@ -74,7 +72,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     const queryBuilder = qb as { andWhere: (condition: unknown) => void };
     if (Array.isArray(value)) {
       queryBuilder.andWhere({ [field]: { $in: value } });
-    } else if (this.isOperatorObject(value)) {
+    } else if (isOperatorObject(value)) {
       const ops: Record<string, unknown> = {};
       for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
         ops[`$${op}`] = opVal;
@@ -262,7 +260,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     const queryBuilder = qb as { andWhere: (condition: unknown) => void };
     if (Array.isArray(value)) {
       queryBuilder.andWhere({ [relationName]: { [field]: { $in: value } } });
-    } else if (this.isOperatorObject(value)) {
+    } else if (isOperatorObject(value)) {
       const ops: Record<string, unknown> = {};
       for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
         ops[`$${op}`] = opVal;
@@ -446,11 +444,5 @@ export class MikroOrmAdapter implements FilterAdapter {
     if (t === 'date') return 'date';
     if (t === 'object') return 'json';
     return 'unknown';
-  }
-
-  private isOperatorObject(value: unknown): value is Record<string, unknown> {
-    if (value == null || typeof value !== 'object' || Array.isArray(value)) return false;
-    const keys = Object.keys(value);
-    return keys.length > 0 && keys.every((k) => OPERATOR_SET.has(k));
   }
 }

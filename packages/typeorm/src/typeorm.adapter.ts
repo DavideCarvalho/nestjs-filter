@@ -2,11 +2,11 @@ import {
   type ColumnFilter,
   type EntityFieldInfo,
   type EntityRelationInfo,
-  FILTER_OPERATORS,
   type FilterAdapter,
   type SortItem,
   type VectorSearchOptions,
   escapeLike,
+  valueToColumnFilters,
 } from '@dudousxd/nestjs-filter';
 import type { Type } from '@nestjs/common';
 import {
@@ -17,8 +17,6 @@ import {
   type SelectQueryBuilder,
 } from 'typeorm';
 import { applyColumnFiltersTypeOrm, applyOperator } from './operator-resolver.js';
-
-const OPERATOR_SET = new Set<string>(FILTER_OPERATORS);
 
 /**
  * Regex for safe SQL field names: starts with letter or underscore,
@@ -76,19 +74,8 @@ export class TypeOrmAdapter implements FilterAdapter {
     if (!SAFE_FIELD.test(field)) return; // silently skip unsafe field names
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = queryBuilder.alias;
-    if (Array.isArray(value)) {
-      applyOperator(queryBuilder, alias, { field, operator: 'in', value }, 'andWhere');
-    } else if (this.isOperatorObject(value)) {
-      for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
-        applyOperator(
-          queryBuilder,
-          alias,
-          { field, operator: op as import('@dudousxd/nestjs-filter').FilterOperator, value: opVal },
-          'andWhere',
-        );
-      }
-    } else {
-      applyOperator(queryBuilder, alias, { field, operator: 'equals', value }, 'andWhere');
+    for (const filter of valueToColumnFilters(field, value)) {
+      applyOperator(queryBuilder, alias, filter, 'andWhere');
     }
   }
 
@@ -159,23 +146,8 @@ export class TypeOrmAdapter implements FilterAdapter {
       queryBuilder.leftJoin(`${alias}.${relationName}`, relAlias);
     }
 
-    if (Array.isArray(value)) {
-      applyOperator(queryBuilder, relAlias, { field, operator: 'in', value }, 'andWhere');
-    } else if (this.isOperatorObject(value)) {
-      for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
-        applyOperator(
-          queryBuilder,
-          relAlias,
-          {
-            field,
-            operator: op as import('@dudousxd/nestjs-filter').FilterOperator,
-            value: opVal,
-          },
-          'andWhere',
-        );
-      }
-    } else {
-      applyOperator(queryBuilder, relAlias, { field, operator: 'equals', value }, 'andWhere');
+    for (const filter of valueToColumnFilters(field, value)) {
+      applyOperator(queryBuilder, relAlias, filter, 'andWhere');
     }
   }
 
@@ -279,36 +251,8 @@ export class TypeOrmAdapter implements FilterAdapter {
     // not safe as an identifier). Dev-provided expression is used verbatim as
     // the comparison target; client values stay parameterized.
     const token = 'computed';
-    if (Array.isArray(value)) {
-      applyOperator(
-        queryBuilder,
-        alias,
-        { field: token, operator: 'in', value },
-        'andWhere',
-        expression,
-      );
-    } else if (this.isOperatorObject(value)) {
-      for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
-        applyOperator(
-          queryBuilder,
-          alias,
-          {
-            field: token,
-            operator: op as import('@dudousxd/nestjs-filter').FilterOperator,
-            value: opVal,
-          },
-          'andWhere',
-          expression,
-        );
-      }
-    } else {
-      applyOperator(
-        queryBuilder,
-        alias,
-        { field: token, operator: 'equals', value },
-        'andWhere',
-        expression,
-      );
+    for (const filter of valueToColumnFilters(token, value)) {
+      applyOperator(queryBuilder, alias, filter, 'andWhere', expression);
     }
   }
 
@@ -460,11 +404,5 @@ export class TypeOrmAdapter implements FilterAdapter {
     if (['date', 'time', 'timestamp', 'datetime'].some((s) => t.includes(s))) return 'date';
     if (['json', 'jsonb'].some((s) => t.includes(s))) return 'json';
     return 'unknown';
-  }
-
-  private isOperatorObject(value: unknown): value is Record<string, unknown> {
-    if (value == null || typeof value !== 'object' || Array.isArray(value)) return false;
-    const keys = Object.keys(value);
-    return keys.length > 0 && keys.every((k) => OPERATOR_SET.has(k));
   }
 }

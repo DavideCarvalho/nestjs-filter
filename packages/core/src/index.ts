@@ -105,3 +105,4 @@ export {
   InvalidColumnFilterError,
   MAX_FILTER_DEPTH,
 } from './operators/validate-column-filter.js';
+export { isOperatorObject, valueToColumnFilters } from './operators/value-shape.js';
