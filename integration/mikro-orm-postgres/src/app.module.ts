@@ -18,7 +18,7 @@ import { UsersController } from './users.controller.js';
       port: Number(process.env.DB_PORT ?? '5432'),
       user: process.env.DB_USER ?? 'test',
       password: process.env.DB_PASSWORD ?? 'test',
-      dbName: process.env.DB_NAME ?? 'nestjs_filter_test',
+      dbName: process.env.DB_NAME ?? 'nestjs_filter_mikro',
       entities: [User, Post],
       metadataProvider: ReflectMetadataProvider,
       allowGlobalContext: true,
