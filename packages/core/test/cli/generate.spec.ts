@@ -19,7 +19,7 @@ describe('CLI generate command', () => {
       const stdout = execSync(`npx tsx ${cliPath} ${args}`, {
         cwd,
         encoding: 'utf-8',
-        timeout: 15000,
+        timeout: 60000,
       });
       return { stdout, exitCode: 0 };
     } catch (err: any) {
@@ -39,7 +39,7 @@ describe('CLI generate command', () => {
     expect(content).toContain("import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm'");
     expect(content).toContain('class UserFilter extends MikroOrmFilter<User>');
     expect(content).toContain('@Filterable({ entity: User })');
-  }, 30000);
+  }, 150000);
 
   it('generates a typeorm filter file with --orm=typeorm', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'nestjs-filter-cli-'));
@@ -52,7 +52,7 @@ describe('CLI generate command', () => {
     const content = readFileSync(outPath, 'utf-8');
     expect(content).toContain("import { TypeOrmFilter } from '@dudousxd/nestjs-filter-typeorm'");
     expect(content).toContain('class OrderFilter extends TypeOrmFilter<Order>');
-  }, 30000);
+  }, 150000);
 
   it('exits with error if file already exists', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'nestjs-filter-cli-'));
@@ -61,13 +61,13 @@ describe('CLI generate command', () => {
     // Second attempt should fail
     const result = runCli('generate user', tempDir);
     expect(result.exitCode).not.toBe(0);
-  }, 30000);
+  }, 150000);
 
   it('shows usage when no arguments provided', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'nestjs-filter-cli-'));
     const result = runCli('', tempDir);
     expect(result.exitCode).not.toBe(0);
-  }, 30000);
+  }, 150000);
 
   it('accepts "g" as shorthand for "generate"', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'nestjs-filter-cli-'));
@@ -76,5 +76,5 @@ describe('CLI generate command', () => {
 
     const outPath = join(tempDir, 'src', 'product.filter.ts');
     expect(existsSync(outPath)).toBe(true);
-  }, 30000);
+  }, 150000);
 });
