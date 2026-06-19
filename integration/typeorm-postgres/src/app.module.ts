@@ -16,7 +16,7 @@ import { UsersController } from './users.controller.js';
       port: Number(process.env.DB_PORT ?? '5432'),
       username: process.env.DB_USER ?? 'test',
       password: process.env.DB_PASSWORD ?? 'test',
-      database: process.env.DB_NAME ?? 'nestjs_filter_test',
+      database: process.env.DB_NAME ?? 'nestjs_filter_typeorm',
       entities: [User, Post],
       synchronize: true,
     }),
