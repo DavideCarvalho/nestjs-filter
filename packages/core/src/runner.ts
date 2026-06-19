@@ -140,6 +140,15 @@ export class FilterRunner {
   }
 
   /**
+   * Warn that a requested feature was skipped because the active adapter doesn't
+   * implement the backing method. Single-sources the message so every capability
+   * gate reports skips in one consistent format.
+   */
+  private warnUnsupported(feature: string, method: string): void {
+    this.logger.warn(`${feature} but adapter does not support ${method}. Skipping.`);
+  }
+
+  /**
    * Describes an entity's filterable/sortable scalar fields and its one-hop
    * relations, read entirely from the ORM's metadata (via the adapter) — no
    * hand-maintained field map required. Memoized per entity class.
@@ -209,7 +218,7 @@ export class FilterRunner {
    * Apply a projection stage (DISTINCT or sparse SELECT). Parses the requested
    * fields, validates them against the optional allowlist + entity metadata, and
    * applies them via the adapter. When the adapter can't project, an optional
-   * `unsupportedWarning` is logged — static mode warns, dynamic mode stays silent.
+   * `unsupported` feature/method is logged — static mode warns, dynamic stays silent.
    * Mirrors the original guard: a call needs both a supporting adapter AND a
    * resolved entity, so a missing entity is a silent no-op (never a warning).
    */
@@ -222,12 +231,12 @@ export class FilterRunner {
       allowed: readonly string[] | undefined;
       throwOnInvalid: boolean;
       apply: ((qb: unknown, fields: string[], entity: Type<unknown>) => void) | undefined;
-      unsupportedWarning?: string;
+      unsupported?: { feature: string; method: string };
     },
   ): void {
     const fields = this.parseDistinct(rawFields);
     if (fields.length === 0) return;
-    const { entity, adapter, allowed, throwOnInvalid, apply, unsupportedWarning } = opts;
+    const { entity, adapter, allowed, throwOnInvalid, apply, unsupported } = opts;
     if (apply && adapter && entity) {
       const valid = this.validateDistinct(
         fields,
@@ -237,8 +246,8 @@ export class FilterRunner {
         throwOnInvalid,
       );
       if (valid.length > 0) apply(qb as unknown, valid, entity);
-    } else if (apply === undefined && unsupportedWarning) {
-      this.logger.warn(unsupportedWarning);
+    } else if (apply === undefined && unsupported) {
+      this.warnUnsupported(unsupported.feature, unsupported.method);
     }
   }
 
@@ -307,9 +316,7 @@ export class FilterRunner {
             adapter.applyColumnFilters(qb, opAllowed, getFilterableMetadata(FilterClass)?.entity);
           }
         } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
-          this.logger.warn(
-            'Column filters (where) provided but adapter does not support applyColumnFilters. Skipping.',
-          );
+          this.warnUnsupported('Column filters (where) provided', 'applyColumnFilters');
         }
 
         // Resolve auto-fields configuration
@@ -362,9 +369,7 @@ export class FilterRunner {
                 adapter.applyComputedField(qb as unknown, computed[key]!, filtered);
               }
             } else {
-              this.logger.warn(
-                `Computed field "${key}" provided but adapter does not support applyComputedField. Skipping.`,
-              );
+              this.warnUnsupported(`Computed field "${key}" provided`, 'applyComputedField');
             }
             continue;
           }
@@ -381,9 +386,7 @@ export class FilterRunner {
                 adapter.applyAutoField(qb, key, filtered);
               }
             } else {
-              this.logger.warn(
-                `Auto-field "${key}" provided but adapter does not support applyAutoField. Skipping.`,
-              );
+              this.warnUnsupported(`Auto-field "${key}" provided`, 'applyAutoField');
             }
             continue;
           }
@@ -491,8 +494,7 @@ export class FilterRunner {
           allowed: (FilterClass as unknown as { distinct?: readonly string[] }).distinct,
           throwOnInvalid: throwOnInvalidPolicy,
           apply: adapter?.applyDistinct?.bind(adapter),
-          unsupportedWarning:
-            'Distinct requested but adapter does not support applyDistinct. Skipping.',
+          unsupported: { feature: 'Distinct requested', method: 'applyDistinct' },
         });
 
         // Apply sparse fieldsets (SELECT narrowing) — validated against the
@@ -503,8 +505,7 @@ export class FilterRunner {
           allowed: (FilterClass as unknown as { select?: readonly string[] }).select,
           throwOnInvalid: throwOnInvalidPolicy,
           apply: adapter?.applySelect?.bind(adapter),
-          unsupportedWarning:
-            'Sparse fieldsets (select) requested but adapter does not support applySelect. Skipping.',
+          unsupported: { feature: 'Sparse fieldsets (select) requested', method: 'applySelect' },
         });
 
         // Apply sort — falling back to defaultSort when the client gave none.
@@ -584,9 +585,7 @@ export class FilterRunner {
     context: FilterContext,
   ): Promise<void> {
     if (!this.adapter?.applyRelationConstraint) {
-      this.logger.warn(
-        `Relation "${relationName}" skipped: adapter does not support applyRelationConstraint.`,
-      );
+      this.warnUnsupported(`Relation "${relationName}" provided`, 'applyRelationConstraint');
       return;
     }
     const inputObj: Record<string, unknown> = {};
@@ -914,9 +913,7 @@ export class FilterRunner {
         adapter.applyColumnFilters(qb, knownFilters, entity);
       }
     } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
-      this.logger.warn(
-        'Column filters (where) provided but adapter does not support applyColumnFilters. Skipping.',
-      );
+      this.warnUnsupported('Column filters (where) provided', 'applyColumnFilters');
     }
 
     // Auto-fields: all entity columns (no filter class = no @FilterFor to check)
@@ -1524,9 +1521,7 @@ export class FilterRunner {
         if (adapter.applyComputedSort) {
           adapter.applyComputedSort(qb as unknown, computed[sort.field]!, sort.direction);
         } else {
-          this.logger.warn(
-            `Computed sort "${sort.field}" requested but adapter does not support applyComputedSort. Skipping.`,
-          );
+          this.warnUnsupported(`Computed sort "${sort.field}" requested`, 'applyComputedSort');
         }
         continue;
       }
