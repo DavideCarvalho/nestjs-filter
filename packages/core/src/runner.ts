@@ -140,6 +140,15 @@ export class FilterRunner {
   }
 
   /**
+   * Warn that a requested feature was skipped because the active adapter doesn't
+   * implement the backing method. Single-sources the message so every capability
+   * gate reports skips in one consistent format.
+   */
+  private warnUnsupported(feature: string, method: string): void {
+    this.logger.warn(`${feature} but adapter does not support ${method}. Skipping.`);
+  }
+
+  /**
    * Describes an entity's filterable/sortable scalar fields and its one-hop
    * relations, read entirely from the ORM's metadata (via the adapter) — no
    * hand-maintained field map required. Memoized per entity class.
@@ -176,6 +185,72 @@ export class FilterRunner {
     return description;
   }
 
+  /**
+   * Shared input preamble for {@link apply} and {@link applyDynamic}: pull the
+   * structured sections (include/search/sort/distinct/select/paginate) out of the
+   * raw input, split off column (`where`) filters, and normalize the remaining
+   * field keys. Validation is intentionally left to the caller (static `apply`
+   * runs it on `normalized`; dynamic mode has no filter class to validate against).
+   */
+  private prepareInput(input: unknown, internal: { native?: boolean }) {
+    const rawInput = this.extractStructuredInput(input, {
+      ...(internal.native !== undefined && { native: internal.native }),
+    });
+    const { columnFilters, remainingInput } = this.extractColumnFilters(rawInput.filter);
+    const normalized = normalizeInput(remainingInput, {
+      normalizer: this.options.inputNormalizer ?? 'camelCase',
+      dropId: this.options.dropId ?? true,
+      ...(this.options.stripEmpty !== undefined && { stripEmpty: this.options.stripEmpty }),
+    });
+    return {
+      rawInclude: rawInput.include,
+      rawSearch: rawInput.search,
+      rawSort: rawInput.sort,
+      rawDistinct: rawInput.distinct,
+      rawSelect: rawInput.select,
+      rawPaginate: rawInput.paginate,
+      columnFilters,
+      normalized,
+    };
+  }
+
+  /**
+   * Apply a projection stage (DISTINCT or sparse SELECT). Parses the requested
+   * fields, validates them against the optional allowlist + entity metadata, and
+   * applies them via the adapter. When the adapter can't project, an optional
+   * `unsupported` feature/method is logged — static mode warns, dynamic stays silent.
+   * Mirrors the original guard: a call needs both a supporting adapter AND a
+   * resolved entity, so a missing entity is a silent no-op (never a warning).
+   */
+  private applyProjection<Q>(
+    qb: Q,
+    rawFields: unknown,
+    opts: {
+      entity: Type<unknown> | undefined;
+      adapter: FilterAdapter | null;
+      allowed: readonly string[] | undefined;
+      throwOnInvalid: boolean;
+      apply: ((qb: unknown, fields: string[], entity: Type<unknown>) => void) | undefined;
+      unsupported?: { feature: string; method: string };
+    },
+  ): void {
+    const fields = this.parseDistinct(rawFields);
+    if (fields.length === 0) return;
+    const { entity, adapter, allowed, throwOnInvalid, apply, unsupported } = opts;
+    if (apply && adapter && entity) {
+      const valid = this.validateDistinct(
+        fields,
+        allowed as string[] | undefined,
+        adapter,
+        entity,
+        throwOnInvalid,
+      );
+      if (valid.length > 0) apply(qb as unknown, valid, entity);
+    } else if (apply === undefined && unsupported) {
+      this.warnUnsupported(unsupported.feature, unsupported.method);
+    }
+  }
+
   async apply<F extends object, Q>(
     FilterClass: Type<F>,
     input: unknown,
@@ -186,26 +261,16 @@ export class FilterRunner {
     const filter = await this.resolveFilter(FilterClass);
     const adapter = this.resolveAdapter();
 
-    // Extract structured input: { filter, include, search, sort, paginate }
-    const rawInput = this.extractStructuredInput(input, {
-      ...(internal.native !== undefined && { native: internal.native }),
-    });
-    const filterInput = rawInput.filter;
-    const rawInclude = rawInput.include;
-    const rawSearch = rawInput.search;
-    const rawSort = rawInput.sort;
-    const rawDistinct = rawInput.distinct;
-    const rawSelect = rawInput.select;
-    const rawPaginate = rawInput.paginate;
-
-    // Extract column filters from the filter portion before normalization
-    const { columnFilters, remainingInput } = this.extractColumnFilters(filterInput);
-
-    const normalized = normalizeInput(remainingInput, {
-      normalizer: this.options.inputNormalizer ?? 'camelCase',
-      dropId: this.options.dropId ?? true,
-      ...(this.options.stripEmpty !== undefined && { stripEmpty: this.options.stripEmpty }),
-    });
+    const {
+      rawInclude,
+      rawSearch,
+      rawSort,
+      rawDistinct,
+      rawSelect,
+      rawPaginate,
+      columnFilters,
+      normalized,
+    } = this.prepareInput(input, internal);
 
     const finalInput =
       this.options.validation === 'off' ? normalized : await validateInput(FilterClass, normalized);
@@ -251,9 +316,7 @@ export class FilterRunner {
             adapter.applyColumnFilters(qb, opAllowed, getFilterableMetadata(FilterClass)?.entity);
           }
         } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
-          this.logger.warn(
-            'Column filters (where) provided but adapter does not support applyColumnFilters. Skipping.',
-          );
+          this.warnUnsupported('Column filters (where) provided', 'applyColumnFilters');
         }
 
         // Resolve auto-fields configuration
@@ -306,9 +369,7 @@ export class FilterRunner {
                 adapter.applyComputedField(qb as unknown, computed[key]!, filtered);
               }
             } else {
-              this.logger.warn(
-                `Computed field "${key}" provided but adapter does not support applyComputedField. Skipping.`,
-              );
+              this.warnUnsupported(`Computed field "${key}" provided`, 'applyComputedField');
             }
             continue;
           }
@@ -325,9 +386,7 @@ export class FilterRunner {
                 adapter.applyAutoField(qb, key, filtered);
               }
             } else {
-              this.logger.warn(
-                `Auto-field "${key}" provided but adapter does not support applyAutoField. Skipping.`,
-              );
+              this.warnUnsupported(`Auto-field "${key}" provided`, 'applyAutoField');
             }
             continue;
           }
@@ -416,50 +475,38 @@ export class FilterRunner {
 
         // Apply global search
         if (rawSearch && typeof rawSearch === 'string' && rawSearch.trim()) {
-          this.applyGlobalSearch(qb, rawSearch.trim(), FilterClass, adapter, filterableMeta);
+          this.applyGlobalSearch(qb, rawSearch.trim(), {
+            entity: filterableMeta?.entity,
+            adapter,
+            searchConfig: (
+              FilterClass as unknown as {
+                search?: readonly string[] | { vector: string; rank?: boolean };
+              }
+            ).search,
+            slowSearchHint: `declaring static search = [...] on ${FilterClass.name}`,
+          });
         }
 
         // Apply distinct projection (SELECT DISTINCT) — before sort/pagination
-        const distinctFields = this.parseDistinct(rawDistinct);
-        if (distinctFields.length > 0 && adapter?.applyDistinct && filterableMeta) {
-          const allowedDistinct = (FilterClass as unknown as { distinct?: readonly string[] })
-            .distinct;
-          const validDistinct = this.validateDistinct(
-            distinctFields,
-            allowedDistinct as string[] | undefined,
-            adapter,
-            filterableMeta.entity,
-            this.resolveThrowOnInvalid(FilterClass),
-          );
-          if (validDistinct.length > 0) {
-            adapter.applyDistinct(qb as unknown, validDistinct, filterableMeta.entity);
-          }
-        } else if (distinctFields.length > 0 && !adapter?.applyDistinct) {
-          this.logger.warn(
-            'Distinct requested but adapter does not support applyDistinct. Skipping.',
-          );
-        }
+        this.applyProjection(qb, rawDistinct, {
+          entity: filterableMeta?.entity,
+          adapter,
+          allowed: (FilterClass as unknown as { distinct?: readonly string[] }).distinct,
+          throwOnInvalid: throwOnInvalidPolicy,
+          apply: adapter?.applyDistinct?.bind(adapter),
+          unsupported: { feature: 'Distinct requested', method: 'applyDistinct' },
+        });
 
         // Apply sparse fieldsets (SELECT narrowing) — validated against the
         // allowlist / entity metadata, mirroring distinct/sort safety.
-        const selectFields = this.parseDistinct(rawSelect);
-        if (selectFields.length > 0 && adapter?.applySelect && filterableMeta) {
-          const allowedSelect = (FilterClass as unknown as { select?: readonly string[] }).select;
-          const validSelect = this.validateDistinct(
-            selectFields,
-            allowedSelect as string[] | undefined,
-            adapter,
-            filterableMeta.entity,
-            throwOnInvalidPolicy,
-          );
-          if (validSelect.length > 0) {
-            adapter.applySelect(qb as unknown, validSelect, filterableMeta.entity);
-          }
-        } else if (selectFields.length > 0 && !adapter?.applySelect) {
-          this.logger.warn(
-            'Sparse fieldsets (select) requested but adapter does not support applySelect. Skipping.',
-          );
-        }
+        this.applyProjection(qb, rawSelect, {
+          entity: filterableMeta?.entity,
+          adapter,
+          allowed: (FilterClass as unknown as { select?: readonly string[] }).select,
+          throwOnInvalid: throwOnInvalidPolicy,
+          apply: adapter?.applySelect?.bind(adapter),
+          unsupported: { feature: 'Sparse fieldsets (select) requested', method: 'applySelect' },
+        });
 
         // Apply sort — falling back to defaultSort when the client gave none.
         const parsedSorts = this.parseSorts(rawSort);
@@ -538,9 +585,7 @@ export class FilterRunner {
     context: FilterContext,
   ): Promise<void> {
     if (!this.adapter?.applyRelationConstraint) {
-      this.logger.warn(
-        `Relation "${relationName}" skipped: adapter does not support applyRelationConstraint.`,
-      );
+      this.warnUnsupported(`Relation "${relationName}" provided`, 'applyRelationConstraint');
       return;
     }
     const inputObj: Record<string, unknown> = {};
@@ -771,20 +816,24 @@ export class FilterRunner {
   /**
    * Applies global search across string columns or a tsvector column.
    */
+  /**
+   * Apply a global search term. Static mode passes the filter class's `search`
+   * config (a tsvector spec, an explicit column list, or absent → auto-detect);
+   * dynamic mode passes no config and always auto-detects string columns from
+   * entity metadata. `slowSearchHint` tailors the >10-columns warning per mode.
+   */
   private applyGlobalSearch<Q>(
     qb: Q,
     searchTerm: string,
-    FilterClass: Type<unknown>,
-    adapter: FilterAdapter | null,
-    filterableMeta: { entity: Type<unknown> } | undefined,
+    opts: {
+      entity: Type<unknown> | undefined;
+      adapter: FilterAdapter | null;
+      searchConfig?: readonly string[] | { vector: string; rank?: boolean } | undefined;
+      slowSearchHint: string;
+    },
   ): void {
-    if (!adapter || !filterableMeta) return;
-
-    const searchConfig = (
-      FilterClass as unknown as {
-        search?: readonly string[] | { vector: string; rank?: boolean };
-      }
-    ).search;
+    const { entity, adapter, searchConfig, slowSearchHint } = opts;
+    if (!adapter || !entity) return;
 
     if (searchConfig && typeof searchConfig === 'object' && 'vector' in searchConfig) {
       // tsvector search
@@ -796,24 +845,22 @@ export class FilterRunner {
       return;
     }
 
-    // ILIKE search
-    let columns: string[];
-    if (Array.isArray(searchConfig)) {
-      columns = searchConfig as string[];
-    } else {
-      // Auto-detect: get all string columns from entity metadata
-      const fields = adapter.getEntityFields?.(filterableMeta.entity);
-      columns = fields?.filter((f) => f.type === 'string').map((f) => f.name) ?? [];
-    }
+    // ILIKE search: explicit column list, else auto-detect string columns.
+    const columns = Array.isArray(searchConfig)
+      ? (searchConfig as string[])
+      : (adapter
+          .getEntityFields?.(entity)
+          ?.filter((f) => f.type === 'string')
+          .map((f) => f.name) ?? []);
 
     if (columns.length > 10) {
       this.logger.warn(
-        `Global search on ${columns.length} columns may be slow. Consider declaring static search = [...] on ${FilterClass.name}`,
+        `Global search on ${columns.length} columns may be slow. Consider ${slowSearchHint}`,
       );
     }
 
     if (columns.length > 0 && adapter.applySearch) {
-      adapter.applySearch(qb, searchTerm, columns, filterableMeta.entity);
+      adapter.applySearch(qb, searchTerm, columns, entity);
     }
   }
 
@@ -839,26 +886,16 @@ export class FilterRunner {
   ): Promise<Q> {
     const adapter = this.resolveAdapter();
 
-    // Extract structured input: { filter, include, search, sort, distinct, select, paginate }
-    const rawInput = this.extractStructuredInput(input, {
-      ...(internal.native !== undefined && { native: internal.native }),
-    });
-    const filterInput = rawInput.filter;
-    const rawInclude = rawInput.include;
-    const rawSearch = rawInput.search;
-    const rawSort = rawInput.sort;
-    const rawDistinct = rawInput.distinct;
-    const rawSelect = rawInput.select;
-    const rawPaginate = rawInput.paginate;
-
-    // Extract column filters before normalization
-    const { columnFilters, remainingInput } = this.extractColumnFilters(filterInput);
-
-    const normalized = normalizeInput(remainingInput, {
-      normalizer: this.options.inputNormalizer ?? 'camelCase',
-      dropId: this.options.dropId ?? true,
-      ...(this.options.stripEmpty !== undefined && { stripEmpty: this.options.stripEmpty }),
-    });
+    const {
+      rawInclude,
+      rawSearch,
+      rawSort,
+      rawDistinct,
+      rawSelect,
+      rawPaginate,
+      columnFilters,
+      normalized,
+    } = this.prepareInput(input, internal);
 
     // Apply column filters via adapter — dynamic mode validates the filter
     // fields against entity metadata (like sort/auto-fields), dropping
@@ -876,9 +913,7 @@ export class FilterRunner {
         adapter.applyColumnFilters(qb, knownFilters, entity);
       }
     } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
-      this.logger.warn(
-        'Column filters (where) provided but adapter does not support applyColumnFilters. Skipping.',
-      );
+      this.warnUnsupported('Column filters (where) provided', 'applyColumnFilters');
     }
 
     // Auto-fields: all entity columns (no filter class = no @FilterFor to check)
@@ -923,38 +958,30 @@ export class FilterRunner {
 
     // Search — auto-detect all string columns from entity metadata
     if (rawSearch && typeof rawSearch === 'string' && rawSearch.trim()) {
-      this.applyGlobalSearchDynamic(qb, rawSearch.trim(), entity, adapter);
+      this.applyGlobalSearch(qb, rawSearch.trim(), {
+        entity,
+        adapter,
+        slowSearchHint: 'using a filter class with static search = [...]',
+      });
     }
 
     // Distinct projection (SELECT DISTINCT) — validate against entity metadata
-    const distinctFields = this.parseDistinct(rawDistinct);
-    if (distinctFields.length > 0 && adapter?.applyDistinct) {
-      const validDistinct = this.validateDistinct(
-        distinctFields,
-        undefined,
-        adapter,
-        entity,
-        throwOnInvalid,
-      );
-      if (validDistinct.length > 0) {
-        adapter.applyDistinct(qb as unknown, validDistinct, entity);
-      }
-    }
+    this.applyProjection(qb, rawDistinct, {
+      entity,
+      adapter,
+      allowed: undefined,
+      throwOnInvalid,
+      apply: adapter?.applyDistinct?.bind(adapter),
+    });
 
     // Sparse fieldsets (SELECT narrowing) — validate against entity metadata.
-    const selectFields = this.parseDistinct(rawSelect);
-    if (selectFields.length > 0 && adapter?.applySelect) {
-      const validSelect = this.validateDistinct(
-        selectFields,
-        undefined,
-        adapter,
-        entity,
-        throwOnInvalid,
-      );
-      if (validSelect.length > 0) {
-        adapter.applySelect(qb as unknown, validSelect, entity);
-      }
-    }
+    this.applyProjection(qb, rawSelect, {
+      entity,
+      adapter,
+      allowed: undefined,
+      throwOnInvalid,
+      apply: adapter?.applySelect?.bind(adapter),
+    });
 
     // Sort and pagination are skipped when the caller (e.g. findPage with
     // cursor pagination) owns ordering and slicing itself.
@@ -1339,28 +1366,6 @@ export class FilterRunner {
    * Applies global search for dynamic mode: auto-detects all string columns
    * from entity metadata (no filter class with static search config).
    */
-  private applyGlobalSearchDynamic<Q>(
-    qb: Q,
-    searchTerm: string,
-    entity: Type<unknown>,
-    adapter: FilterAdapter | null,
-  ): void {
-    if (!adapter) return;
-
-    const fields = adapter.getEntityFields?.(entity);
-    const columns = fields?.filter((f) => f.type === 'string').map((f) => f.name) ?? [];
-
-    if (columns.length > 10) {
-      this.logger.warn(
-        `Global search on ${columns.length} columns may be slow. Consider using a filter class with static search = [...]`,
-      );
-    }
-
-    if (columns.length > 0 && adapter.applySearch) {
-      adapter.applySearch(qb, searchTerm, columns, entity);
-    }
-  }
-
   /**
    * Resolves the effective `throwOnInvalid` policy: per-@Filterable wins over
    * the module option, which defaults to `false` (silent-drop, legacy behavior).
@@ -1516,9 +1521,7 @@ export class FilterRunner {
         if (adapter.applyComputedSort) {
           adapter.applyComputedSort(qb as unknown, computed[sort.field]!, sort.direction);
         } else {
-          this.logger.warn(
-            `Computed sort "${sort.field}" requested but adapter does not support applyComputedSort. Skipping.`,
-          );
+          this.warnUnsupported(`Computed sort "${sort.field}" requested`, 'applyComputedSort');
         }
         continue;
       }
