@@ -299,17 +299,27 @@ Use dot-notation to filter on related entities. The library automatically joins 
 
 ### Dynamic filtering with applyDynamic
 
-Query any entity without defining a filter class using `applyDynamic`:
+Query any entity without defining a filter class using `FilterRunner.applyDynamic()`:
 
 ```ts
-import { applyDynamic } from '@dudousxd/nestjs-filter';
+import { Injectable } from '@nestjs/common';
+import { FilterRunner } from '@dudousxd/nestjs-filter';
+import type { SqlEntityManager } from '@mikro-orm/sql';
+import { User } from './user.entity.js';
 
-const qb = em.createQueryBuilder(User);
-await applyDynamic(qb, {
-  filter: { name: 'Al', status: 'active' },
-  sort: ['-createdAt'],
-  paginate: { page: 0, size: 10 },
-});
+@Injectable()
+export class UsersService {
+  constructor(
+    private readonly runner: FilterRunner,
+    private readonly em: SqlEntityManager,
+  ) {}
+
+  async search(input: Record<string, unknown>) {
+    const qb = this.em.createQueryBuilder(User);
+    await this.runner.applyDynamic(User, input, qb);
+    return qb.getResultList();
+  }
+}
 ```
 
 Entity metadata introspection ensures unknown fields are rejected at runtime.
