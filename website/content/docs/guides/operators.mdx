@@ -218,6 +218,43 @@ This produces: `WHERE role = 'admin' AND (name LIKE '%sync%' OR email LIKE '%syn
 
 ---
 
+## JSON sub-path filtering
+
+When a `field` is a dotted path whose head segment is a JSON column (`json`/`jsonb`), the remaining segments are treated as keys inside the JSON value. No special operator or syntax is needed — you reuse the same dot-notation as relation paths, and the adapter detects that the head is a JSON column rather than a relation.
+
+```json
+{
+  "where": [
+    { "field": "metadata.tier", "operator": "equals", "value": "pro" },
+    { "field": "metadata.amount", "operator": "gte", "value": 100 }
+  ]
+}
+```
+
+Given a `metadata` JSON column, `metadata.tier` resolves to the `tier` key inside it, and `metadata.amount` to the `amount` key. Deeper paths work too — `metadata.a.b` extracts `a.b`. MikroORM compiles these to engine-specific JSON extraction (e.g. `->>` on PostgreSQL).
+
+Supported operators on a JSON sub-path:
+
+| Group | Operators |
+|-------|-----------|
+| Comparison | `equals`, `notEquals`, `gt`, `gte`, `lt`, `lte` |
+| String | `contains` |
+| Array | `in` |
+| Range | `between` |
+| Unary | `isNull`, `isNotNull` |
+
+JSON sub-paths can also be used for **sorting** — see [Sort](/docs/getting-started#sort).
+
+<Callout type="info">
+  JSON sub-path filtering and sorting are implemented by the **MikroORM** adapter only. The TypeORM adapter resolves dotted paths as relations, not JSON keys.
+</Callout>
+
+<Callout type="warn">
+  Numeric `WHERE` comparisons on a JSON sub-path compare numerically on SQLite, MySQL, and PostgreSQL. But numeric **sort** by a JSON sub-path on **PostgreSQL** is lexical: `->>` extracts text and `ORDER BY` does not auto-cast (unlike `WHERE`). Numeric JSON sort is correct on SQLite and MySQL. For portable ordering, sort by JSON sub-paths whose values are strings.
+</Callout>
+
+---
+
 ## Mixed mode: operators + @FilterFor
 
 You can use both approaches together. The `FilterRunner` processes `where` (column filters) first, then dispatches remaining keys to `@FilterFor` methods:

@@ -235,6 +235,15 @@ The `sort` field accepts an array of field names. Prefix a field with `-` for de
 // ORDER BY createdAt DESC, name ASC
 ```
 
+A sort entry can also target a sub-key of a JSON column using dot-notation (MikroORM adapter only):
+
+```ts
+{ sort: ['-metadata.amount', 'metadata.tier'] }
+// ORDER BY metadata->>'amount' DESC, metadata->>'tier' ASC
+```
+
+See [JSON sub-path filtering](/docs/guides/operators#json-sub-path-filtering) for the full list of supported operators and the PostgreSQL numeric-sort caveat.
+
 ### Pagination
 
 The `paginate` field supports offset-based pagination:
