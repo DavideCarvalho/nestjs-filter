@@ -685,6 +685,46 @@ describe('FilterQueryBuilder', () => {
     });
   });
 
+  describe('JSON array-path fields (a.b[].c)', () => {
+    it('builds an `in` filter for an array-path field', () => {
+      const result = filterQuery()
+        .where('problems.automatedChecks[].field', 'in', ['Actual Labor Cost'])
+        .build();
+      expect(result).toEqual({
+        filter: {
+          where: [
+            {
+              field: 'problems.automatedChecks[].field',
+              operator: 'in',
+              value: ['Actual Labor Cost'],
+            },
+          ],
+        },
+      });
+    });
+
+    it('builds an isNotEmpty filter for a trailing array marker', () => {
+      const result = filterQuery().where('problems.automatedChecks[]', 'isNotEmpty').build();
+      expect(result).toEqual({
+        filter: {
+          where: [
+            { field: 'problems.automatedChecks[]', operator: 'isNotEmpty', value: undefined },
+          ],
+        },
+      });
+    });
+
+    it('serializes an array-path `in` filter to a query string (brackets url-encoded)', () => {
+      const qs = filterQuery()
+        .where('problems.automatedChecks[].field', 'in', ['Actual Labor Cost', 'Mileage'])
+        .toQueryString();
+      const decoded = decodeURIComponent(qs);
+      expect(decoded).toContain('problems.automatedChecks[].field');
+      expect(decoded).toContain('Actual Labor Cost');
+      expect(decoded).toContain('Mileage');
+    });
+  });
+
   // ─── Safeguards ─────────────────────────────────────────────────────────────
 
   describe('safeguards — scalar operators reject arrays', () => {

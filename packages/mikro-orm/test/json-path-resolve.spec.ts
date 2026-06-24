@@ -70,4 +70,39 @@ describe('MikroOrmAdapter.resolveFieldPath — JSON sub-paths', () => {
     expect(adapter.resolveJsonPath(Inspection as never, 'name.nope')).toBeNull();
     expect(adapter.resolveJsonPath(Inspection as never, 'name')).toBeNull();
   });
+
+  it('resolves a JSON array-path (a.b[].c) to element + array paths', async () => {
+    orm = await MikroORM.init({
+      driver: SqliteDriver,
+      dbName: ':memory:',
+      entities: [Inspection],
+      allowGlobalContext: true,
+      metadataProvider: ReflectMetadataProvider,
+    });
+    await orm.schema.create();
+
+    const adapter = new MikroOrmAdapter(orm.em);
+
+    expect(adapter.resolveJsonArrayPath(Inspection as never, 'metadata.checks[].field')).toEqual({
+      column: 'metadata',
+      elementPath: '$.checks[*].field',
+      arrayPath: '$.checks',
+    });
+
+    // Trailing array marker → element path is the array itself.
+    expect(adapter.resolveJsonArrayPath(Inspection as never, 'metadata.checks[]')).toEqual({
+      column: 'metadata',
+      elementPath: '$.checks[*]',
+      arrayPath: '$.checks',
+    });
+
+    // No array marker → null (rides the native JSON-object path instead).
+    expect(adapter.resolveJsonArrayPath(Inspection as never, 'metadata.tier')).toBeNull();
+
+    // Head is not a JSON column → null.
+    expect(adapter.resolveJsonArrayPath(Inspection as never, 'name.x[].y')).toBeNull();
+
+    // Array marker on the JSON column head itself → null (column is not an array).
+    expect(adapter.resolveJsonArrayPath(Inspection as never, 'metadata[].x')).toBeNull();
+  });
 });

@@ -53,6 +53,72 @@ export class InvalidColumnFilterError extends Error {
 }
 
 /**
+ * Allowed shape of a filter field path.
+ *
+ * - Each dot-separated segment is a normal identifier (`a-zA-Z_` then
+ *   `a-zA-Z0-9_`).
+ * - A segment may be suffixed with the array marker `[]` to mean "traverse any
+ *   element of this JSON array" — e.g. `problems.automatedChecks[].field`
+ *   ("any element of the `automatedChecks` array whose `.field` matches").
+ *
+ * Still rejects raw `[`/`]`, numeric indices (`a[0]`), trailing/leading dots,
+ * and any SQL-unsafe character. `[]` is the ONLY bracket form permitted.
+ */
+const FIELD_PATH_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*(\[\])?(\.[a-zA-Z_][a-zA-Z0-9_]*(\[\])?)*$/;
+
+/**
+ * Whether a filter field path is well-formed (see {@link FIELD_PATH_PATTERN}).
+ * Exported so adapters can re-use the exact same acceptance rule.
+ */
+export function isValidFieldPath(field: string): boolean {
+  return FIELD_PATH_PATTERN.test(field);
+}
+
+/**
+ * A single parsed segment of a field path.
+ */
+export interface FieldPathSegment {
+  /** The bare segment name, with any `[]` marker stripped. */
+  name: string;
+  /** True when the segment carried the `[]` array marker (`foo[]`). */
+  isArray: boolean;
+}
+
+/**
+ * Parses a (validated) field path into its segments, flagging which ones carry
+ * the `[]` array marker.
+ *
+ * `problems.automatedChecks[].field`
+ *   → [{ name: 'problems', isArray: false },
+ *      { name: 'automatedChecks', isArray: true },
+ *      { name: 'field', isArray: false }]
+ *
+ * Throws {@link InvalidColumnFilterError} for malformed paths so callers never
+ * have to re-derive the acceptance rule.
+ */
+export function parseFieldPath(field: string): FieldPathSegment[] {
+  if (typeof field !== 'string' || field.length === 0) {
+    throw new InvalidColumnFilterError('Field path must be a non-empty string.');
+  }
+  if (!isValidFieldPath(field)) {
+    throw new InvalidColumnFilterError(
+      `Field path "${field}" contains invalid characters. Only letters, digits, underscores, dots, and the array marker "[]" are allowed.`,
+    );
+  }
+  return field.split('.').map((segment) => {
+    const isArray = segment.endsWith('[]');
+    return { name: isArray ? segment.slice(0, -2) : segment, isArray };
+  });
+}
+
+/**
+ * Whether a field path traverses at least one JSON array (`a.b[].c`).
+ */
+export function hasArrayPathSegment(field: string): boolean {
+  return field.includes('[]');
+}
+
+/**
  * Validates a ColumnFilter at runtime:
  * - field must be a non-empty string with no SQL-unsafe characters
  * - operator must be a known FilterOperator
@@ -98,10 +164,12 @@ export function validateColumnFilter(filter: ColumnFilter, depth = 0): void {
   if (typeof filter.field !== 'string' || filter.field.length === 0) {
     throw new InvalidColumnFilterError('Column filter "field" must be a non-empty string.');
   }
-  // Reject field names that contain SQL-unsafe characters
-  if (!/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(filter.field)) {
+  // Reject field names that contain SQL-unsafe characters. The `[]` array
+  // marker (`a.b[].c`) is permitted for JSON-array traversal; raw brackets and
+  // numeric indices are still rejected.
+  if (!isValidFieldPath(filter.field)) {
     throw new InvalidColumnFilterError(
-      `Column filter field "${filter.field}" contains invalid characters. Only letters, digits, underscores, and dots are allowed.`,
+      `Column filter field "${filter.field}" contains invalid characters. Only letters, digits, underscores, dots, and the array marker "[]" are allowed.`,
     );
   }
 

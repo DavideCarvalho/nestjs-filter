@@ -126,6 +126,41 @@ describe('validateColumnFilter', () => {
     ).not.toThrow();
   });
 
+  it('accepts JSON array-path field names (a.b[].c)', () => {
+    expect(() =>
+      validateColumnFilter({ field: 'a.b[].c', operator: 'in', value: ['x'] }),
+    ).not.toThrow();
+    expect(() =>
+      validateColumnFilter({
+        field: 'problems.automatedChecks[].field',
+        operator: 'in',
+        value: ['Actual Labor Cost'],
+      }),
+    ).not.toThrow();
+    // Trailing array marker (whole-array existence check).
+    expect(() =>
+      validateColumnFilter({ field: 'problems.automatedChecks[]', operator: 'isNotEmpty' }),
+    ).not.toThrow();
+  });
+
+  it('rejects numeric indices and raw brackets in field names', () => {
+    for (const field of ['a[0]', 'a[', 'a.b]', 'a[].b[0]', 'a.[].b', '[]a', 'a[]b']) {
+      expect(
+        () => validateColumnFilter({ field, operator: 'equals', value: 1 }),
+        `expected "${field}" to be rejected`,
+      ).toThrow(/invalid characters/);
+    }
+  });
+
+  it('rejects injection attempts disguised with array markers', () => {
+    for (const field of ['a.b[];DROP TABLE x', "a.b[]'", 'a.b[] OR 1=1']) {
+      expect(
+        () => validateColumnFilter({ field, operator: 'in', value: ['x'] }),
+        `expected "${field}" to be rejected`,
+      ).toThrow(/invalid characters/);
+    }
+  });
+
   it('rejects null value for non-unary operators', () => {
     expect(() => validateColumnFilter({ field: 'name', operator: 'equals', value: null })).toThrow(
       /null.*isNull/,

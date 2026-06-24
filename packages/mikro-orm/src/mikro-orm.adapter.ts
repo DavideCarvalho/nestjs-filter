@@ -5,12 +5,28 @@ import {
   type FilterAdapter,
   type SortItem,
   escapeLike,
+  hasArrayPathSegment,
   isOperatorObject,
+  normalizeOperator,
+  parseFieldPath,
 } from '@dudousxd/nestjs-filter';
-import { ReferenceKind } from '@mikro-orm/core';
+import { type RawQueryFragment, ReferenceKind, raw } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/sql';
 import type { Type } from '@nestjs/common';
 import { resolveColumnFilters } from './operator-resolver.js';
+
+/**
+ * Resolution of a JSON array-path field (`a.b[].c`): the real DB column name of
+ * the JSON column, the MySQL JSON path to the array element (`$.b[*].c`), and
+ * the JSON path to the array itself (`$.b`) for existence checks.
+ */
+interface JsonArrayPath {
+  column: string;
+  /** `$.b[*].c` — element-wildcard path used for value matching. */
+  elementPath: string;
+  /** `$.b` — path to the array node itself, for `JSON_LENGTH` existence. */
+  arrayPath: string;
+}
 
 export class MikroOrmAdapter implements FilterAdapter {
   constructor(private readonly em: SqlEntityManager) {}
@@ -39,13 +55,127 @@ export class MikroOrmAdapter implements FilterAdapter {
 
   applyColumnFilters(qb: unknown, filters: ColumnFilter[], entity?: Type<unknown>): void {
     if (filters.length === 0) return;
-    const stringFields = entity ? this.stringFieldsOf(entity) : undefined;
-    const condition = resolveColumnFilters(filters, {
-      usesIlike: this.usesIlike(),
-      ...(stringFields ? { stringFields } : {}),
-    });
     const queryBuilder = qb as { andWhere: (condition: unknown) => void };
-    queryBuilder.andWhere(condition);
+
+    // JSON array-path filters (`a.b[].c`) can't ride MikroORM's native nested-
+    // object → JSON_EXTRACT translation (that only walks JSON *objects*), so
+    // they are pulled out and emitted as raw `JSON_OVERLAPS`/`JSON_LENGTH`
+    // predicates. Everything else flows through the portable resolver unchanged.
+    const arrayFilters: ColumnFilter[] = [];
+    const scalarFilters: ColumnFilter[] = [];
+    for (const filter of filters) {
+      if (typeof filter.field === 'string' && hasArrayPathSegment(filter.field)) {
+        arrayFilters.push(filter);
+      } else {
+        scalarFilters.push(filter);
+      }
+    }
+
+    if (scalarFilters.length > 0) {
+      const stringFields = entity ? this.stringFieldsOf(entity) : undefined;
+      const condition = resolveColumnFilters(scalarFilters, {
+        usesIlike: this.usesIlike(),
+        ...(stringFields ? { stringFields } : {}),
+      });
+      queryBuilder.andWhere(condition);
+    }
+
+    for (const filter of arrayFilters) {
+      const fragment = entity ? this.buildJsonArrayCondition(filter, entity) : null;
+      if (fragment) queryBuilder.andWhere(fragment);
+    }
+  }
+
+  /**
+   * Resolves a JSON array-path field (`a.b[].c`) to its DB column + MySQL JSON
+   * paths. Returns `null` when the head segment is not a JSON column, the field
+   * carries no array marker, or metadata can't be read.
+   *
+   * `problems.automatedChecks[].field`
+   *   → { column: 'problems', elementPath: '$.automatedChecks[*].field', arrayPath: '$.automatedChecks' }
+   */
+  resolveJsonArrayPath(entity: Type<unknown>, path: string): JsonArrayPath | null {
+    try {
+      if (!hasArrayPathSegment(path)) return null;
+      const segments = parseFieldPath(path);
+      const [head, ...rest] = segments;
+      if (!head || rest.length === 0) return null;
+      // The array marker must live below the JSON column, not on it.
+      if (head.isArray) return null;
+      const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+      const prop = meta?.properties?.[head.name];
+      if (!prop || prop.kind !== ReferenceKind.SCALAR) return null;
+      if (!this.isJsonProp(prop.columnTypes)) return null;
+      const column = prop.fieldNames?.[0] ?? head.name;
+
+      // Build the `$.a[*].b` element path and the `$.a…` array-node path (the
+      // path up to and including the FIRST array segment).
+      let elementPath = '$';
+      let arrayPath: string | null = null;
+      for (const segment of rest) {
+        elementPath += `.${segment.name}`;
+        if (segment.isArray) {
+          if (arrayPath === null) arrayPath = elementPath;
+          elementPath += '[*]';
+        }
+      }
+      if (arrayPath === null) return null;
+      return { column, elementPath, arrayPath };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Builds a raw, parameter-bound MySQL predicate for a JSON array-path filter.
+   * Column name comes from validated ORM metadata; the JSON path and values are
+   * bound as parameters, so the predicate is SQL-injection safe.
+   *
+   *   in / equals       → JSON_OVERLAPS(JSON_EXTRACT(col, '$.a[*].b'), JSON_ARRAY(?, …))
+   *   isNotEmpty/exists → JSON_LENGTH(JSON_EXTRACT(col, '$.a')) > 0
+   *   isEmpty/notExists → COALESCE(JSON_LENGTH(JSON_EXTRACT(col, '$.a')), 0) = 0
+   */
+  private buildJsonArrayCondition(
+    filter: ColumnFilter,
+    entity: Type<unknown>,
+  ): RawQueryFragment | null {
+    const resolved = this.resolveJsonArrayPath(entity, filter.field);
+    if (!resolved) return null;
+    const { column, elementPath, arrayPath } = resolved;
+    // Backtick-quote the (metadata-derived) column identifier defensively.
+    const col = `\`${column.replace(/`/g, '``')}\``;
+    const operator = normalizeOperator(filter.operator);
+
+    switch (operator) {
+      case 'in':
+      case 'isAnyOf': {
+        const values = Array.isArray(filter.value) ? filter.value : [];
+        if (values.length === 0) return null;
+        const placeholders = values.map(() => '?').join(', ');
+        return raw(`json_overlaps(json_extract(${col}, ?), json_array(${placeholders}))`, [
+          elementPath,
+          ...values,
+        ]);
+      }
+      case 'equals': {
+        return raw(`json_overlaps(json_extract(${col}, ?), json_array(?))`, [
+          elementPath,
+          filter.value,
+        ]);
+      }
+      case 'isNotEmpty':
+      case 'exists': {
+        return raw(`json_length(json_extract(${col}, ?)) > 0`, [arrayPath]);
+      }
+      case 'isEmpty':
+      case 'notExists': {
+        return raw(`coalesce(json_length(json_extract(${col}, ?)), 0) = 0`, [arrayPath]);
+      }
+      default:
+        throw new Error(
+          `Unsupported operator "${operator}" for JSON array-path field "${filter.field}". Supported: in, isAnyOf, equals, isNotEmpty, exists, isEmpty, notExists.`,
+        );
+    }
   }
 
   /** Names of the entity's string-typed scalar columns (for `isEmpty` safety). */

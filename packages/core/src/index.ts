@@ -104,5 +104,9 @@ export {
   normalizeOperator,
   InvalidColumnFilterError,
   MAX_FILTER_DEPTH,
+  isValidFieldPath,
+  parseFieldPath,
+  hasArrayPathSegment,
 } from './operators/validate-column-filter.js';
+export type { FieldPathSegment } from './operators/validate-column-filter.js';
 export { isOperatorObject, valueToColumnFilters } from './operators/value-shape.js';
