@@ -192,4 +192,51 @@ describe('MySQL — JSON array-path column filters', () => {
     });
     expect(result).toEqual([]);
   });
+
+  // Array-path filters are commonly NESTED under a scope filter's AND (the real
+  // client ANDs a base/scope predicate with column filters). The compilation
+  // must reach array paths at any depth, not just at the top level.
+  it('nested: array-path under a top-level AND still filters → [a, c]', async () => {
+    await seedSubwos(orm);
+    const result = await filterLabels(orm, {
+      field: 'label',
+      operator: 'in',
+      value: ['a', 'b', 'c', 'd', 'e'],
+      AND: [
+        {
+          field: 'problems.automatedChecks[].field',
+          operator: 'in',
+          value: ['Actual Labor Cost'],
+        },
+      ],
+    });
+    expect(result).toEqual(['a', 'c']);
+  });
+
+  it('nested: array-path isNotEmpty under a top-level AND → [a, b, c]', async () => {
+    await seedSubwos(orm);
+    const result = await filterLabels(orm, {
+      field: 'label',
+      operator: 'in',
+      value: ['a', 'b', 'c', 'd', 'e'],
+      AND: [{ field: 'problems.automatedChecks[]', operator: 'isNotEmpty' }],
+    });
+    expect(result).toEqual(['a', 'b', 'c']);
+  });
+
+  it('nested: array-path inside an OR group composes → [a, b, d]', async () => {
+    await seedSubwos(orm);
+    // label = 'd'  OR  any element field in ['Mileage']  → d ∪ {a, b}
+    const result = await filterLabels(orm, {
+      OR: [
+        { field: 'label', operator: 'equals', value: 'd' },
+        {
+          field: 'problems.automatedChecks[].field',
+          operator: 'in',
+          value: ['Mileage'],
+        },
+      ],
+    } as ColumnFilter);
+    expect(result).toEqual(['a', 'b', 'd']);
+  });
 });

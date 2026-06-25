@@ -1,4 +1,9 @@
-import { MAX_FILTER_DEPTH, escapeLike, normalizeOperator } from '@dudousxd/nestjs-filter';
+import {
+  MAX_FILTER_DEPTH,
+  escapeLike,
+  hasArrayPathSegment,
+  normalizeOperator,
+} from '@dudousxd/nestjs-filter';
 import type { ColumnFilter } from '@dudousxd/nestjs-filter';
 
 /**
@@ -20,6 +25,17 @@ export interface ResolveContext {
    * empty-string comparison is kept for every field (legacy behaviour).
    */
   stringFields?: Set<string>;
+  /**
+   * Compiles a JSON array-path filter (`a.b[].c`) into a raw SQL fragment.
+   * Injected by the adapter, which holds the ORM metadata needed to resolve the
+   * JSON column and path. When present, array-path filters at any nesting depth
+   * are emitted as raw predicates that compose inside `$and`/`$or`, instead of
+   * falling through to the object-path resolver — which can only walk JSON
+   * *objects* and silently matches nothing for array paths. Returns a falsy
+   * value when the path isn't a real JSON array column or the value set is
+   * empty, in which case the leaf contributes a match-all.
+   */
+  resolveArrayPath?: (filter: ColumnFilter) => unknown;
 }
 
 /**
@@ -195,6 +211,22 @@ function expand(node: unknown): unknown {
   return out;
 }
 
+/**
+ * Resolves a single (non-group) filter to its leaf condition. JSON array-path
+ * fields (`a.b[].c`) are delegated to `ctx.resolveArrayPath` (the adapter, which
+ * has ORM metadata) and embedded as a raw fragment so they compose inside
+ * `$and`/`$or` at any depth; a falsy fragment contributes a match-all rather
+ * than a broken object path. Everything else flows through the portable
+ * operator resolver, with dotted relation paths expanded to nested objects.
+ */
+function resolveLeaf(filter: ColumnFilter, ctx?: ResolveContext): Record<string, unknown> {
+  if (typeof filter.field === 'string' && hasArrayPathSegment(filter.field)) {
+    const fragment = ctx?.resolveArrayPath?.(filter);
+    return fragment ? { [fragment as PropertyKey]: [] } : {};
+  }
+  return expand(resolveOperator(filter, ctx)) as Record<string, unknown>;
+}
+
 function resolveSingleFilter(
   filter: ColumnFilter,
   ctx?: ResolveContext,
@@ -212,9 +244,7 @@ function resolveSingleFilter(
       (filter.OR !== undefined && filter.OR.length > 0));
   // Expand dotted relation paths in the operator's condition as it is emitted,
   // folding the old post-hoc full-tree pass into construction.
-  const parts: Record<string, unknown>[] = isGroupNode
-    ? []
-    : [expand(resolveOperator(filter, ctx)) as Record<string, unknown>];
+  const parts: Record<string, unknown>[] = isGroupNode ? [] : [resolveLeaf(filter, ctx)];
 
   // Handle nested AND
   if (filter.AND && filter.AND.length > 0) {
