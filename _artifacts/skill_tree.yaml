@@ -1,0 +1,49 @@
+# Skill tree for nestjs-filter. Flat structure, all type: core, no router skill.
+# Each entry names its package and the target SKILL.md path.
+
+structure: flat
+routerSkill: false
+
+skills:
+  - name: filter-basics
+    type: core
+    package: "@dudousxd/nestjs-filter"
+    path: packages/core/skills/filter-basics/SKILL.md
+    covers: [Filterable, FilterFor, BaseFilter, ApplyFilter, FilterModule.forRoot,
+             FilterModule.forFeature, FilterRunner.apply]
+
+  - name: structured-querying
+    type: core
+    package: "@dudousxd/nestjs-filter"
+    path: packages/core/skills/structured-querying/SKILL.md
+    covers: [where ColumnFilter, sort, include, search, distinct, select, paginate,
+             autoFields, applyDynamic, findAndCount, findPage, describe]
+
+  - name: filter-safety
+    type: core
+    package: "@dudousxd/nestjs-filter"
+    path: packages/core/skills/filter-safety/SKILL.md
+    covers: [allowed, blocked, operator-allowlist, throwOnInvalid, onUnknownKey,
+             validation, TenantScoped, defaultSort, FilterExceptionFilter,
+             FilterTestingModule, makeMockQueryBuilder]
+
+  - name: mikro-orm-adapter
+    type: core
+    package: "@dudousxd/nestjs-filter-mikro-orm"
+    path: packages/mikro-orm/skills/mikro-orm-adapter/SKILL.md
+    covers: [MikroOrmFilter, MikroOrmFilterModule.forRoot, MikroOrmAdapter,
+             QueryBuilder andWhere, whereLike, JSON paths]
+
+  - name: typeorm-adapter
+    type: core
+    package: "@dudousxd/nestjs-filter-typeorm"
+    path: packages/typeorm/skills/typeorm-adapter/SKILL.md
+    covers: [TypeOrmFilter, TypeOrmFilterModule.forRoot, TypeOrmAdapter,
+             SelectQueryBuilder, entityAlias, parameterized andWhere, whereLike]
+
+  - name: filter-query-builder
+    type: core
+    package: "@dudousxd/nestjs-filter-client"
+    path: packages/client/skills/filter-query-builder/SKILL.md
+    covers: [filterQuery, where, equals, in, between, or, and, set, build,
+             toQueryString, filterQueryTyped]
