@@ -1,6 +1,6 @@
 {
   "name": "@dudousxd/nestjs-filter-mikro-orm",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "description": "MikroORM adapter for @dudousxd/nestjs-filter.",
   "license": "MIT",
   "repository": {

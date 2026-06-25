@@ -1,5 +1,13 @@
 # @dudousxd/nestjs-filter-mikro-orm
 
+## 1.10.1
+
+### Patch Changes
+
+- [#33](https://github.com/DavideCarvalho/nestjs-filter/pull/33) [`21a63a4`](https://github.com/DavideCarvalho/nestjs-filter/commit/21a63a4f34c0f0e3407c6a47e31426f3341a2514) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix JSON array-path filters (`a.b[].c`) being ignored when nested inside an `AND`/`OR` group.
+
+  Array-path compilation only ran for top-level `where` filters; a path nested under another filter's `AND`/`OR` fell through to the object-path resolver, which can only walk JSON _objects_ and silently matched nothing. The resolver now compiles array paths at any depth via an injected `resolveArrayPath`, so the common client shape — a base/scope filter `AND`ed with an array-path predicate — filters correctly instead of returning zero rows.
+
 ## 1.10.0
 
 ### Minor Changes
