@@ -58,32 +58,24 @@ export class MikroOrmAdapter implements FilterAdapter {
     const queryBuilder = qb as { andWhere: (condition: unknown) => void };
 
     // JSON array-path filters (`a.b[].c`) can't ride MikroORM's native nested-
-    // object → JSON_EXTRACT translation (that only walks JSON *objects*), so
-    // they are pulled out and emitted as raw `JSON_OVERLAPS`/`JSON_LENGTH`
-    // predicates. Everything else flows through the portable resolver unchanged.
-    const arrayFilters: ColumnFilter[] = [];
-    const scalarFilters: ColumnFilter[] = [];
-    for (const filter of filters) {
-      if (typeof filter.field === 'string' && hasArrayPathSegment(filter.field)) {
-        arrayFilters.push(filter);
-      } else {
-        scalarFilters.push(filter);
-      }
-    }
-
-    if (scalarFilters.length > 0) {
-      const stringFields = entity ? this.stringFieldsOf(entity) : undefined;
-      const condition = resolveColumnFilters(scalarFilters, {
-        usesIlike: this.usesIlike(),
-        ...(stringFields ? { stringFields } : {}),
-      });
-      queryBuilder.andWhere(condition);
-    }
-
-    for (const filter of arrayFilters) {
-      const fragment = entity ? this.buildJsonArrayCondition(filter, entity) : null;
-      if (fragment) queryBuilder.andWhere(fragment);
-    }
+    // object → JSON_EXTRACT translation (that only walks JSON *objects*), so the
+    // resolver delegates them to `resolveArrayPath` (below), which compiles a raw
+    // `JSON_OVERLAPS`/`JSON_LENGTH` predicate. Threading it through the resolver
+    // (rather than splitting top-level filters out here) is what lets array-path
+    // filters work when nested inside an AND/OR group — the common case, where a
+    // base scope is ANDed with column filters.
+    const stringFields = entity ? this.stringFieldsOf(entity) : undefined;
+    const condition = resolveColumnFilters(filters, {
+      usesIlike: this.usesIlike(),
+      ...(stringFields ? { stringFields } : {}),
+      ...(entity
+        ? {
+            resolveArrayPath: (filter: ColumnFilter) =>
+              this.buildJsonArrayCondition(filter, entity),
+          }
+        : {}),
+    });
+    queryBuilder.andWhere(condition);
   }
 
   /**
