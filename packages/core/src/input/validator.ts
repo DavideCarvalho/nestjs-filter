@@ -25,6 +25,13 @@ export async function validateInput<F>(
   const errors = (await mod.validate(instance, {
     whitelist: false,
     forbidNonWhitelisted: false,
+    // class-validator >= 0.14 defaults `forbidUnknownValues` to true, which
+    // rejects ANY instance whose class has no registered validation metadata
+    // (the common case: a filter with no class-validator decorators) with a
+    // spurious "an unknown value was passed to the validate function" error.
+    // Disable it so a decorator-less filter validates cleanly; real constraints
+    // (when decorators ARE present) are still enforced.
+    forbidUnknownValues: false,
   })) as unknown[];
   if (errors.length > 0) throw new FilterValidationException(errors);
   const transformed: Record<string, unknown> = {};
