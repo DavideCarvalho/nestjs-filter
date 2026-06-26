@@ -1,5 +1,27 @@
 # @dudousxd/nestjs-filter
 
+## 1.11.0
+
+### Minor Changes
+
+- [#35](https://github.com/DavideCarvalho/nestjs-filter/pull/35) [`fe3cea6`](https://github.com/DavideCarvalho/nestjs-filter/commit/fe3cea6749fbe1955f3817e988f2a06d0324a2e9) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - fix(core): `FilterRunner` (`@ApplyFilter`) now defaults `dropId` to `false`, matching the documented contract and the input normalizer.
+
+  **Behavior change.** Previously the `FilterRunner` code path treated an unset
+  `dropId` as `true` (`this.options.dropId ?? true`), so it silently stripped the
+  `Id` / `_id` suffix (and bare `id`) from incoming filter field keys by default —
+  even though every README/doc and `normalizeInput` itself document the default as
+  `false`. The two code paths now agree: with `dropId` unset, key suffixes are
+  **kept** (no stripping). Set `dropId: true` explicitly to opt back into stripping.
+
+  **Who is affected:** anyone using `FilterRunner` / `@ApplyFilter` who relied on
+  the implicit `Id`-stripping (e.g. sending `companyId` and expecting it to match a
+  `company` filter). Those keys will no longer be rewritten. To preserve the old
+  behavior, pass `dropId: true` in your `FilterModuleOptions`.
+
+### Patch Changes
+
+- [#35](https://github.com/DavideCarvalho/nestjs-filter/pull/35) [`541510e`](https://github.com/DavideCarvalho/nestjs-filter/commit/541510eb51116c5c586b369afdbb5ab775a281a1) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Ship TanStack Intent agent skills (SKILL.md) inside the package.
+
 ## 1.10.0
 
 ### Minor Changes
