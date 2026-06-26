@@ -823,29 +823,45 @@ describe('FilterQueryBuilder', () => {
     });
   });
 
-  describe('safeguards — unary operators reject values', () => {
-    it('isNull throws when a non-null value is provided', () => {
-      expect(() => filterQuery().where('x', 'isNull', 'something')).toThrow(/does not accept/);
+  describe('unary operators ignore (strip) any provided value', () => {
+    // A value-less operator carries no value by definition. Data-driven callers
+    // (a DataGrid / URL-state filter model) routinely leave a stale value behind
+    // when the user switches a column to such an operator; the builder strips it
+    // instead of throwing, so it never crashes the render that built the query.
+    it('isNull strips a non-null value', () => {
+      const result = filterQuery().where('x', 'isNull', 'something').build();
+      expect(result.filter?.where).toEqual([{ field: 'x', operator: 'isNull', value: undefined }]);
     });
 
-    it('isNotNull throws when a value is provided', () => {
-      expect(() => filterQuery().where('x', 'isNotNull', 42)).toThrow(/does not accept/);
+    it('isNotNull strips a value', () => {
+      const result = filterQuery().where('x', 'isNotNull', 42).build();
+      expect(result.filter?.where).toEqual([
+        { field: 'x', operator: 'isNotNull', value: undefined },
+      ]);
     });
 
-    it('isEmpty throws when a value is provided', () => {
-      expect(() => filterQuery().where('x', 'isEmpty', 'val')).toThrow(/does not accept/);
+    it('isEmpty strips a value', () => {
+      const result = filterQuery().where('x', 'isEmpty', 'val').build();
+      expect(result.filter?.where).toEqual([{ field: 'x', operator: 'isEmpty', value: undefined }]);
     });
 
-    it('isNotEmpty throws when a value is provided', () => {
-      expect(() => filterQuery().where('x', 'isNotEmpty', true)).toThrow(/does not accept/);
+    it('isNotEmpty strips a value', () => {
+      const result = filterQuery().where('x', 'isNotEmpty', true).build();
+      expect(result.filter?.where).toEqual([
+        { field: 'x', operator: 'isNotEmpty', value: undefined },
+      ]);
     });
 
-    it('exists throws when a value is provided', () => {
-      expect(() => filterQuery().where('x', 'exists', 1)).toThrow(/does not accept/);
+    it('exists strips a value', () => {
+      const result = filterQuery().where('x', 'exists', 1).build();
+      expect(result.filter?.where).toEqual([{ field: 'x', operator: 'exists', value: undefined }]);
     });
 
-    it('notExists throws when a value is provided', () => {
-      expect(() => filterQuery().where('x', 'notExists', 'yes')).toThrow(/does not accept/);
+    it('notExists strips a value', () => {
+      const result = filterQuery().where('x', 'notExists', 'yes').build();
+      expect(result.filter?.where).toEqual([
+        { field: 'x', operator: 'notExists', value: undefined },
+      ]);
     });
 
     it('isNull allows null value (treated as absent)', () => {

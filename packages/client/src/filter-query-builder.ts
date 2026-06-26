@@ -1,6 +1,10 @@
 import { columnFiltersToQueryString, flatObjectToQueryString } from './to-query-string.js';
 import type { ColumnFilter, FilterOperator } from './types.js';
-import { validateAddOperator, validateOperatorValue } from './validate-operator-value.js';
+import {
+  UNARY_OPERATORS,
+  validateAddOperator,
+  validateOperatorValue,
+} from './validate-operator-value.js';
 
 /**
  * A single sort directive: field name and direction.
@@ -133,7 +137,9 @@ export class FilterQueryBuilder {
       this.conditions.push({
         field,
         operator: op,
-        value: maybeValue,
+        // Unary operators carry no value — strip any (commonly stale) value the
+        // caller passed so the emitted condition stays canonical.
+        value: UNARY_OPERATORS.has(op) ? undefined : maybeValue,
       });
     } else if (Array.isArray(operatorOrValue)) {
       // Array value → auto in
