@@ -1,5 +1,13 @@
 # @dudousxd/nestjs-filter-client
 
+## 1.10.2
+
+### Patch Changes
+
+- [#36](https://github.com/DavideCarvalho/nestjs-filter/pull/36) [`d48d1f6`](https://github.com/DavideCarvalho/nestjs-filter/commit/d48d1f6b3043746151792e43eb6248782c080f05) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - fix(client): value-less (unary) operators now strip a provided value instead of throwing.
+
+  `where(field, 'isEmpty' | 'isNotEmpty' | 'isNull' | 'isNotNull' | 'exists' | 'notExists', value)` used to throw `Operator "<op>" does not accept a value.`. The real callers are data-driven adapters (a DataGrid / URL-state filter model) that leave a stale value behind when the user switches a column to a value-less operator — and the throw crashed the React render that built the query. Since the value is semantically meaningless for these operators, the builder now normalizes it to `undefined` (canonical, lossless) rather than rejecting it. Genuine type mismatches on value-bearing operators still throw.
+
 ## 1.10.0
 
 ### Minor Changes
