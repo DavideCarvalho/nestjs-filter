@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter-mikro-orm
 
+## 1.11.0
+
+### Patch Changes
+
+- [#35](https://github.com/DavideCarvalho/nestjs-filter/pull/35) [`541510e`](https://github.com/DavideCarvalho/nestjs-filter/commit/541510eb51116c5c586b369afdbb5ab775a281a1) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Ship TanStack Intent agent skills (SKILL.md) inside the package.
+
 ## 1.10.1
 
 ### Patch Changes

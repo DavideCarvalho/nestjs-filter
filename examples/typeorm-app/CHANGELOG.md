@@ -1,5 +1,13 @@
 # @example/typeorm-app
 
+## 0.0.19
+
+### Patch Changes
+
+- Updated dependencies [[`fe3cea6`](https://github.com/DavideCarvalho/nestjs-filter/commit/fe3cea6749fbe1955f3817e988f2a06d0324a2e9), [`541510e`](https://github.com/DavideCarvalho/nestjs-filter/commit/541510eb51116c5c586b369afdbb5ab775a281a1)]:
+  - @dudousxd/nestjs-filter@1.11.0
+  - @dudousxd/nestjs-filter-typeorm@1.11.0
+
 ## 0.0.18
 
 ### Patch Changes
