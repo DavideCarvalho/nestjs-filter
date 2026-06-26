@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter
 
+## 1.11.1
+
+### Patch Changes
+
+- [#39](https://github.com/DavideCarvalho/nestjs-filter/pull/39) [`b301c88`](https://github.com/DavideCarvalho/nestjs-filter/commit/b301c8845eb92143296c122c9c9dd12c0170135b) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix `validation: 'auto'` rejecting filters that have no class-validator decorators. class-validator >= 0.14 defaults `forbidUnknownValues` to `true`, so `validateInput` flagged any decorator-less filter instance with a spurious "an unknown value was passed to the validate function" error (a 500 on every search). `validateInput` now passes `forbidUnknownValues: false`, so decorator-less filters validate cleanly while real constraints are still enforced when decorators are present.
+
 ## 1.11.0
 
 ### Minor Changes
