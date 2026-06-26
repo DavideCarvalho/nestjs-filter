@@ -52,10 +52,15 @@ export const RANGE_OPERATORS: ReadonlySet<FilterOperator> = new Set(RANGE_OPS);
  */
 export function validateOperatorValue(operator: FilterOperator, value: unknown): void {
   if (UNARY_OPERATORS.has(operator)) {
-    // Unary operators accept only null or undefined (no meaningful value)
-    if (value !== null && value !== undefined) {
-      throw new Error(`Operator "${operator}" does not accept a value.`);
-    }
+    // Unary operators take no value, so any value passed is simply ignored —
+    // not rejected. The real callers are data-driven adapters (a DataGrid /
+    // URL-state filter model) that leave a stale value behind when the user
+    // switches a column to a value-less operator like `isEmpty`/`isNotEmpty`.
+    // Throwing here used to crash the React render that built the query; the
+    // value is semantically meaningless for these operators, so the builder
+    // strips it (normalizes to `undefined`) instead. Genuine type mismatches
+    // on value-bearing operators below still throw — those have no safe
+    // normalization and indicate a real programming error.
     return;
   }
 
