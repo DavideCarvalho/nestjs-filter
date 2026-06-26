@@ -199,7 +199,7 @@ export class FilterRunner {
     const { columnFilters, remainingInput } = this.extractColumnFilters(rawInput.filter);
     const normalized = normalizeInput(remainingInput, {
       normalizer: this.options.inputNormalizer ?? 'camelCase',
-      dropId: this.options.dropId ?? true,
+      dropId: this.options.dropId ?? false,
       ...(this.options.stripEmpty !== undefined && { stripEmpty: this.options.stripEmpty }),
     });
     return {

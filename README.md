@@ -236,7 +236,7 @@ Registers the core filter infrastructure globally.
 |--------|------|---------|-------------|
 | `inputNormalizer` | `'camelCase' \| 'snakeCase' \| (key: string) => string` | `'camelCase'` | How to normalize input keys before dispatch. |
 | `inputFormat` | `'native' \| 'spatie'` | `'native'` | Input query format. `'native'` is the library's structured model. `'spatie'` opts into spatie-laravel-query-builder / JSON:API style query strings (`filter[field]=…`, `filter[field][op]=…`, `sort=-a,b`, `include=a,b`, `fields[resource]=a,b`, `page[number]`/`page[after]`). Parsed into the native model first, so allowlist / operator-allowlist / `throwOnInvalid` safety still applies. |
-| `dropId` | `boolean` | `false` | Strip trailing `Id` / `_id` from keys (e.g. `companyId` -> `company`). |
+| `dropId` | `boolean` | _set explicitly_ | Strip trailing `Id` / `_id` from keys (e.g. `companyId` -> `company`). The effective default is currently inconsistent in the code — when run through `FilterRunner`/`@ApplyFilter` the suffix is stripped unless you pass `dropId: false`. Set this explicitly to be safe. |
 | `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | What to do when an input key has no matching `@FilterFor`. |
 | `validation` | `'auto' \| 'off'` | `'auto'` | `'auto'` uses class-validator if installed. `'off'` skips validation. |
 | `throwOnInvalid` | `boolean` | `false` | When `true`, invalid sorts, distinct fields, and unknown `where` columns raise a `BadRequestException` instead of being silently dropped. Overridable per `@Filterable`. |
@@ -315,7 +315,7 @@ Response shape:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `inputNormalizer` | `'camelCase' \| 'snakeCase' \| (key: string) => string` | `'camelCase'` | Normalize input keys before dispatch. |
-| `dropId` | `boolean` | `false` | Strip trailing `Id` / `_id` from keys. |
+| `dropId` | `boolean` | _set explicitly_ | Strip trailing `Id` / `_id` from keys. Effective default is currently inconsistent in the code — when run through `FilterRunner`/`@ApplyFilter` the suffix is stripped unless you pass `dropId: false`. |
 | `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | Policy for unrecognized input keys. |
 | `validation` | `'auto' \| 'off'` | `'auto'` | `'auto'` validates with class-validator if installed; `'off'` skips. |
 

@@ -1,0 +1,123 @@
+# Domain map for nestjs-filter (single map for the whole monorepo).
+# Produced autonomously (no maintainer interview). Grounded in repo source + READMEs.
+
+library: nestjs-filter
+oneLiner: >
+  Declarative, ORM-agnostic filter classes for NestJS. A filter class extends a
+  per-ORM base (MikroOrmFilter / TypeOrmFilter), is marked with @Filterable({ entity }),
+  maps input keys to @FilterFor methods that mutate a request-scoped query builder
+  (this.$query) via AsyncLocalStorage, and is wired into controllers with the
+  @ApplyFilter() param decorator or run programmatically through FilterRunner.
+
+packages:
+  public:
+    - name: "@dudousxd/nestjs-filter"        # packages/core
+      role: core
+      clientFacing: true
+      covered: true
+      imports: [BaseFilter, Filterable, FilterFor, ApplyFilter, FilterModule, FilterRunner,
+                Relations, TenantScoped, FilterExceptionFilter, FilterTestingModule,
+                makeMockQueryBuilder]
+    - name: "@dudousxd/nestjs-filter-mikro-orm"  # packages/mikro-orm
+      role: adapter
+      clientFacing: true
+      covered: true
+      imports: [MikroOrmFilter, MikroOrmFilterModule, MikroOrmAdapter]
+    - name: "@dudousxd/nestjs-filter-typeorm"    # packages/typeorm
+      role: adapter
+      clientFacing: true
+      covered: true
+      imports: [TypeOrmFilter, TypeOrmFilterModule, TypeOrmAdapter]
+    - name: "@dudousxd/nestjs-filter-client"     # packages/client
+      role: client
+      clientFacing: true
+      covered: true
+      imports: [filterQuery, filterQueryTyped, FilterQueryBuilder]
+    - name: "@dudousxd/nestjs-filter-react"      # packages/react
+      role: client-adapter
+      clientFacing: true
+      covered: false
+      reason: >
+        Thin React hook layer (useFilterQuery + nuqs binding) on top of the
+        client builder. Lower priority than the builder itself; left to gaps.
+    - name: "@dudousxd/nestjs-filter-codegen"    # packages/codegen
+      role: tooling
+      clientFacing: false
+      covered: false
+      reason: >
+        Codegen EXTENSION for @dudousxd/nestjs-codegen, not imported by app code.
+        Out of scope for consumer-facing skills.
+
+# The mental model an AI agent must hold to use the library correctly.
+concepts:
+  - id: filter-class
+    summary: >
+      A class extending MikroOrmFilter<E> / TypeOrmFilter<E> (which extend
+      BaseFilter<TQuery>), decorated @Injectable() + @Filterable({ entity }).
+      @FilterFor('key') methods receive the input value and call this.$query.
+    source: packages/core/src/base-filter.ts, packages/core/src/decorator/filterable.decorator.ts
+  - id: request-state-als
+    summary: >
+      this.$query / this.$input / this.$context / this.$adapter are getters backed
+      by AsyncLocalStorage and are ONLY valid while FilterRunner.apply() runs. Read
+      outside a run they throw FilterStateUnavailableException. This is what makes a
+      singleton filter safe across concurrent requests — never store request data on
+      instance fields.
+    source: packages/core/src/base-filter.ts, packages/core/src/als-store.ts
+  - id: wiring
+    summary: >
+      FilterModule.forRoot(options) (global) + an adapter module
+      (MikroOrmFilterModule.forRoot() / TypeOrmFilterModule.forRoot()) + per-feature
+      FilterModule.forFeature([XFilter]). The adapter module must be present or
+      @ApplyFilter throws FilterMissingAdapterException; the filter must be in
+      forFeature or FilterRunner.apply throws FilterNotRegisteredException.
+    source: packages/core/src/module.ts, packages/mikro-orm/src/module.ts, packages/typeorm/src/module.ts
+  - id: apply-filter-decorator
+    summary: >
+      @ApplyFilter(FilterClass, opts?) controller param decorator. The interceptor
+      creates the query builder from the entity, resolves request input (auto:
+      GET/HEAD=query; POST/PUT/PATCH/DELETE=merged query+body, body wins), runs the
+      filter, and injects the mutated builder into the param. opts: source, dto, resolve.
+    source: packages/core/src/decorator/apply-filter.decorator.ts, packages/core/src/interceptor/apply-filter.interceptor.ts
+  - id: structured-input
+    summary: >
+      One request carries filter (named keys → @FilterFor / auto-fields), where
+      (ColumnFilter[] operator tree with AND/OR), sort ("-createdAt,name"), include,
+      search, distinct, select, paginate. FilterRunner.apply orchestrates all stages.
+    source: packages/core/src/runner.ts, packages/core/src/types.ts
+  - id: auto-fields
+    summary: >
+      With autoFields (default true) any input key matching a real entity column is
+      auto-applied as a WHERE without a @FilterFor method. allowed restricts which
+      keys; autoFields:false opts out. Scalar→equals, array→in, {gte,lte}→operators.
+    source: packages/core/src/runner.ts (resolveAutoFields, enforceAutoFieldOperators)
+  - id: safety
+    summary: >
+      allowed (whitelist, optionally per-field operator restriction {field,operators}),
+      blocked (blacklist; allowed XOR blocked), throwOnInvalid (reject vs silently drop
+      bad sort/distinct/where columns), onUnknownKey, validation (class-validator),
+      @TenantScoped(field) auto-scope, defaultSort.
+    source: packages/core/src/runner.ts, packages/core/src/decorator/tenant-scoped.decorator.ts
+  - id: dynamic-runner
+    summary: >
+      FilterRunner.applyDynamic(entity,...), findAndCount(entity,...) (pagination-safe
+      to-many loading) and findPage(entity,...) (keyset cursor pagination), plus
+      describe(entity) (metadata field/relation map) — class-less, metadata-driven.
+    source: packages/core/src/runner.ts
+  - id: client-builder
+    summary: >
+      Browser/Node zero-dep builder: filterQuery().where(field,op,value)
+      / .equals/.in/.between/.or(cb).build() → { where: ColumnFilter[] }, .toQueryString().
+      filterQueryTyped<Fields, Types>() adds compile-time field/operator/value checks.
+    source: packages/client/src/index.ts, packages/client/README.md
+
+# What an interview would have surfaced but we could only infer from source/docs.
+gaps:
+  - "No maintainer interview was possible (autonomous run). Priorities/severities below are inferred from source + README, not confirmed."
+  - "dropId default is contradictory: README API table says default false, but FilterRunner.prepareInput reads `this.options.dropId ?? true`, so an unset dropId behaves as true. Skills avoid asserting a hard default and flag it as configurable. Needs maintainer confirmation."
+  - "Cursor pagination via the structured `paginate: { after/before }` path in apply/applyDynamic only logs 'not yet implemented'; real keyset paging is exposed ONLY through FilterRunner.findPage(). The two surfaces could confuse agents — undocumented which to use when."
+  - "Array-path JSON filtering (problems.foo[].bar) is MySQL/MikroORM-only; TypeORM/Postgres array paths are unimplemented though the client/validator accept the syntax. AI-agent failure mode: emitting [] paths against Postgres silently no-ops."
+  - "@dudousxd/nestjs-context integration (tenantId()/currentUserRef()/@TenantScoped) is an optional peer; behavior when absent (silent undefined) is documented in code but the exact context-accessor contract is external."
+  - "Adapter capability matrix (which of applyDistinct/applySelect/applyKeyset*/populate/getResultAndCount each ORM adapter actually implements) was not exhaustively verified per-adapter; unsupported features log a warn and no-op."
+  - "react + codegen packages left uncovered; their public surface and intended consumer workflow were not deeply mined."
+  - "No GitHub issue mining performed (gh access not verified in this run), so real-world AI-agent failure modes are inferred, not observed."

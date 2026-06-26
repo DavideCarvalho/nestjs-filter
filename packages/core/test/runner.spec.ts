@@ -983,3 +983,48 @@ describe('FilterRunner.apply', () => {
     expect(searchCalls).toEqual([]);
   });
 });
+
+describe('FilterRunner dropId default (documented default: false)', () => {
+  // Build a module WITHOUT specifying dropId, so we exercise the runner's own
+  // default rather than an explicit value. The `Id` suffix on `companyId` is the
+  // probe: if stripping is (wrongly) on by default, `companyId` -> `company`,
+  // which has no `@FilterFor`, so the key is ignored and nothing dispatches.
+  async function makeModuleDropIdUnset(options: Record<string, unknown> = {}) {
+    return Test.createTestingModule({
+      providers: [
+        UserFilter,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          // NOTE: intentionally no `dropId` here.
+          useValue: { inputNormalizer: 'camelCase', validation: 'off', ...options },
+        },
+        { provide: FILTER_ADAPTER, useValue: null },
+      ],
+    }).compile();
+  }
+
+  it('keeps Id/_id fields when dropId is unset (default false, matches docs + normalizer)', async () => {
+    const mod = await makeModuleDropIdUnset();
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+
+    await runner.apply(UserFilter, { filter: { companyId: 5 } }, qb);
+
+    // dropId UNSET must NOT strip the `Id` suffix, so `companyId` survives and
+    // dispatches to @FilterFor('companyId').
+    expect(qb.calls).toEqual([['andWhere', { company: 5 }]]);
+  });
+
+  it('still strips Id when dropId: true is explicitly set', async () => {
+    const mod = await makeModuleDropIdUnset({ dropId: true });
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+
+    await runner.apply(UserFilter, { filter: { companyId: 5 } }, qb);
+
+    // With stripping on, `companyId` -> `company`, which has no @FilterFor, so
+    // the (now unknown) key is ignored and nothing dispatches.
+    expect(qb.calls).toEqual([]);
+  });
+});

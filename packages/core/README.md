@@ -101,7 +101,7 @@ class UsersController {
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `inputNormalizer` | `'camelCase' \| 'snakeCase' \| fn` | `'camelCase'` | Normalize input keys. |
-| `dropId` | `boolean` | `false` | Strip trailing `Id`/`_id`. |
+| `dropId` | `boolean` | _set explicitly_ | Strip trailing `Id`/`_id`. Effective default is currently inconsistent in the code — when run through `FilterRunner`/`@ApplyFilter` the suffix is stripped unless you pass `dropId: false`. |
 | `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | Policy for unrecognized keys. |
 | `validation` | `'auto' \| 'off'` | `'auto'` | Validate with class-validator if installed. |
 
