@@ -65,6 +65,19 @@ class WrongTypeFilter extends BaseFilter<MockQB> {
   }
 }
 
+// Regression: a filter with NO class-validator decorators (the common case).
+// class-validator >= 0.14 defaults `forbidUnknownValues` to true, which would
+// reject such an instance with a spurious "unknown value" error under
+// `validation: 'auto'`. validateInput must pass `forbidUnknownValues: false`.
+@Injectable()
+@Filterable({ entity: FakeEntity, autoFields: false })
+class NoValidatorFilter extends BaseFilter<MockQB> {
+  @FilterFor('name')
+  applyName(v: string) {
+    this.$query.andWhere({ name: v });
+  }
+}
+
 async function makeModule(opts = {}, extraProviders: any[] = []) {
   return Test.createTestingModule({
     providers: [
@@ -145,6 +158,27 @@ describe('FilterRunner — validation error paths', () => {
       ['andWhere', { age: 25 }],
       ['andWhere', { name: 'Alice' }],
     ]);
+  });
+
+  // Regression: a decorator-less filter must NOT trip class-validator's
+  // forbidUnknownValues default under validation: 'auto'.
+  it('a filter with no class-validator decorators passes validation:auto', async () => {
+    const mod = await makeModule({ validation: 'auto' }, [NoValidatorFilter]);
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+
+    // must not throw FilterValidationException, and must still dispatch
+    await runner.apply(NoValidatorFilter, { filter: { name: 'Alice' } }, qb);
+    expect(qb.calls).toEqual([['andWhere', { name: 'Alice' }]]);
+  });
+
+  it('a decorator-less filter with empty input passes validation:auto', async () => {
+    const mod = await makeModule({ validation: 'auto' }, [NoValidatorFilter]);
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+
+    await runner.apply(NoValidatorFilter, { filter: {} }, qb);
+    expect(qb.calls).toEqual([]);
   });
 
   // No input with validation on — should pass (empty input is valid)
