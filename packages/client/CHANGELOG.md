@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter-client
 
+## 1.12.0
+
+### Minor Changes
+
+- [#41](https://github.com/DavideCarvalho/nestjs-filter/pull/41) [`1c6bd97`](https://github.com/DavideCarvalho/nestjs-filter/commit/1c6bd9751108030a752fd3917ae7ec356ca63633) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Add `whereDynamic(field, operator, value)` and `sortDynamic(field, direction)` to `FilterQueryBuilder` and `TypedFilterQueryBuilder`, a typed escape hatch for applying runtime-driven `(field, operator, value)` triples (e.g. table-UI column filters) without casting the typed builder away.
+
 ## 1.11.0
 
 ### Patch Changes

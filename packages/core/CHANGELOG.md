@@ -1,5 +1,28 @@
 # @dudousxd/nestjs-filter
 
+## 1.12.0
+
+### Minor Changes
+
+- [#41](https://github.com/DavideCarvalho/nestjs-filter/pull/41) [`1c6bd97`](https://github.com/DavideCarvalho/nestjs-filter/commit/1c6bd9751108030a752fd3917ae7ec356ca63633) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `@Filterable` now accepts an optional `aliases: Record<string, string>` — a declarative map from a client-supplied field name to the real entity path (a column, a relation path like `"base"`, a dotted relation field like `"unit.name"`, or a JSON sub-path) it should resolve to.
+
+  Motivating case: `@FilterFor` methods only run for structured `filter` input — the `where[]` column-filter path resolves field names straight against entity columns/JSON sub-paths, before and separately from `@FilterFor` dispatch. A legacy client sending `where[]` filters on `baseId` when the entity relation is actually named `base` therefore had no server-side way to remap that name; the filter was silently dropped (dynamic mode) or reached the ORM as an unknown column (static mode). `aliases: { baseId: "base" }` closes that gap.
+
+  Resolution is applied at every point a client field name is resolved against the entity — `where[]` column filters, structured `filter` keys, `sort`, `distinct`, and `select` — for both the static (`@Filterable`-class-driven `apply()`) and dynamic (`applyDynamic`/`findAndCount`/`findPage`) entry points. Resolution always runs first: the allowlist (`allowed`/`blocked`), the `SAFE_FIELD` path check, entity-metadata checks, and the `throwOnInvalid` policy all evaluate the resolved target, never the alias key. An alias key that collides with a real column name wins (an explicit consumer decision), and aliases never cascade (an alias's target is never re-run through the alias map, so cycles are structurally impossible). Declaring no `aliases` is a zero-behavior-change no-op — the full pre-existing test suite passes untouched.
+
+- [#41](https://github.com/DavideCarvalho/nestjs-filter/pull/41) [`1c6bd97`](https://github.com/DavideCarvalho/nestjs-filter/commit/1c6bd9751108030a752fd3917ae7ec356ca63633) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Make DISTINCT projections executable end-to-end via `FilterRunner.findAndCount`. Previously, `applyDistinct` built a `SELECT DISTINCT` query but execution broke: `findAndCount` always routed through `getResultAndCount`, which hydrates rows into entities — a PK-less DISTINCT projection has no identifier to hydrate around, so MikroORM threw `"cannot merge entity without identifier"` (and the equivalent TypeORM path was likewise broken).
+
+  Adds a new optional adapter method, `getDistinctResultAndCount(qb, fields, entity)`, which executes an already-built DISTINCT projection without entity hydration, returning plain rows keyed by the requested fields plus the total count of distinct tuples (ignoring limit/offset). `findAndCount` now routes to it automatically whenever the structured input carries `distinct` fields, and skips the to-many `populate` phase for distinct queries (there is no entity identity to attach relations to). If the active adapter doesn't implement it, `findAndCount` throws a descriptive error, mirroring the existing `getResultAndCount` contract.
+
+  Both bundled adapters implement it:
+
+  - **MikroORM** — rows via `qb.execute('all')` (raw, driver-mapped column names, no identity-map hydration); total via MikroORM's own `getCount(fields, true)`, which is already dialect-aware for multi-column DISTINCT (native `COUNT(DISTINCT a, b)` on MySQL, a `COUNT(*) FROM (SELECT DISTINCT ...)` subquery wrapper elsewhere).
+  - **TypeORM** — rows via `getRawMany()` with the `<alias>_<field>` prefix stripped back to property names; total via a dialect-neutral `SELECT COUNT(*) FROM (SELECT DISTINCT ...) t` subquery, which runs identically on Postgres, MySQL and SQLite for both single- and multi-field distinct.
+
+- [#41](https://github.com/DavideCarvalho/nestjs-filter/pull/41) [`1c6bd97`](https://github.com/DavideCarvalho/nestjs-filter/commit/1c6bd9751108030a752fd3917ae7ec356ca63633) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `nestjsFilterCodegen({ maxDepth })` caps relation-path recursion depth in the generated `filterFields` union, guarding against the union blowing up on `autoFields: true` entities with deep/wide relation graphs. Overridable per filter via `@Filterable({ codegen: { maxDepth } })`, which takes precedence over the global option. Default stays uncapped (unchanged behavior).
+
+  `@Filterable` now accepts an optional `codegen: { maxDepth }` field on `FilterableOptions`/`FilterMetadata` — metadata only, read statically by `@dudousxd/nestjs-filter-codegen`; the core runtime ignores it.
+
 ## 1.11.1
 
 ### Patch Changes
