@@ -446,6 +446,88 @@ suite(`cross-adapter contract [${dialect}]`, () => {
       });
     });
 
+    // ─── findAndCount + distinct (executable DISTINCT projection) ────────────
+
+    describe('findAndCount with a distinct projection', () => {
+      // roles: Charlie=moderator(inactive), Alice=admin(active), Bob=user(active), Diana=user(active)
+      it('returns the distinct values of a single field, plus the distinct-tuple total', async () => {
+        const { rows, total } = await h.runner.findAndCount(h.User as never, {
+          filter: {},
+          distinct: 'role',
+        });
+        expect((rows as Array<{ role: string }>).map((r) => r.role).sort()).toEqual([
+          'admin',
+          'moderator',
+          'user',
+        ]);
+        expect(total).toBe(3);
+      });
+
+      it('does not throw entity-hydration errors on the PK-less projection', async () => {
+        // The historical bug: findAndCount routed every request through
+        // getResultAndCount(), which hydrates entities and requires a primary
+        // key — a DISTINCT projection selects none.
+        await expect(
+          h.runner.findAndCount(h.User as never, { filter: {}, distinct: 'role' }),
+        ).resolves.not.toThrow();
+      });
+
+      it('combines distinct with a where filter', async () => {
+        const { rows, total } = await h.runner.findAndCount(h.User as never, {
+          filter: { where: [{ field: 'active', operator: 'equals', value: true }] },
+          distinct: 'role',
+        });
+        // active users: Alice(admin), Bob(user), Diana(user) → distinct {admin, user}
+        expect((rows as Array<{ role: string }>).map((r) => r.role).sort()).toEqual([
+          'admin',
+          'user',
+        ]);
+        expect(total).toBe(2);
+      });
+
+      it('sorts distinct values', async () => {
+        const { rows } = await h.runner.findAndCount(h.User as never, {
+          filter: {},
+          distinct: 'role',
+          sort: '-role',
+        });
+        expect((rows as Array<{ role: string }>).map((r) => r.role)).toEqual([
+          'user',
+          'moderator',
+          'admin',
+        ]);
+      });
+
+      it('paginates distinct values, with a total that ignores limit/offset', async () => {
+        const { rows, total } = await h.runner.findAndCount(h.User as never, {
+          filter: {},
+          distinct: 'role',
+          sort: 'role',
+          paginate: { page: 1, size: 2 },
+        });
+        // sorted asc: admin, moderator, user — page 1 (0-based), size 2 → ['user']
+        expect((rows as Array<{ role: string }>).map((r) => r.role)).toEqual(['user']);
+        expect(total).toBe(3);
+      });
+
+      it('projects multiple distinct fields as tuples, with a tuple-aware total', async () => {
+        const { rows, total } = await h.runner.findAndCount(h.User as never, {
+          filter: {},
+          distinct: ['role', 'active'],
+          sort: 'role,active',
+        });
+        // Booleans round-trip through raw (non-hydrated) rows as native
+        // booleans, 0/1, or numeric strings depending on adapter/dialect —
+        // normalize with Boolean() so the assertion is representation-agnostic.
+        const tuples = (rows as Array<{ role: string; active: unknown }>).map(
+          (r) => `${r.role}/${Boolean(r.active)}`,
+        );
+        // (admin,true), (moderator,false), (user,true) — Bob & Diana collapse.
+        expect(tuples).toEqual(['admin/true', 'moderator/false', 'user/true']);
+        expect(total).toBe(3);
+      });
+    });
+
     // ─── Search ──────────────────────────────────────────────────────────────
 
     describe('search', () => {

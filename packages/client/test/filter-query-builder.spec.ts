@@ -1166,4 +1166,120 @@ describe('FilterQueryBuilder', () => {
       expect(result.distinct).toBeUndefined();
     });
   });
+
+  // ─── whereDynamic() ─────────────────────────────────────────────────────
+
+  describe('whereDynamic()', () => {
+    it('3-arg form matches the equivalent where() output', () => {
+      const dynamic = filterQuery().whereDynamic('age', 'gte', 25).build();
+      const typed = filterQuery().where('age', 'gte', 25).build();
+      expect(dynamic).toEqual(typed);
+      expect(dynamic).toEqual({
+        filter: {
+          where: [{ field: 'age', operator: 'gte', value: 25 }],
+        },
+      });
+    });
+
+    it('2-arg unary form matches the equivalent where() output', () => {
+      const dynamic = filterQuery().whereDynamic('deletedAt', 'isNull').build();
+      const typed = filterQuery().where('deletedAt', 'isNull').build();
+      expect(dynamic).toEqual(typed);
+      expect(dynamic).toEqual({
+        filter: {
+          where: [{ field: 'deletedAt', operator: 'isNull', value: undefined }],
+        },
+      });
+    });
+
+    it('strips a stale value passed alongside a unary operator', () => {
+      const result = filterQuery().whereDynamic('deletedAt', 'isNull', 'stale').build();
+      expect(result.filter.where).toEqual([
+        { field: 'deletedAt', operator: 'isNull', value: undefined },
+      ]);
+    });
+
+    it('replaces any previous condition on the same field', () => {
+      const result = filterQuery()
+        .whereDynamic('status', 'equals', 'PENDING')
+        .whereDynamic('status', 'equals', 'COMPLETED')
+        .build();
+      expect(result.filter.where).toEqual([
+        { field: 'status', operator: 'equals', value: 'COMPLETED' },
+      ]);
+    });
+
+    it('replaces a condition previously set via where()', () => {
+      const result = filterQuery()
+        .where('status', 'PENDING')
+        .whereDynamic('status', 'equals', 'COMPLETED')
+        .build();
+      expect(result.filter.where).toEqual([
+        { field: 'status', operator: 'equals', value: 'COMPLETED' },
+      ]);
+    });
+
+    it('runs the same runtime validation as where() — string operator rejects non-string', () => {
+      expect(() => filterQuery().whereDynamic('name', 'contains', 42)).toThrow(/string/);
+    });
+
+    it('runs the same runtime validation as where() — scalar operator rejects array', () => {
+      expect(() => filterQuery().whereDynamic('x', 'equals', [1, 2])).toThrow(/scalar/);
+    });
+
+    it('throws a clear error on an unknown operator string', () => {
+      expect(() => filterQuery().whereDynamic('x', 'bogus' as never, 'v')).toThrow(
+        /unknown.*operator/i,
+      );
+    });
+
+    it('does not affect other fields', () => {
+      const result = filterQuery()
+        .whereDynamic('name', 'equals', 'foo')
+        .whereDynamic('status', 'equals', 'ACTIVE')
+        .build();
+      expect(result.filter.where).toEqual([
+        { field: 'name', operator: 'equals', value: 'foo' },
+        { field: 'status', operator: 'equals', value: 'ACTIVE' },
+      ]);
+    });
+
+    it('returns this for chaining', () => {
+      const builder = filterQuery();
+      expect(builder.whereDynamic('a', 'equals', 1)).toBe(builder);
+    });
+
+    it('produces the same toQueryString() output as an equivalent where() call', () => {
+      const dynamicQs = filterQuery().whereDynamic('name', 'contains', 'fleet').toQueryString();
+      const typedQs = filterQuery().where('name', 'contains', 'fleet').toQueryString();
+      expect(dynamicQs).toBe(typedQs);
+    });
+  });
+
+  // ─── sortDynamic() ──────────────────────────────────────────────────────
+
+  describe('sortDynamic()', () => {
+    it('matches the equivalent sort() output', () => {
+      const dynamic = filterQuery().sortDynamic('createdAt', 'desc').build();
+      const typed = filterQuery().sort('createdAt', 'desc').build();
+      expect(dynamic).toEqual(typed);
+      expect(dynamic.sort).toEqual([{ field: 'createdAt', direction: 'desc' }]);
+    });
+
+    it('replaces existing sort for the same field', () => {
+      const result = filterQuery().sortDynamic('name', 'asc').sortDynamic('name', 'desc').build();
+      expect(result.sort).toEqual([{ field: 'name', direction: 'desc' }]);
+    });
+
+    it('returns this for chaining', () => {
+      const builder = filterQuery();
+      expect(builder.sortDynamic('name', 'asc')).toBe(builder);
+    });
+
+    it('produces the same toQueryString() output as an equivalent sort() call', () => {
+      const dynamicQs = filterQuery().sortDynamic('createdAt', 'desc').toQueryString();
+      const typedQs = filterQuery().sort('createdAt', 'desc').toQueryString();
+      expect(dynamicQs).toBe(typedQs);
+    });
+  });
 });

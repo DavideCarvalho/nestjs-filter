@@ -172,4 +172,67 @@ describe('filterQueryTyped', () => {
     const result = q.build();
     expect(result.custom).toBe('value');
   });
+
+  // ─── Dynamic escape hatch (whereDynamic / sortDynamic) ─────────────────
+
+  describe('whereDynamic() / sortDynamic()', () => {
+    it('whereDynamic() works through the typed builder with a known field', () => {
+      const q = filterQueryTyped<UserFields>().whereDynamic('age', 'gte', 18);
+      const result = q.build();
+      expect(result.filter.where).toEqual([{ field: 'age', operator: 'gte', value: 18 }]);
+    });
+
+    it('whereDynamic() accepts a runtime string outside the known Fields union', () => {
+      // Simulates a table UI applying a (field, operator, value) triple whose
+      // field name comes from runtime state (e.g. a DataGrid column id) rather
+      // than the statically-known `UserFields` union.
+      const runtimeFieldId: string = 'customColumn';
+      const q = filterQueryTyped<UserFields>().whereDynamic(runtimeFieldId, 'contains', 'Al');
+      const result = q.build();
+      expect(result.filter.where).toEqual([
+        { field: 'customColumn', operator: 'contains', value: 'Al' },
+      ]);
+    });
+
+    it('whereDynamic() replaces a previous condition on the same field', () => {
+      const q = filterQueryTyped<UserFields>()
+        .whereDynamic('status', 'equals', 'PENDING')
+        .whereDynamic('status', 'equals', 'COMPLETED');
+      const result = q.build();
+      expect(result.filter.where).toEqual([
+        { field: 'status', operator: 'equals', value: 'COMPLETED' },
+      ]);
+    });
+
+    it('whereDynamic() throws on an unknown operator string', () => {
+      expect(() =>
+        filterQueryTyped<UserFields>().whereDynamic('status', 'bogus' as never, 'v'),
+      ).toThrow(/unknown.*operator/i);
+    });
+
+    it('sortDynamic() works through the typed builder', () => {
+      const q = filterQueryTyped<UserFields>().sortDynamic('name', 'desc');
+      const result = q.build();
+      expect(result.sort).toEqual([{ field: 'name', direction: 'desc' }]);
+    });
+
+    it('sortDynamic() accepts a runtime string outside the known Fields union', () => {
+      const runtimeFieldId: string = 'customColumn';
+      const q = filterQueryTyped<UserFields>().sortDynamic(runtimeFieldId, 'asc');
+      const result = q.build();
+      expect(result.sort).toEqual([{ field: 'customColumn', direction: 'asc' }]);
+    });
+
+    it('whereDynamic() + sortDynamic() combine like their static counterparts', () => {
+      const dynamic = filterQueryTyped<UserFields>()
+        .whereDynamic('status', 'equals', 'active')
+        .sortDynamic('name', 'asc')
+        .build();
+      const typed = filterQueryTyped<UserFields>()
+        .equals('status', 'active')
+        .sortAsc('name')
+        .build();
+      expect(dynamic).toEqual(typed);
+    });
+  });
 });

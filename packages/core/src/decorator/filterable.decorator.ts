@@ -19,6 +19,10 @@ export function Filterable(options: FilterableOptions): ClassDecorator {
       ...(options.throwOnInvalid !== undefined && { throwOnInvalid: options.throwOnInvalid }),
       ...(options.defaultSort !== undefined && { defaultSort: options.defaultSort }),
       ...(options.computed !== undefined && { computed: options.computed }),
+      ...(options.aliases !== undefined && { aliases: options.aliases }),
+      // Metadata only — consumed statically (ts-morph AST) by
+      // @dudousxd/nestjs-filter-codegen; the runtime never reads this.
+      ...(options.codegen !== undefined && { codegen: options.codegen }),
     };
     Reflect.defineMetadata(FILTERABLE_METADATA, meta, target);
   };

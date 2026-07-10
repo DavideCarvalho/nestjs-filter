@@ -47,6 +47,38 @@ function makeAdapter(
   };
 }
 
+interface DistinctCalls {
+  applyDistinctFields: string[][];
+  getDistinctResultAndCount: Array<{ qb: unknown; fields: string[] }>;
+  getResultAndCount: number;
+  populate: number;
+}
+
+function makeDistinctAdapter(
+  calls: DistinctCalls,
+  rows: Record<string, unknown>[] = [{ name: 'open' }, { name: 'closed' }],
+  total = 2,
+): FilterAdapter {
+  return {
+    createQueryBuilder: () => ({ tag: 'created-qb' }),
+    getEntityFields: () => fields,
+    applyDistinct: (_qb, distinctFields) => {
+      calls.applyDistinctFields.push(distinctFields);
+    },
+    getResultAndCount: async () => {
+      calls.getResultAndCount++;
+      return { rows: [{ id: 1 }], total: 1 };
+    },
+    getDistinctResultAndCount: async (qb, distinctFields) => {
+      calls.getDistinctResultAndCount.push({ qb, fields: distinctFields });
+      return { rows, total };
+    },
+    populate: async () => {
+      calls.populate++;
+    },
+  };
+}
+
 async function makeRunner(adapter: FilterAdapter | null) {
   const mod = await Test.createTestingModule({
     providers: [
@@ -120,5 +152,89 @@ describe('FilterRunner.findAndCount', () => {
     await runner.findAndCount(FakeEntity, { filter: {} }, { qb: myQb });
 
     expect(calls.qbUsed).toBe(myQb);
+  });
+});
+
+describe('FilterRunner.findAndCount with a distinct projection', () => {
+  it('routes to getDistinctResultAndCount instead of getResultAndCount, with the validated field list', async () => {
+    const calls: DistinctCalls = {
+      applyDistinctFields: [],
+      getDistinctResultAndCount: [],
+      getResultAndCount: 0,
+      populate: 0,
+    };
+    const runner = await makeRunner(makeDistinctAdapter(calls));
+
+    const { rows, total } = await runner.findAndCount(FakeEntity, {
+      filter: {},
+      distinct: 'name',
+    });
+
+    expect(calls.applyDistinctFields).toEqual([['name']]);
+    expect(calls.getDistinctResultAndCount).toHaveLength(1);
+    expect(calls.getDistinctResultAndCount[0]!.fields).toEqual(['name']);
+    expect(calls.getResultAndCount).toBe(0);
+    expect(rows).toEqual([{ name: 'open' }, { name: 'closed' }]);
+    expect(total).toBe(2);
+  });
+
+  it('drops unknown distinct fields before routing (validated against entity metadata)', async () => {
+    const calls: DistinctCalls = {
+      applyDistinctFields: [],
+      getDistinctResultAndCount: [],
+      getResultAndCount: 0,
+      populate: 0,
+    };
+    const runner = await makeRunner(makeDistinctAdapter(calls));
+
+    await runner.findAndCount(FakeEntity, { filter: {}, distinct: ['name', 'nonExistent'] });
+
+    expect(calls.getDistinctResultAndCount[0]!.fields).toEqual(['name']);
+  });
+
+  it('skips the to-many populate phase for a distinct projection', async () => {
+    const calls: DistinctCalls = {
+      applyDistinctFields: [],
+      getDistinctResultAndCount: [],
+      getResultAndCount: 0,
+      populate: 0,
+    };
+    const runner = await makeRunner(makeDistinctAdapter(calls));
+
+    await runner.findAndCount(FakeEntity, { filter: {}, distinct: 'name', include: ['posts'] });
+
+    expect(calls.populate).toBe(0);
+  });
+
+  it('does not route to the distinct path when no distinct fields are requested', async () => {
+    const calls: DistinctCalls = {
+      applyDistinctFields: [],
+      getDistinctResultAndCount: [],
+      getResultAndCount: 0,
+      populate: 0,
+    };
+    const runner = await makeRunner(makeDistinctAdapter(calls));
+
+    const { rows, total } = await runner.findAndCount(FakeEntity, { filter: {} });
+
+    expect(calls.getDistinctResultAndCount).toEqual([]);
+    expect(calls.getResultAndCount).toBe(1);
+    expect(rows).toEqual([{ id: 1 }]);
+    expect(total).toBe(1);
+  });
+
+  it('throws a descriptive error when the adapter does not implement getDistinctResultAndCount', async () => {
+    const adapter: FilterAdapter = {
+      createQueryBuilder: () => ({ tag: 'created-qb' }),
+      getEntityFields: () => fields,
+      applyDistinct: () => {},
+      getResultAndCount: async () => ({ rows: [], total: 0 }),
+      // getDistinctResultAndCount intentionally omitted.
+    };
+    const runner = await makeRunner(adapter);
+
+    await expect(runner.findAndCount(FakeEntity, { filter: {}, distinct: 'name' })).rejects.toThrow(
+      /getDistinctResultAndCount/,
+    );
   });
 });

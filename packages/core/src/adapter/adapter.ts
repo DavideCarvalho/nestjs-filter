@@ -333,6 +333,37 @@ export interface FilterAdapter {
   getResultAndCount?(qb: unknown): Promise<{ rows: unknown[]; total: number }>;
 
   /**
+   * Executes an already-built DISTINCT projection (filters/sort/pagination —
+   * and {@link applyDistinct} itself — already applied to `qb`) WITHOUT entity
+   * hydration, returning plain rows containing exactly the distinct-projected
+   * `fields`, plus the total count of distinct tuples (ignoring limit/offset,
+   * consistent with how {@link getResultAndCount}'s total is computed).
+   *
+   * A DISTINCT projection selects no primary key column, so hydrating rows
+   * into entity instances (what {@link getResultAndCount} does) throws — e.g.
+   * MikroORM's "cannot merge entity without identifier". This method executes
+   * the raw projection instead, mapping DB columns back to the requested
+   * property names.
+   *
+   * Optional — required only when `FilterRunner.findAndCount` is called with a
+   * `distinct` projection; `findAndCount` throws if the adapter doesn't
+   * implement it.
+   *
+   * @param qb - The query builder instance, with the distinct projection
+   *   (and filters/sort/pagination) already applied.
+   * @param fields - The distinct-projected field names (already validated
+   *   against the entity's allowlist/metadata).
+   * @param entity - The root entity class.
+   * @returns The distinct rows (plain objects keyed by `fields`) and the
+   *   total distinct-tuple count (limit/offset-independent).
+   */
+  getDistinctResultAndCount?(
+    qb: unknown,
+    fields: string[],
+    entity: Type<unknown>,
+  ): Promise<{ rows: Record<string, unknown>[]; total: number }>;
+
+  /**
    * Executes the query builder and returns the matching rows (no count). Used
    * by `FilterRunner.findPage` for cursor/keyset pagination, where a total
    * count is intentionally not computed.

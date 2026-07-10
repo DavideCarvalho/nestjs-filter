@@ -1,3 +1,4 @@
+import { ModuleResolutionKind, Project } from 'ts-morph';
 import { describe, expect, it } from 'vitest';
 import { nestjsFilterCodegen } from '../src/index.js';
 
@@ -8,6 +9,102 @@ function leaf(contractSource: unknown) {
 }
 function ctx(routes: unknown[]) {
   return { routes } as never;
+}
+
+// --- transformRoutes (maxDepth) fixtures -----------------------------------
+//
+// `transformRoutes` additionally reads `route.controllerRef` (className,
+// methodName, filePath) + `ctx.project()` (a shared ts-morph `Project`) to
+// statically resolve a per-filter `@Filterable({ codegen: { maxDepth } })`
+// override. These helpers build minimal RouteDescriptor/ExtensionContext
+// stand-ins backed by an in-memory ts-morph Project.
+
+interface RouteFixtureOptions {
+  filterFields?: string[];
+  filterFieldTypes?: Array<{ name: string; kind: string }>;
+  controllerRef?: { className: string; methodName: string; filePath: string };
+}
+
+function routeFixture(options: RouteFixtureOptions) {
+  return {
+    method: 'GET',
+    path: '/x',
+    name: 'x.list',
+    params: [],
+    contract: {
+      contractSource: {
+        query: null,
+        body: null,
+        response: 'unknown',
+        filterFields: options.filterFields,
+        filterFieldTypes: options.filterFieldTypes,
+      },
+    },
+    controllerRef: options.controllerRef,
+  } as never;
+}
+
+/** In-memory ts-morph Project with classic (extension-optional) module resolution. */
+function inMemoryProject(): Project {
+  return new Project({
+    useInMemoryFileSystem: true,
+    compilerOptions: { moduleResolution: ModuleResolutionKind.Node10 },
+  });
+}
+
+function extensionCtx(routes: unknown[], project: Project) {
+  return { routes, project: () => project } as never;
+}
+
+/**
+ * Build an in-memory controller + filter class pair for per-filter
+ * `@Filterable({ codegen: { maxDepth } })` override resolution.
+ * `filterableArgsSuffix` is appended verbatim inside the `@Filterable({...})`
+ * call, e.g. `', codegen: { maxDepth: 0 }'` (empty string = no override).
+ */
+function projectWithFilterOverride(filterableArgsSuffix: string) {
+  const project = inMemoryProject();
+  const controllerPath = '/virtual/message.controller.ts';
+  const filterPath = '/virtual/message.filter.ts';
+
+  project.createSourceFile(
+    filterPath,
+    `
+    class Message {}
+
+    @Filterable({ entity: Message, autoFields: true${filterableArgsSuffix} })
+    export class MessageFilter {}
+    `,
+  );
+
+  project.createSourceFile(
+    controllerPath,
+    `
+    import { MessageFilter } from './message.filter';
+
+    export class MessageController {
+      list(@ApplyFilter(MessageFilter) filter: MessageFilter) {}
+    }
+    `,
+  );
+
+  return {
+    project,
+    controllerRef: { className: 'MessageController', methodName: 'list', filePath: controllerPath },
+  };
+}
+
+function filterFieldsOf(route: unknown): string[] | undefined {
+  return (route as { contract?: { contractSource?: { filterFields?: string[] } } }).contract
+    ?.contractSource?.filterFields;
+}
+
+function filterFieldTypesOf(route: unknown): Array<{ name: string; kind: string }> | undefined {
+  return (
+    route as {
+      contract?: { contractSource?: { filterFieldTypes?: Array<{ name: string; kind: string }> } };
+    }
+  ).contract?.contractSource?.filterFieldTypes;
 }
 
 describe('nestjsFilterCodegen', () => {
@@ -81,5 +178,78 @@ describe('nestjsFilterCodegen', () => {
       ],
     });
     expect(ext.apiHeader?.(ctx([{ contract: { contractSource: {} } }]))).toBeUndefined();
+  });
+});
+
+describe('nestjsFilterCodegen transformRoutes (maxDepth)', () => {
+  // Two relation hops deep: "base.owner.name" — mirrors the real-world
+  // `message.thread.user...` blowup the maxDepth cap guards against.
+  const deepFields = ['id', 'name', 'base.id', 'base.name', 'base.owner.id', 'base.owner.name'];
+
+  it('uncapped default (no maxDepth option, no per-filter override) leaves filterFields unchanged', () => {
+    const ext = nestjsFilterCodegen();
+    const routes = [routeFixture({ filterFields: [...deepFields] })];
+    ext.transformRoutes?.(routes, extensionCtx(routes, inMemoryProject()));
+    expect(filterFieldsOf(routes[0])).toEqual(deepFields);
+  });
+
+  it("global maxDepth: 0 keeps only the entity's own columns", () => {
+    const ext = nestjsFilterCodegen({ maxDepth: 0 });
+    const routes = [routeFixture({ filterFields: [...deepFields] })];
+    ext.transformRoutes?.(routes, extensionCtx(routes, inMemoryProject()));
+    expect(filterFieldsOf(routes[0])).toEqual(['id', 'name']);
+  });
+
+  it('global maxDepth: 1 keeps own columns + direct relation fields', () => {
+    const ext = nestjsFilterCodegen({ maxDepth: 1 });
+    const routes = [routeFixture({ filterFields: [...deepFields] })];
+    ext.transformRoutes?.(routes, extensionCtx(routes, inMemoryProject()));
+    expect(filterFieldsOf(routes[0])).toEqual(['id', 'name', 'base.id', 'base.name']);
+  });
+
+  it('prunes filterFieldTypes in lockstep with filterFields', () => {
+    const ext = nestjsFilterCodegen({ maxDepth: 0 });
+    const routes = [
+      routeFixture({
+        filterFields: [...deepFields],
+        filterFieldTypes: deepFields.map((name) => ({ name, kind: 'string' })),
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, inMemoryProject()));
+    expect(filterFieldTypesOf(routes[0])).toEqual([
+      { name: 'id', kind: 'string' },
+      { name: 'name', kind: 'string' },
+    ]);
+  });
+
+  it('per-filter codegen.maxDepth overrides a looser global option (stricter override wins)', () => {
+    const { project, controllerRef } = projectWithFilterOverride(', codegen: { maxDepth: 0 } ');
+    const ext = nestjsFilterCodegen({ maxDepth: 2 });
+    const routes = [routeFixture({ filterFields: [...deepFields], controllerRef })];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+    expect(filterFieldsOf(routes[0])).toEqual(['id', 'name']);
+  });
+
+  it('per-filter codegen.maxDepth overrides a stricter global option (looser override wins)', () => {
+    const { project, controllerRef } = projectWithFilterOverride(', codegen: { maxDepth: 2 } ');
+    const ext = nestjsFilterCodegen({ maxDepth: 0 });
+    const routes = [routeFixture({ filterFields: [...deepFields], controllerRef })];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+    expect(filterFieldsOf(routes[0])).toEqual(deepFields);
+  });
+
+  it('falls back to the global option when the filter declares no codegen override', () => {
+    const { project, controllerRef } = projectWithFilterOverride('');
+    const ext = nestjsFilterCodegen({ maxDepth: 1 });
+    const routes = [routeFixture({ filterFields: [...deepFields], controllerRef })];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+    expect(filterFieldsOf(routes[0])).toEqual(['id', 'name', 'base.id', 'base.name']);
+  });
+
+  it('routes without filterFields are left untouched', () => {
+    const ext = nestjsFilterCodegen({ maxDepth: 0 });
+    const routes = [routeFixture({})];
+    const result = ext.transformRoutes?.(routes, extensionCtx(routes, inMemoryProject()));
+    expect(filterFieldsOf((result ?? routes)[0])).toBeUndefined();
   });
 });

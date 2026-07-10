@@ -10,6 +10,7 @@ import { ModuleRef } from '@nestjs/core';
 import type { FilterAdapter } from './adapter/adapter.js';
 import { runWithFilterState } from './als-store.js';
 import type { ContextAccessor } from './context-accessor.js';
+import { resolveFieldAlias } from './decorator/aliases.js';
 import {
   type NormalizedAllowed,
   allowedFieldNames,
@@ -42,6 +43,7 @@ import type {
   EntityDescription,
   FieldMeta,
   FilterContext,
+  FilterMetadata,
   FilterModuleOptions,
   RelationMeta,
   SortItem,
@@ -149,6 +151,71 @@ export class FilterRunner {
   }
 
   /**
+   * Remaps a parsed field list through `@Filterable.aliases`. Used by
+   * `distinct`/`select` (via {@link applyProjection}) and the pre-execution
+   * distinct-field resolution `findAndCount` does ahead of `applyDynamic`.
+   * A no-op when `meta` declares no aliases.
+   */
+  private remapFieldAliases(fields: string[], meta: FilterMetadata | undefined): string[] {
+    if (!meta?.aliases) return fields;
+    return fields.map((field) => resolveFieldAlias(meta, field));
+  }
+
+  /**
+   * Remaps `SortItem.field` through `@Filterable.aliases`. Only the
+   * client-supplied sort is ever passed through this — `defaultSort` is
+   * developer-declared server config, already written in real entity-path
+   * terms, so it never needs (or gets) alias resolution.
+   */
+  private remapSortAliases(sorts: SortItem[], meta: FilterMetadata | undefined): SortItem[] {
+    if (!meta?.aliases) return sorts;
+    return sorts.map((sort) => ({ ...sort, field: resolveFieldAlias(meta, sort.field) }));
+  }
+
+  /**
+   * Remaps every input key through `@Filterable.aliases`. Called right after
+   * normalization and BEFORE class-validator (`validateInput`) and
+   * @FilterFor/relation/computed/auto-field dispatch, so decorators and
+   * dispatch logic keyed by the real entity path see the resolved key, never
+   * the alias — an alias pointing at a computed field name resolves to that
+   * computed field, an alias pointing at a `@FilterFor` key dispatches to
+   * that method, etc.
+   */
+  private remapAliasedKeys(
+    input: Record<string, unknown>,
+    meta: FilterMetadata | undefined,
+  ): Record<string, unknown> {
+    if (!meta?.aliases) return input;
+    const remapped: Record<string, unknown> = Object.create(null);
+    for (const [key, value] of Object.entries(input)) {
+      remapped[resolveFieldAlias(meta, key)] = value;
+    }
+    return remapped;
+  }
+
+  /**
+   * Remaps every `field` in a `where[]` ColumnFilter tree through
+   * `@Filterable.aliases`, recursing into AND/OR groups. Run BEFORE operator-
+   * allowlist enforcement, `validateColumnFilters`, and (in dynamic mode)
+   * `pruneUnknownColumnFilters` — those all validate the resolved target,
+   * never the alias key.
+   */
+  private remapColumnFilterAliases(
+    filters: ColumnFilter[],
+    meta: FilterMetadata | undefined,
+  ): ColumnFilter[] {
+    if (!meta?.aliases) return filters;
+    const remap = (clauses: ColumnFilter[]): ColumnFilter[] =>
+      clauses.map((clause) => ({
+        ...clause,
+        ...(clause.field && { field: resolveFieldAlias(meta, clause.field) }),
+        ...(clause.AND && { AND: remap(clause.AND) }),
+        ...(clause.OR && { OR: remap(clause.OR) }),
+      }));
+    return remap(filters);
+  }
+
+  /**
    * Describes an entity's filterable/sortable scalar fields and its one-hop
    * relations, read entirely from the ORM's metadata (via the adapter) — no
    * hand-maintained field map required. Memoized per entity class.
@@ -232,11 +299,17 @@ export class FilterRunner {
       throwOnInvalid: boolean;
       apply: ((qb: unknown, fields: string[], entity: Type<unknown>) => void) | undefined;
       unsupported?: { feature: string; method: string };
+      /**
+       * `@Filterable` metadata (or entity-level metadata, in dynamic mode)
+       * whose `aliases` — if any — client field names are resolved against
+       * before validation.
+       */
+      aliasMeta?: FilterMetadata | undefined;
     },
   ): void {
-    const fields = this.parseDistinct(rawFields);
+    const { entity, adapter, allowed, throwOnInvalid, apply, unsupported, aliasMeta } = opts;
+    const fields = this.remapFieldAliases(this.parseDistinct(rawFields), aliasMeta);
     if (fields.length === 0) return;
-    const { entity, adapter, allowed, throwOnInvalid, apply, unsupported } = opts;
     if (apply && adapter && entity) {
       const valid = this.validateDistinct(
         fields,
@@ -260,6 +333,10 @@ export class FilterRunner {
   ): Promise<Q> {
     const filter = await this.resolveFilter(FilterClass);
     const adapter = this.resolveAdapter();
+    // Resolved once and reused for every alias choke point below (column
+    // filters, structured filter keys, sort, distinct, select) as well as
+    // the computed-field/entity lookups further down.
+    const filterableMeta = getFilterableMetadata(FilterClass);
 
     const {
       rawInclude,
@@ -268,9 +345,14 @@ export class FilterRunner {
       rawDistinct,
       rawSelect,
       rawPaginate,
-      columnFilters,
-      normalized,
+      columnFilters: rawColumnFilters,
+      normalized: rawNormalized,
     } = this.prepareInput(input, internal);
+    // Alias resolution runs first — before class-validator (`validateInput`)
+    // and every field-resolution/validation choke point below — so all of
+    // them see the resolved target, never the alias key.
+    const columnFilters = this.remapColumnFilterAliases(rawColumnFilters, filterableMeta);
+    const normalized = this.remapAliasedKeys(rawNormalized, filterableMeta);
 
     const finalInput =
       this.options.validation === 'off' ? normalized : await validateInput(FilterClass, normalized);
@@ -301,7 +383,7 @@ export class FilterRunner {
         this.applyTenantScope(FilterClass, qb, adapter, contextAccessor);
 
         // Resolve the (possibly operator-restricting) allowlist once for this run.
-        const normalizedAllowed = normalizeAllowed(getFilterableMetadata(FilterClass)?.allowed);
+        const normalizedAllowed = normalizeAllowed(filterableMeta?.allowed);
         const throwOnInvalidPolicy = this.resolveThrowOnInvalid(FilterClass);
 
         // Apply column filters via adapter before @FilterFor dispatch
@@ -313,7 +395,7 @@ export class FilterRunner {
           );
           if (opAllowed.length > 0) {
             validateColumnFilters(opAllowed);
-            adapter.applyColumnFilters(qb, opAllowed, getFilterableMetadata(FilterClass)?.entity);
+            adapter.applyColumnFilters(qb, opAllowed, filterableMeta?.entity);
           }
         } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
           this.warnUnsupported('Column filters (where) provided', 'applyColumnFilters');
@@ -321,7 +403,6 @@ export class FilterRunner {
 
         // Resolve auto-fields configuration
         const autoFieldSet = this.resolveAutoFields(FilterClass);
-        const filterableMeta = getFilterableMetadata(FilterClass);
         const computed = filterableMeta?.computed;
 
         // Collect relation-bound keys for batched processing
@@ -495,6 +576,7 @@ export class FilterRunner {
           throwOnInvalid: throwOnInvalidPolicy,
           apply: adapter?.applyDistinct?.bind(adapter),
           unsupported: { feature: 'Distinct requested', method: 'applyDistinct' },
+          aliasMeta: filterableMeta,
         });
 
         // Apply sparse fieldsets (SELECT narrowing) — validated against the
@@ -506,10 +588,13 @@ export class FilterRunner {
           throwOnInvalid: throwOnInvalidPolicy,
           apply: adapter?.applySelect?.bind(adapter),
           unsupported: { feature: 'Sparse fieldsets (select) requested', method: 'applySelect' },
+          aliasMeta: filterableMeta,
         });
 
         // Apply sort — falling back to defaultSort when the client gave none.
-        const parsedSorts = this.parseSorts(rawSort);
+        // Only the client-supplied sort is alias-remapped; defaultSort is
+        // developer config, already written in real entity-path terms.
+        const parsedSorts = this.remapSortAliases(this.parseSorts(rawSort), filterableMeta);
         const sorts =
           parsedSorts.length > 0
             ? parsedSorts
@@ -885,6 +970,11 @@ export class FilterRunner {
     internal: { skipSortAndPagination?: boolean; native?: boolean } = {},
   ): Promise<Q> {
     const adapter = this.resolveAdapter();
+    // Dynamic mode has no FilterClass — an entity class can still carry
+    // `@Filterable` metadata (declared directly on the entity, decorating
+    // itself) purely to supply `aliases` for endpoints that query it
+    // dynamically (`applyDynamic`/`findAndCount`/`findPage`).
+    const filterableMeta = getFilterableMetadata(entity);
 
     const {
       rawInclude,
@@ -893,9 +983,11 @@ export class FilterRunner {
       rawDistinct,
       rawSelect,
       rawPaginate,
-      columnFilters,
-      normalized,
+      columnFilters: rawColumnFilters,
+      normalized: rawNormalized,
     } = this.prepareInput(input, internal);
+    const columnFilters = this.remapColumnFilterAliases(rawColumnFilters, filterableMeta);
+    const normalized = this.remapAliasedKeys(rawNormalized, filterableMeta);
 
     // Apply column filters via adapter — dynamic mode validates the filter
     // fields against entity metadata (like sort/auto-fields), dropping
@@ -972,6 +1064,7 @@ export class FilterRunner {
       allowed: undefined,
       throwOnInvalid,
       apply: adapter?.applyDistinct?.bind(adapter),
+      aliasMeta: filterableMeta,
     });
 
     // Sparse fieldsets (SELECT narrowing) — validate against entity metadata.
@@ -981,6 +1074,7 @@ export class FilterRunner {
       allowed: undefined,
       throwOnInvalid,
       apply: adapter?.applySelect?.bind(adapter),
+      aliasMeta: filterableMeta,
     });
 
     // Sort and pagination are skipped when the caller (e.g. findPage with
@@ -988,7 +1082,7 @@ export class FilterRunner {
     if (!internal.skipSortAndPagination) {
       // Sort — validate against entity metadata only (no filter class).
       // Fall back to defaultSort when the client gave none.
-      const parsedSorts = this.parseSorts(rawSort);
+      const parsedSorts = this.remapSortAliases(this.parseSorts(rawSort), filterableMeta);
       const sorts =
         parsedSorts.length > 0 ? parsedSorts : this.parseSorts(this.resolveDefaultSort());
       if (sorts.length > 0 && adapter?.applySort) {
@@ -1034,6 +1128,11 @@ export class FilterRunner {
       adapter,
     );
 
+    // Resolved up front (before the qb-mutating applyDynamic call below) so we
+    // know, independent of query-builder state, whether this is a distinct
+    // projection and — if so — exactly which fields were validated/applied.
+    const distinctFields = this.resolveDynamicDistinctFields(structured.distinct, entity, adapter);
+
     // Build the query, keeping only join-safe (to-one) includes on the builder.
     await this.applyDynamic(
       entity,
@@ -1050,6 +1149,19 @@ export class FilterRunner {
       opts.context,
       { native: true },
     );
+
+    if (distinctFields.length > 0) {
+      if (!adapter?.getDistinctResultAndCount) {
+        throw new Error(
+          'findAndCount requires an adapter that implements getDistinctResultAndCount() for distinct projections.',
+        );
+      }
+      const { rows, total } = await adapter.getDistinctResultAndCount(qb, distinctFields, entity);
+      // Distinct rows are plain field-keyed objects with no primary key, so
+      // there is no entity identity to attach to-many relations to — the
+      // populate phase (below, for the non-distinct path) is skipped entirely.
+      return { rows: rows as E[], total };
+    }
 
     if (!adapter?.getResultAndCount) {
       throw new Error('findAndCount requires an adapter that implements getResultAndCount().');
@@ -1068,6 +1180,30 @@ export class FilterRunner {
     }
 
     return { rows: rows as E[], total };
+  }
+
+  /**
+   * Resolves and validates dynamic-mode (no filter-class allowlist) distinct
+   * fields from raw structured input, mirroring the validation `applyProjection`
+   * performs when it applies distinct to the query builder inside `applyDynamic`.
+   * Used by `findAndCount` to decide — before mutating the query builder —
+   * whether to route execution to `getDistinctResultAndCount`, and with which
+   * exact (already-validated) field list.
+   */
+  private resolveDynamicDistinctFields(
+    rawDistinct: unknown,
+    entity: Type<unknown>,
+    adapter: FilterAdapter | null,
+  ): string[] {
+    // Mirrors the alias resolution `applyDynamic`'s own `applyProjection`
+    // call applies to `distinct` — kept in lockstep since this pre-computes
+    // findAndCount's routing decision independently of that call.
+    const fields = this.remapFieldAliases(
+      this.parseDistinct(rawDistinct),
+      getFilterableMetadata(entity),
+    );
+    if (fields.length === 0 || !adapter) return [];
+    return this.validateDistinct(fields, undefined, adapter, entity, this.resolveThrowOnInvalid());
   }
 
   /**
@@ -1107,6 +1243,9 @@ export class FilterRunner {
     }
 
     const qb = opts.qb ?? adapter.createQueryBuilder(entity);
+    // Dynamic mode (no FilterClass) — see the comment in `applyDynamic` on
+    // sourcing aliases from entity-level `@Filterable` metadata.
+    const filterableMeta = getFilterableMetadata(entity);
     const structured = this.extractStructuredInput(input);
     const paginate = (structured.paginate ?? {}) as Record<string, unknown>;
 
@@ -1122,7 +1261,7 @@ export class FilterRunner {
 
     // Resolve the effective sort (falling back to defaultSort) and validate it
     // against entity metadata, then append the primary key as a tiebreaker.
-    const parsedSorts = this.parseSorts(structured.sort);
+    const parsedSorts = this.remapSortAliases(this.parseSorts(structured.sort), filterableMeta);
     const rawSorts =
       parsedSorts.length > 0 ? parsedSorts : this.parseSorts(this.resolveDefaultSort());
     const validSorts = adapter.applySort
