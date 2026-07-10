@@ -1,4 +1,5 @@
 import { columnFiltersToQueryString, flatObjectToQueryString } from './to-query-string.js';
+import { FILTER_OPERATORS } from './types.js';
 import type { ColumnFilter, FilterOperator } from './types.js';
 import {
   UNARY_OPERATORS,
@@ -169,6 +170,51 @@ export class FilterQueryBuilder {
         value: operatorOrValue,
       });
     }
+    this.notify();
+    return this;
+  }
+
+  /**
+   * Runtime-driven escape hatch for applying a `(field, operator, value)`
+   * triple sourced from state you don't control at compile time — e.g. a
+   * DataGrid/table column filter model, a saved-filter JSON blob, or any
+   * other data-driven UI. Prefer `where()` when the field and operator are
+   * known statically: it gives you full overload-based type-checking, while
+   * this method only enforces `operator` against the runtime operator list.
+   *
+   * Same single-condition-per-field semantics as `where()` — this call
+   * **replaces** any existing filter on `field`. `value` is still validated
+   * against `operator` via the same rules `where()`/`add()` use. Unary
+   * operators (`isNull`, `isNotNull`, `isEmpty`, `isNotEmpty`, `exists`,
+   * `notExists`) accept the 2-arg form; any value passed alongside them is
+   * stripped, exactly like `where()`.
+   *
+   * Unlike `where()`, an operator string that isn't a recognized
+   * `FilterOperator` throws immediately instead of silently being treated as
+   * an equals value — dynamic input is more likely to carry a typo or a
+   * stale value than a hardcoded call site.
+   *
+   * @example
+   * // Table UI applying a runtime column filter
+   * builder.whereDynamic(column.id, filterModel.operator, filterModel.value)
+   *
+   * // Unary operators accept the 2-arg form
+   * builder.whereDynamic('deletedAt', 'isNull')
+   */
+  whereDynamic(field: string, operator: FilterOperator, value?: unknown): this {
+    if (!FILTER_OPERATORS.includes(operator)) {
+      throw new Error(`Unknown filter operator "${String(operator)}".`);
+    }
+    validateOperatorValue(operator, value);
+    // Remove any existing filter(s) for this field — same replace semantics as where().
+    this.conditions = this.conditions.filter((c) => c.field !== field);
+    this.conditions.push({
+      field,
+      operator,
+      // Unary operators carry no value — strip any (commonly stale) value the
+      // caller passed so the emitted condition stays canonical.
+      value: UNARY_OPERATORS.has(operator) ? undefined : value,
+    });
     this.notify();
     return this;
   }
@@ -469,6 +515,23 @@ export class FilterQueryBuilder {
    */
   sortAsc(field: string): this {
     return this.sort(field, 'asc');
+  }
+
+  /**
+   * Runtime-driven escape hatch for applying a sort directive whose field
+   * name comes from state you don't control at compile time — e.g. a
+   * DataGrid column id. Delegates to `sort()`, so it shares the same
+   * replace-existing-sort-for-this-field semantics.
+   *
+   * Prefer `sort()`/`sortAsc()`/`sortDesc()` when the field is known
+   * statically. Reach for this only when it's runtime-driven, same as
+   * `whereDynamic()`.
+   *
+   * @example
+   * builder.sortDynamic(column.id, sortModel.direction)
+   */
+  sortDynamic(field: string, direction: 'asc' | 'desc'): this {
+    return this.sort(field, direction);
   }
 
   /**

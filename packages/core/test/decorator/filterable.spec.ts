@@ -46,4 +46,31 @@ describe('@Filterable', () => {
       Filterable({ entity: undefined as unknown as typeof FakeEntity })(class {});
     }).toThrow(FilterMissingEntityException);
   });
+
+  it('stores the codegen metadata field when provided (metadata only — no runtime behavior)', () => {
+    @Filterable({ entity: FakeEntity, codegen: { maxDepth: 2 } })
+    class F {}
+    const meta = getFilterableMetadata(F);
+    expect(meta?.codegen).toEqual({ maxDepth: 2 });
+    // Runtime-relevant fields are unaffected by the presence of `codegen`.
+    expect(meta?.entity).toBe(FakeEntity);
+    expect(meta?.autoFields).toBe(true);
+  });
+
+  it('omits codegen from metadata when not provided', () => {
+    const meta = getFilterableMetadata(FakeFilter);
+    expect(meta?.codegen).toBeUndefined();
+  });
+
+  it('stores the aliases metadata field when provided', () => {
+    @Filterable({ entity: FakeEntity, aliases: { baseId: 'base' } })
+    class F {}
+    const meta = getFilterableMetadata(F);
+    expect(meta?.aliases).toEqual({ baseId: 'base' });
+  });
+
+  it('omits aliases from metadata when not provided', () => {
+    const meta = getFilterableMetadata(FakeFilter);
+    expect(meta?.aliases).toBeUndefined();
+  });
 });

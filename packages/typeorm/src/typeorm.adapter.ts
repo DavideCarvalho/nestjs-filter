@@ -272,6 +272,59 @@ export class TypeOrmAdapter implements FilterAdapter {
     return { rows, total };
   }
 
+  /**
+   * `getResultAndCount` (via TypeORM's `getManyAndCount`) hydrates every row
+   * into an entity, which needs the primary key selected to build the
+   * identity map — a DISTINCT projection over non-PK fields doesn't select
+   * one. `getRawMany()` instead executes the already-built projection as
+   * plain rows, with no entity hydration.
+   *
+   * The total is computed via a dialect-neutral grouped subquery
+   * (`SELECT COUNT(*) FROM (SELECT DISTINCT ...) t`) rather than
+   * `COUNT(DISTINCT (a, b))` (Postgres-only tuple syntax) or
+   * `COUNT(DISTINCT a, b)` (MySQL-only multi-column syntax) — the subquery
+   * form runs identically on Postgres, MySQL and SQLite for both the
+   * single- and multi-field case.
+   */
+  async getDistinctResultAndCount(
+    qb: unknown,
+    fields: string[],
+  ): Promise<{ rows: Record<string, unknown>[]; total: number }> {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const alias = queryBuilder.alias;
+
+    const rawRows = await queryBuilder.getRawMany<Record<string, unknown>>();
+    // TypeORM aliases raw selected columns as `<alias>_<field>`; strip the
+    // prefix so row keys match the requested (property) field names.
+    const rows = rawRows.map((row) => {
+      const projected: Record<string, unknown> = {};
+      for (const field of fields) {
+        projected[field] = row[`${alias}_${field}`];
+      }
+      return projected;
+    });
+
+    // Ignore limit/offset/order for the total — a fresh clone so the page
+    // query above (and its caller) is unaffected. The builder methods (rather
+    // than assigning `expressionMap` fields directly) reset cleanly under
+    // `exactOptionalPropertyTypes`.
+    const countSource = queryBuilder
+      .clone()
+      .orderBy()
+      .limit(undefined)
+      .offset(undefined)
+      .skip(undefined)
+      .take(undefined);
+    const [innerSql, params] = countSource.getQueryAndParameters();
+    const countResult = await queryBuilder.connection.query<Array<{ count: string }>>(
+      `SELECT COUNT(*) AS "count" FROM (${innerSql}) AS distinct_count`,
+      params,
+    );
+    const total = Number(countResult[0]?.count ?? 0);
+
+    return { rows, total };
+  }
+
   async getResult(qb: unknown): Promise<unknown[]> {
     return (qb as SelectQueryBuilder<ObjectLiteral>).getMany();
   }

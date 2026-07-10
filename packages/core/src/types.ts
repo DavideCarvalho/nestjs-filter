@@ -70,6 +70,47 @@ export interface FilterableOptions {
    * value is always parameterized. Alias names must be safe identifiers.
    */
   computed?: Record<string, string>;
+  /**
+   * Declarative field-name remapping: maps a client-supplied field name to
+   * the real entity path (a column, a relation path like `"base"`, a dotted
+   * relation field like `"unit.name"`, or a JSON sub-path) it should resolve
+   * to. Applied at every point a client field name is resolved against the
+   * entity — `where[]` column filters, structured `filter` keys, `sort`,
+   * `distinct`, and `select`.
+   *
+   * Motivating case: `@FilterFor` methods only run for structured `filter`
+   * input — the `where[]` column-filter path resolves field names straight
+   * against entity columns/JSON sub-paths, before and separately from
+   * `@FilterFor` dispatch. So a legacy client sending `where[]` filters on
+   * `baseId` when the entity relation is actually named `base` has no
+   * server-side way to remap that name — short of asking the client to
+   * rename the field. `aliases: { baseId: "base" }` closes that gap.
+   *
+   * Semantics:
+   * - Resolution happens FIRST. Validation (the `allowed`/`blocked`
+   *   allowlist, the `SAFE_FIELD` path check, entity-metadata checks, the
+   *   `throwOnInvalid` policy) always runs against the RESOLVED target, never
+   *   the alias key.
+   * - If an alias key collides with a real column name, **the alias wins** —
+   *   declaring it is an explicit consumer decision.
+   * - Aliases do **not** cascade: an alias's target is never re-run through
+   *   the alias map, even if the target happens to also be a declared alias
+   *   key. This makes alias cycles structurally impossible.
+   * - Declaring no `aliases` is a zero-behavior-change no-op.
+   */
+  aliases?: Record<string, string>;
+  /**
+   * Codegen-only hints, consumed statically (via ts-morph AST, never executed)
+   * by `@dudousxd/nestjs-filter-codegen`. The core runtime ignores this field
+   * entirely.
+   *
+   * - `maxDepth` — caps relation-path recursion depth for this filter's
+   *   generated `filterFields` union, overriding the codegen extension's
+   *   global `maxDepth` option. `0` = only the entity's own columns; `1` =
+   *   own columns + direct relation fields (`base.name`); etc.
+   *   Example: `{ codegen: { maxDepth: 2 } }`.
+   */
+  codegen?: { maxDepth?: number };
 }
 
 export type InputNormalizer = 'camelCase' | 'snakeCase' | ((key: string) => string);
@@ -264,6 +305,17 @@ export interface FilterMetadata {
   throwOnInvalid?: boolean;
   defaultSort?: string | SortItem[];
   computed?: Record<string, string>;
+  /**
+   * Declarative field-name remapping (see {@link FilterableOptions.aliases}
+   * for full semantics and the `where[]`-column-filter motivation).
+   */
+  aliases?: Record<string, string>;
+  /**
+   * Codegen-only hint (see {@link FilterableOptions.codegen}). Stored
+   * verbatim for parity with the decorator options; the core runtime never
+   * reads it. Statically consumed by `@dudousxd/nestjs-filter-codegen`.
+   */
+  codegen?: { maxDepth?: number };
 }
 
 /**

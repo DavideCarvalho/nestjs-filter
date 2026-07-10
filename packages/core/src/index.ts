@@ -10,6 +10,7 @@ export type {
 export { Filterable, getFilterableMetadata } from './decorator/filterable.decorator.js';
 export { normalizeAllowed, allowedFieldNames } from './decorator/allowed.js';
 export type { NormalizedAllowed } from './decorator/allowed.js';
+export { resolveFieldAlias } from './decorator/aliases.js';
 export {
   FilterFor,
   getFilterForMap,

@@ -463,6 +463,38 @@ export class MikroOrmAdapter implements FilterAdapter {
     return { rows, total };
   }
 
+  /**
+   * `getResultAndCount` (via MikroORM's `getResultList`) hydrates every row
+   * into an entity through the identity map, which requires a primary key —
+   * a DISTINCT projection selects no PK column and throws "cannot merge
+   * entity without identifier". `qb.execute('all')` instead maps DB columns
+   * to property names (via the driver's naming strategy) WITHOUT identity-map
+   * hydration, so it works on a projection with no PK selected.
+   *
+   * The total uses MikroORM's own `getCount(fields, true)`, which is already
+   * dialect-aware for multi-column DISTINCT: it emits `count(distinct a, b)`
+   * on platforms that support multi-column `COUNT(DISTINCT ...)` (e.g. MySQL)
+   * and falls back to a `count(*) from (select distinct a, b ...)` subquery
+   * wrapper everywhere else (e.g. Postgres, SQLite) — see
+   * `platform.supportsMultiColumnCountDistinct()`.
+   */
+  async getDistinctResultAndCount(
+    qb: unknown,
+    fields: string[],
+  ): Promise<{ rows: Record<string, unknown>[]; total: number }> {
+    const queryBuilder = qb as {
+      clone: () => {
+        execute: (method: 'all') => Promise<Record<string, unknown>[]>;
+        getCount: (field: string[], distinct: boolean) => Promise<number>;
+      };
+    };
+    const rows = await queryBuilder.clone().execute('all');
+    // Total ignores limit/offset/order (getCount resets them internally),
+    // mirroring how getResultAndCount's own total is computed.
+    const total = await queryBuilder.clone().getCount(fields, true);
+    return { rows, total };
+  }
+
   async getResult(qb: unknown): Promise<unknown[]> {
     const queryBuilder = qb as { getResultList: () => Promise<unknown[]> };
     return queryBuilder.getResultList();

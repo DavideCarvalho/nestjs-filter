@@ -64,6 +64,25 @@ export interface TypedFilterQueryBuilder<
 
   remove(field: Fields): this;
 
+  /**
+   * Runtime-driven escape hatch: applies a `(field, operator, value)` triple
+   * sourced from state you don't control at compile time — e.g. a table UI
+   * driven by a DataGrid column filter model, or any other data-driven
+   * consumer that can't express its input as one of the static overloads
+   * above. `(string & {})` keeps autocomplete/narrowing for known `Fields`
+   * while still accepting arbitrary runtime strings, so callers don't have
+   * to cast the typed builder away to call this.
+   *
+   * `value` is still validated at runtime against `operator` (same rules as
+   * `where()`/`add()`), and an unrecognized operator string throws. Prefer
+   * `where()` when the field and operator are known statically — it gives
+   * you full compile-time narrowing that this method intentionally gives up.
+   *
+   * @example
+   * builder.whereDynamic(column.id, filterModel.operator, filterModel.value)
+   */
+  whereDynamic(field: Fields | (string & {}), operator: FilterOperator, value?: unknown): this;
+
   // ─── Convenience methods ────────────────────────────────────────────────
 
   equals<K extends Fields>(field: K, value: EqValue<ValueAt<M, K>>): this;
@@ -115,6 +134,17 @@ export interface TypedFilterQueryBuilder<
   sort(field: Fields, direction?: 'asc' | 'desc'): this;
   sortAsc(field: Fields): this;
   sortDesc(field: Fields): this;
+  /**
+   * Runtime-driven escape hatch: applies a sort directive whose field name
+   * comes from state you don't control at compile time — e.g. a DataGrid
+   * column id. Accepts any string so callers don't have to cast the typed
+   * builder away. Prefer `sort()`/`sortAsc()`/`sortDesc()` when the field is
+   * known statically.
+   *
+   * @example
+   * builder.sortDynamic(column.id, sortModel.direction)
+   */
+  sortDynamic(field: string, direction: 'asc' | 'desc'): this;
 
   // ─── Distinct (typed) ───────────────────────────────────────────────────
 
