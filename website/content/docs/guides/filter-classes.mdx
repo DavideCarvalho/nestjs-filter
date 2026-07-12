@@ -369,11 +369,79 @@ The `@Filterable()` class decorator associates the filter with an entity and opt
 | Option | Type | Description |
 |--------|------|-------------|
 | `entity` | `Type<unknown>` | **Required.** The entity class this filter targets. |
-| `allowed` | `readonly string[]` | Whitelist of input keys. Only these keys are dispatched. |
+| `allowed` | `readonly AllowedFieldEntry[]` | Whitelist of input keys. Each entry is either a field name (all operators allowed on that field) or `{ field, operators }`, restricting which operators are accepted for that field. |
 | `blocked` | `readonly string[]` | Blacklist of input keys. These keys are never dispatched. |
+| `autoFields` | `boolean \| readonly string[]` | Controls auto-field behavior for declared fields without `@FilterFor`. Defaults to `true`. See [Auto-fields](#auto-fields). |
+| `throwOnInvalid` | `boolean` | When `true`, invalid sorts, distinct fields, and unknown `where` columns raise a `BadRequestException` instead of being silently dropped. Overrides the module-level `throwOnInvalid`. Defaults to the module option (then `false`). |
+| `defaultSort` | `string \| SortItem[]` | Sort applied when the client sends no `sort`, for stable ordering. Accepts the same shapes as the request `sort` (e.g. `"-createdAt"`). Overrides the module-level `defaultSort`. |
+| `computed` | `Record<string, string>` | Declares virtual/computed fields — a map of alias to a dev-provided SQL expression. The alias becomes filterable and sortable as if it were a real column. |
+| `aliases` | `Record<string, string>` | Declarative field-name remapping — maps a client-supplied field name to the real entity path (column, relation path, dotted relation field, or JSON sub-path) it should resolve to. |
+| `codegen` | `{ maxDepth?: number }` | Codegen-only hint, read statically by `@dudousxd/nestjs-filter-codegen`; the runtime ignores it. See [Typed Client](/docs/guides/codegen). |
 
 <Callout type="warn">
   You cannot specify both `allowed` and `blocked` on the same filter. The decorator throws an error if both are set.
+</Callout>
+
+---
+
+## Restricting operators per field
+
+An `allowed` entry can be a plain field name (all operators accepted, the backward-compatible shape) or an object that restricts which operators are accepted for that field:
+
+```ts
+@Filterable({
+  entity: User,
+  allowed: [
+    'name',                                       // all operators
+    { field: 'age', operators: ['gte', 'lte', 'equals'] },
+    { field: 'status', operators: ['equals', 'in'] },
+  ],
+})
+```
+
+A request that sends a disallowed operator for a restricted field (e.g. `age[contains]=1`) is rejected or dropped per the `throwOnInvalid` policy, exactly like an unknown field.
+
+---
+
+## Computed fields
+
+`computed` declares virtual columns backed by a SQL expression you provide at declaration time. The client only ever references the alias — never the expression itself — so a computed field is filterable and sortable like a real column without exposing raw SQL to callers:
+
+```ts
+@Filterable({
+  entity: User,
+  computed: {
+    fullName: "first_name || ' ' || last_name",
+  },
+})
+export class UserFilter extends MikroOrmFilter<User> {}
+```
+
+```
+GET /users?fullName[contains]=Jane
+```
+
+<Callout type="warn">
+  The expression is developer-supplied and never derived from client input. Only declare `computed` expressions built from trusted, static strings.
+</Callout>
+
+---
+
+## Declarative field aliases
+
+`aliases` maps a client-supplied field name to the real entity path it should resolve to — a column, a relation path (`"base"`), a dotted relation field (`"unit.name"`), or a JSON sub-path. It's most useful when a legacy client still sends a field name that no longer matches the entity (e.g. `baseId` when the relation is actually named `base`):
+
+```ts
+@Filterable({
+  entity: WorkOrder,
+  aliases: { baseId: 'base' },
+})
+```
+
+Resolution runs first, against **every** point a client field name is checked against the entity — `where[]` column filters, structured `filter` keys, `sort`, `distinct`, and `select` — for both the static (`@Filterable`-driven) and dynamic (`applyDynamic`/`findAndCount`) entry points. The `allowed`/`blocked` allowlist, entity-metadata checks, and `throwOnInvalid` all evaluate the **resolved** target, never the alias key.
+
+<Callout type="info">
+  An alias key that collides with a real column name wins — an explicit consumer decision. Aliases never cascade: an alias's target is never re-run through the alias map, so cycles are structurally impossible. Declaring no `aliases` is a zero-behavior-change no-op.
 </Callout>
 
 ---

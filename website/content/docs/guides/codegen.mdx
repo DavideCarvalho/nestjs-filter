@@ -50,11 +50,37 @@ import { nestjsFilterCodegen } from '@dudousxd/nestjs-filter-codegen';
 export class AppModule {}
 ```
 
-`nestjsFilterCodegen()` takes no options. On the next codegen run it inspects the discovered routes and emits `filterQuery()` **only** on the leaves whose controller method applies a filter.
+On the next codegen run, `nestjsFilterCodegen()` inspects the discovered routes and emits `filterQuery()` **only** on the leaves whose controller method applies a filter.
 
 <Callout type="info">
   The extension adds its client import to `api.ts` only when at least one route is actually filtered, so projects that haven't decorated any endpoint with `@ApplyFilter` pay nothing.
 </Callout>
+
+---
+
+## Capping relation depth with `maxDepth`
+
+For `autoFields: true` entities with deep or wide relation graphs, the generated `filterFields` union can grow very large — every relation hop the codegen can reach becomes another dotted field name in the union. `maxDepth` bounds how many relation hops are included:
+
+```ts
+nestjsFilterCodegen({ maxDepth: 1 })
+```
+
+Depth counts relation hops in a dot-path field name:
+- `0` — only the entity's own columns (no relation paths), e.g. `"name"`.
+- `1` — own columns + direct relation fields, e.g. `"base.name"`.
+- `2` — one relation hop deeper, e.g. `"base.owner.name"`.
+
+The default is uncapped — relation-path expansion is bounded only by `nestjs-codegen`'s own cycle guard (it never revisits the same entity name), not by hop count.
+
+Override the global `maxDepth` for a single filter with `@Filterable({ codegen: { maxDepth } })` — a per-filter override always takes precedence over the global option:
+
+```ts
+@Filterable({ entity: WorkOrder, codegen: { maxDepth: 2 } })
+export class WorkOrderFilter extends MikroOrmFilter<WorkOrder> {}
+```
+
+`codegen` on `@Filterable` is metadata only — read statically (via ts-morph) by this extension. The core runtime ignores it entirely, so it has no effect outside of a codegen run. See [Filter Classes](/docs/guides/filter-classes) for the rest of the options this decorator accepts.
 
 ---
 

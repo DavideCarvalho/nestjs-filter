@@ -126,6 +126,29 @@ normalizeOperator('iContains'); // 'iContains' (canonical operators pass through
 
 ---
 
+## Client-side filter builder
+
+`@dudousxd/nestjs-filter-client` exports `FilterQueryBuilder` (and the field-typed `TypedFilterQueryBuilder`, produced by [codegen](/docs/guides/codegen)) for building `ColumnFilter`/structured-input payloads from front-end code. Static call sites use `where(field, operator, value)`, which gives full compile-time overload checking on the typed builder.
+
+For runtime-driven input you don't control at compile time — a DataGrid column filter model, a saved-filter blob, or any other data-driven UI — use the `whereDynamic`/`sortDynamic` escape hatch instead:
+
+```ts
+import { filterQueryTyped } from '@dudousxd/nestjs-filter-client';
+
+const query = filterQueryTyped<UserFilterFields>()
+  .whereDynamic(column.id, filterModel.operator, filterModel.value)
+  .sortDynamic(sortModel.field, sortModel.direction)
+  .build();
+```
+
+`whereDynamic(field, operator, value?)` and `sortDynamic(field, direction)` accept a runtime `field` string instead of a statically-known key, while still validating `operator` against the known `FilterOperator` list and `value` against the operator's expected shape at call time. Both **replace** any existing condition on the same field, exactly like `where()`/`sort()`. An operator string that isn't a recognized `FilterOperator` throws immediately, rather than silently being treated as an `equals` value — dynamic input is more likely to carry a stale or mistyped operator than a hardcoded call site.
+
+<Callout type="info">
+  Prefer `where()`/`sort()` when the field and operator are known statically — they give you full compile-time narrowing on `TypedFilterQueryBuilder` that `whereDynamic`/`sortDynamic` intentionally give up in exchange for accepting arbitrary runtime field names.
+</Callout>
+
+---
+
 ## Input formats
 
 There are two ways to send operator-based filters: **query string bracket notation** (GET requests) and **body format** (POST requests).

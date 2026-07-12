@@ -252,7 +252,7 @@ The `paginate` field supports offset-based pagination:
 { paginate: { page: 0, size: 25 } }
 ```
 
-Configure `maxPageSize` in `FilterModule.forRoot()` to cap the page size (see [Configuration](/docs/guides/configuration)).
+Configure `maxPageSize` in `FilterModule.forRoot()` to cap the page size (see [Module options](#module-options)).
 
 ### Include
 
@@ -284,10 +284,13 @@ populating a filter dropdown with the distinct values of a column:
 
 Accepts a single field, a comma-separated string, or an array (`distinct: ['status', 'type']`
 selects distinct *combinations*). Fields are validated against the entity's
-columns — unknown fields are dropped, same as `sort`. The endpoint returns the
-raw projected rows, so execute the builder with the raw API for your ORM
+columns — unknown fields are dropped, same as `sort`. Distinct projections have
+no entity identifier to hydrate around, so they're executed as plain rows
+rather than entities.
+
+With `@ApplyFilter`, execute the builder with the raw API for your ORM
 (`qb.execute()` in MikroORM, `qb.getRawMany()` in TypeORM) rather than the
-entity-hydrating one.
+entity-hydrating one:
 
 ```ts
 // controller
@@ -295,6 +298,17 @@ entity-hydrating one.
 listStatuses(@ApplyFilter(WorkOrderFilter) qb: QueryBuilder<WorkOrder>) {
   return qb.execute(); // [{ status: 'OPEN' }, { status: 'CLOSED' }]
 }
+```
+
+`runner.findAndCount()` (see the "findAndCount" section below) handles this automatically: whenever the structured input carries `distinct` fields, it routes to the adapter's raw-row execution path instead of the entity-hydrating one, skips the to-many relation-loading phase (there's no entity identity to attach relations to), and returns `{ rows, total }` with `total` counting distinct tuples rather than entities:
+
+```ts
+const { rows, total } = await runner.findAndCount(WorkOrder, {
+  filter: { baseId: 'b1' },
+  distinct: 'status',
+  sort: 'status',
+});
+// rows: [{ status: 'OPEN' }, { status: 'CLOSED' }], total: 2
 ```
 
 ### Dot-notation auto-joins
@@ -395,11 +409,39 @@ export class UsersService {
 
 ---
 
+## Module options
+
+`FilterModule.forRoot()` accepts these options:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `inputNormalizer` | `InputNormalizer` | none | Normalizes input keys, e.g. `'camelCase'` or `'snakeCase'`. |
+| `inputFormat` | `'native' \| 'spatie'` | `'native'` | The input query format. Set to `'spatie'` to accept spatie-laravel-query-builder / JSON:API style query strings. |
+| `dropId` | `boolean` | `false` | Whether to drop the entity's `id` field from auto-fields/`describe()` output. |
+| `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | Policy for input keys that don't match any `@FilterFor` method or auto-field. |
+| `validation` | `'auto' \| 'off'` | `'auto'` | Validation mode. See [Input Validation](/docs/guides/validation). |
+| `stripEmpty` | `boolean` | `true` | Strips `null`, `undefined`, and empty-string values from input before dispatch. |
+| `maxIncludeDepth` | `number` | `3` | Maximum depth for nested `include` paths (e.g. `'posts.comments.author'`). |
+| `maxPageSize` | `number` | `100` | Maximum page size for offset pagination. |
+| `throwOnInvalid` | `boolean` | `false` | When `true`, invalid sorts, distinct fields, and unknown `where` columns raise a `BadRequestException` instead of being silently dropped. Overridable per-`@Filterable`. |
+| `defaultSort` | `string \| SortItem[]` | none | Sort applied when the client sends no `sort`. Overridable per-`@Filterable`. |
+
+```ts
+FilterModule.forRoot({
+  inputNormalizer: 'camelCase',
+  maxPageSize: 50,
+  throwOnInvalid: true,
+})
+```
+
+---
+
 ## Next steps
 
-- [Installation](/docs/guides/installation) -- per-ORM install commands, peer dependencies, and TypeScript config
 - [Filter Classes](/docs/guides/filter-classes) -- validated mode, lean mode, setup(), and advanced features
 - [Controllers](/docs/guides/controllers) -- `@ApplyFilter` options, dynamic filter selection, and error handling
-- [Services](/docs/guides/services) -- `FilterRunner.apply()` and custom context
+- [Using Filters in Services](/docs/guides/repositories) -- `FilterRunner.apply()` and custom context
+- [Relation Filtering](/docs/guides/relations) -- cross-entity filtering with `@Relations`
+- [Generic Operators](/docs/guides/operators) -- `ColumnFilter`, all 22 operators, and the client-side filter builder
+- [Typed Client](/docs/guides/codegen) -- generate a type-safe `filterQuery()` builder with `@dudousxd/nestjs-filter-codegen`
 - [Testing](/docs/guides/testing) -- `FilterTestingModule`, mock query builders, and integration tests
-- [Configuration](/docs/guides/configuration) -- all `FilterModule.forRoot()` options
