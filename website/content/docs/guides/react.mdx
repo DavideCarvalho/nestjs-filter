@@ -1,0 +1,493 @@
+---
+title: React
+description: useFilterTable, useFilterQuery, and useFilterQueryUrl — the React adapter for the filter-query builder, with nuqs URL sync and TanStack Query/Table interop.
+---
+
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`@dudousxd/nestjs-filter-react` wraps [`@dudousxd/nestjs-filter-client`](/docs/guides/operators#client-side-filter-builder)'s `FilterQueryBuilder` in React state. The builder mutates directly from event handlers; the hooks subscribe your component to those mutations via `useSyncExternalStore` and hand you back a reference-stable, ready-to-fetch query body.
+
+Three layers, from declarative to low-level — pick the one that fits:
+
+| Hook | Owns the URL? | You write | Reach for it when |
+|------|----------------|-----------|--------------------|
+| [`useFilterTable`](#usefiltertable--declarative) | Yes (via nuqs) | A config object | You have a standard search/sort/paginate table (the common case) |
+| [`useFilterQuery`](#usefilterquery--the-core) | No | Your own event handlers | You want the builder-as-state model without URL sync (modals, non-shareable views) |
+| [`useFilterQueryUrl`](#usefilterqueryurl--low-level-url-control) | Yes (via nuqs) | nuqs `parsers` + an `apply` function | `useFilterTable`'s config can't express your URL shape |
+
+---
+
+## Install
+
+```bash
+pnpm add @dudousxd/nestjs-filter-react @dudousxd/nestjs-filter-client
+```
+
+`nuqs` is an **optional peer** — only required if you import from the `/nuqs` subpath (`useFilterTable`, `useFilterQueryUrl`). `useFilterQuery` from the root export has no nuqs dependency at all.
+
+| Peer dependency | Range | Required for |
+|------------------|-------|--------------|
+| `react` | `>=18.0.0` | everything |
+| `@dudousxd/nestjs-filter-client` | `workspace:^` / `>=1.0.0` | everything |
+| `nuqs` | `>=2.0.0` | `useFilterTable`, `useFilterQueryUrl` (the `/nuqs` subpath) |
+
+<Callout type="info">
+  The package ships two entry points: the root `@dudousxd/nestjs-filter-react` (nuqs-free, just `useFilterQuery`) and `@dudousxd/nestjs-filter-react/nuqs` (`useFilterTable` + `useFilterQueryUrl`). Importing only the root entry point lets you skip the `nuqs` dependency entirely if you don't need URL sync.
+</Callout>
+
+If you're on Next.js App Router, Pages Router, React Router, Remix, or TanStack Router, mount the matching nuqs adapter once at your app root — the hooks below assume it's already there:
+
+<Tabs items={['Next.js App Router', 'Plain React / Vite']}>
+  <Tab value="Next.js App Router">
+    ```tsx
+    // app/layout.tsx
+    import { NuqsAdapter } from 'nuqs/adapters/next/app';
+
+    export default function RootLayout({ children }: { children: React.ReactNode }) {
+      return (
+        <html lang="en">
+          <body>
+            <NuqsAdapter>{children}</NuqsAdapter>
+          </body>
+        </html>
+      );
+    }
+    ```
+  </Tab>
+  <Tab value="Plain React / Vite">
+    ```tsx
+    // main.tsx
+    import { NuqsAdapter } from 'nuqs/adapters/react';
+
+    createRoot(document.getElementById('root')!).render(
+      <NuqsAdapter>
+        <App />
+      </NuqsAdapter>,
+    );
+    ```
+  </Tab>
+</Tabs>
+
+See [nuqs's adapter docs](https://nuqs.dev/docs/adapters) for React Router, Remix, and TanStack Router.
+
+---
+
+## Full worked example
+
+This walks through a paginated, sortable, filterable users table end to end: the NestJS filter class and controller, the generated typed client, and the React component that renders it. Nothing here is hooked up manually — `useFilterTable` owns the URL, the debounce, and the query rebuild.
+
+### 1. Server — filter class + controller
+
+```ts
+// src/user.filter.ts
+import { Injectable } from '@nestjs/common';
+import { Filterable } from '@dudousxd/nestjs-filter';
+import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
+import { User } from './user.entity.js';
+
+// Auto-fields is on by default, so `name`, `email`, `role.name`, and
+// `status` are queryable with zero @FilterFor methods — see Filter Classes.
+@Injectable()
+@Filterable({ entity: User })
+export class UserFilter extends MikroOrmFilter<User> {}
+```
+
+```ts
+// src/users.controller.ts
+import { Controller, Post } from '@nestjs/common';
+import { ApplyFilter } from '@dudousxd/nestjs-filter';
+import type { QueryBuilder } from '@mikro-orm/core';
+import { UserFilter } from './user.filter.js';
+import { User } from './user.entity.js';
+
+@Controller('users')
+export class UsersController {
+  @Post('search')
+  search(@ApplyFilter(UserFilter, { source: 'body' }) qb: QueryBuilder<User>) {
+    return qb.getResultList();
+  }
+}
+```
+
+With [`@dudousxd/nestjs-filter-codegen`](/docs/guides/codegen) registered in your codegen pipeline, this route emits a typed `filterQuery()` on the generated client — no hand-written DTOs on the front end.
+
+### 2. Client — the generated typed builder
+
+```ts
+// generated/api.ts (excerpt, emitted by nestjs-codegen)
+import { api } from './generated/api.js';
+
+// api.users.search.filterQuery() returns a TypedFilterQueryBuilder restricted
+// to this endpoint's fields ('name' | 'email' | 'role.name' | 'status' | ...)
+```
+
+### 3. React — `useFilterTable`
+
+```tsx
+// src/UsersTable.tsx
+import { useFilterTable } from '@dudousxd/nestjs-filter-react/nuqs';
+import { useQuery } from '@tanstack/react-query';
+import { api } from './generated/api.js';
+
+export function UsersTable() {
+  const t = useFilterTable(api.users.search, {
+    include: ['role'],
+    sort: { email: 'asc' },
+    pageSize: 20,
+    search: { fields: ['name', 'email'], op: 'iContains', debounce: 300 },
+    filters: { role: 'role.name', status: { field: 'status', op: 'equals' } },
+  });
+
+  const { data, isLoading } = useQuery(t.queryOptions());
+
+  return (
+    <div>
+      <input
+        placeholder="Search name or email…"
+        value={t.search}
+        onChange={(e) => t.setSearch(e.target.value)}
+      />
+
+      <select
+        value={t.filters.status ?? ''}
+        onChange={(e) => t.setFilter('status', e.target.value || null)}
+      >
+        <option value="">All statuses</option>
+        <option value="active">Active</option>
+        <option value="suspended">Suspended</option>
+      </select>
+
+      <button onClick={t.reset}>Clear filters</button>
+
+      {isLoading ? (
+        <p>Loading…</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data?.items.map((user) => (
+              <tr key={user.id}>
+                <td>{user.name}</td>
+                <td>{user.email}</td>
+                <td>{user.role.name}</td>
+                <td>{user.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <button disabled={t.page <= 1} onClick={() => t.setPage(t.page - 1)}>
+        Previous
+      </button>
+      <span>Page {t.page}</span>
+      <button onClick={() => t.setPage(t.page + 1)}>Next</button>
+    </div>
+  );
+}
+```
+
+That's the whole client side. Visiting `/users?q=davi&status=active&page=2` reproduces the exact same table state on load — search, status filter, and page all come from the URL, and `t.setSearch`/`t.setFilter`/`t.setPage` write straight back to it. No `useState`, no `useEffect` to sync query params, no manual `queryKey` construction (the built `body` **is** the key input, and it's reference-stable across renders that don't change anything).
+
+---
+
+## `useFilterTable` — declarative
+
+```ts
+import { useFilterTable } from '@dudousxd/nestjs-filter-react/nuqs';
+```
+
+Describe the table once. The hook owns the URL query string (source of truth), the search debounce, pagination, and rebuilding the query on every URL change. Requires the nuqs adapter (see [Install](#install)).
+
+### Signature
+
+```ts
+function useFilterTable<Fields extends string, Body, QueryOpts>(
+  route: {
+    filterQuery: () => TypedFilterQueryBuilder<Fields>;
+    queryOptions: (body: Body) => QueryOpts;
+  },
+  config: FilterTableConfig<Fields>,
+): FilterTable<QueryOpts>;
+```
+
+`route` is exactly the shape a codegen'd `api.x.y` leaf has — pass it straight from your generated client, or hand-roll an object with those two members for non-codegen setups.
+
+### `FilterTableConfig<Fields>` reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|--------------|
+| `include` | `string[]` | -- | Relation paths to eagerly load, applied on every rebuild. |
+| `sort` | `Partial<Record<Fields, 'asc' \| 'desc'>>` | -- | Static sort — one direction per field, always applied. |
+| `pageSize` | `number` | `25` | Page size passed to `.page(page, size)`. |
+| `search` | `{ fields: Fields[]; op?: FilterOperator; debounce?: number }` | -- | Free-text search: ORs `op` (default `'iContains'`) across `fields`, debounced by `debounce` ms (default `300`) before writing to the URL. Omit entirely to disable the search box. |
+| `filters` | `Record<string, Fields \| { field: Fields; op?: FilterOperator }>` | -- | Named filters. The record key is the URL query param and the `name` argument to `setFilter`; the value is either a bare field name (implicit `equals`) or `{ field, op }` for a different operator. |
+
+### `FilterTable<QueryOpts>` return value reference
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `body` | `FilterQueryResult` | The built query — reference-stable until the URL (or config) actually changes something. Safe to use directly as a `queryKey` input. |
+| `queryOptions` | `() => QueryOpts` | `route.queryOptions(body)` — spread straight into `useQuery`. |
+| `search` | `string` | Controlled search input value. Updates immediately on `setSearch`; the URL (and therefore the query) updates after `debounce` ms. |
+| `setSearch` | `(value: string) => void` | Updates `search` immediately; debounced-writes to the URL. |
+| `filters` | `Record<string, string \| null>` | Current value of each named filter (keyed by the `filters` config key), read from the URL. |
+| `setFilter` | `(name: string, value: string \| null) => void` | Writes a named filter to the URL and resets to page 1. Pass `null` to clear it. |
+| `page` | `number` | Current page, **1-based** (matches typical pagination UI). |
+| `setPage` | `(page: number) => void` | Writes the page to the URL (still 1-based on this side of the API). |
+| `reset` | `() => void` | Clears search and every named filter, back to page 1, in one URL write. |
+
+<Callout type="warn">
+  `page`/`setPage` are 1-based; the built query body's `paginate.page` is **0-based** (MikroORM/TypeORM convention). `useFilterTable` does this translation for you — don't subtract 1 yourself when calling `setPage`, and don't add 1 when reading `body.paginate.page`.
+</Callout>
+
+<Callout type="info">
+  `filters` keys are exactly your config's `filters` keys, not the underlying field names — with `filters: { role: 'role.name' }`, read `t.filters.role`, not `t.filters['role.name']`.
+</Callout>
+
+---
+
+## `useFilterQuery` — the core
+
+```ts
+import { useFilterQuery } from '@dudousxd/nestjs-filter-react';
+```
+
+The lowest layer, and the one both `useFilterTable` and `useFilterQueryUrl` are built on. No URL involvement at all — you decide when and how the builder mutates. Available from the **root** export, so it has no `nuqs` dependency.
+
+### Signature
+
+```ts
+function useFilterQuery<Builder extends ReactiveFilterBuilder>(
+  factory: () => Builder,
+  init?: (builder: Builder) => void,
+): readonly [Builder, FilterQueryResult];
+```
+
+- `factory` creates the builder exactly once (on mount) — pass a route's `filterQuery` factory (e.g. `api.users.search.filterQuery`), or the untyped `filterQuery` from `@dudousxd/nestjs-filter-client` if you're not on codegen.
+- `init` runs once, synchronously, against the fresh builder before the first render — set static defaults (`include`, `sort`, `page`) here.
+- Returns `[builder, body]`. `builder` is stable across renders (same reference, always); `body` is the cached `build()` output, and its reference only changes when the builder actually mutates.
+
+### `ReactiveFilterBuilder` — the contract
+
+Any object satisfying this interface can drive `useFilterQuery`. `FilterQueryBuilder` and `TypedFilterQueryBuilder` (from `@dudousxd/nestjs-filter-client`) both implement it already, so you'll rarely write one yourself:
+
+```ts
+interface ReactiveFilterBuilder {
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): FilterQueryResult;
+}
+```
+
+### Example: mutate directly from a handler
+
+```tsx
+import { useFilterQuery } from '@dudousxd/nestjs-filter-react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from './generated/api.js';
+
+function RoleFilterableTable() {
+  const [qb, body] = useFilterQuery(api.users.search.filterQuery, (builder) => {
+    builder.include('role').sort('email', 'asc').page(0, 20);
+  });
+
+  const { data } = useQuery(api.users.search.queryOptions(body));
+
+  return (
+    <select onChange={(e) => qb.where('role.name', 'equals', e.target.value)}>
+      <option value="ADMIN">Admin</option>
+      <option value="EDITOR">Editor</option>
+    </select>
+  );
+}
+```
+
+Calling `qb.where(...)` mutates the builder and notifies its subscribers; `useSyncExternalStore` picks that up and the component re-renders with the fresh `body`. There is no `setState` anywhere in this flow — the builder **is** the state.
+
+### TanStack Query interop
+
+`body` is a plain, structurally-comparable object (`{ filter, sort?, include?, paginate?, distinct? }`), so it's safe to use directly as `useQuery`'s input and as part of a `queryKey`:
+
+```tsx
+const [qb, body] = useFilterQuery(api.users.search.filterQuery);
+
+// `route.queryOptions(body)` (codegen) already threads `body` into the queryKey —
+// spread it straight into useQuery:
+const { data } = useQuery(api.users.search.queryOptions(body));
+
+// Hand-rolled, without codegen:
+const { data } = useQuery({
+  queryKey: ['users', 'search', body] as const,
+  queryFn: () => fetchUsers(body),
+});
+```
+
+Because `body`'s reference is stable across renders that don't mutate the builder, TanStack Query won't refetch on every render — only when `qb.where(...)`/`qb.sort(...)`/`qb.page(...)` actually changes something. This is the same property `useFilterTable`'s `queryOptions()` and `useFilterQueryUrl`'s returned `body` rely on.
+
+<Callout type="warn">
+  `body` is stable **by reference**, not deep-frozen — don't mutate it in place (e.g. `body.filter.where.push(...)`). Always go through the builder's methods (`where`, `sort`, `page`, …); they replace the internal object and bump the reference, which is what `useSyncExternalStore` and TanStack Query's caching both depend on.
+</Callout>
+
+---
+
+## `useFilterQueryUrl` — low-level URL control
+
+```ts
+import { useFilterQueryUrl } from '@dudousxd/nestjs-filter-react/nuqs';
+```
+
+Same shape as `useFilterTable` — URL is the source of truth, builder is its reactive projection — but you supply the nuqs `parsers` and a custom `apply` function instead of a declarative config. Reach for it when `FilterTableConfig` can't express your URL shape (e.g. non-`equals` default operators per param, cross-field logic, custom pagination encoding).
+
+### Signature
+
+```ts
+function useFilterQueryUrl<Builder extends ResettableFilterBuilder, KeyMap extends UseQueryStatesKeysMap>(
+  factory: () => Builder,
+  config: UseFilterQueryUrlConfig<Builder, KeyMap>,
+): readonly [Builder, FilterQueryResult, Values<KeyMap>, SetValues<KeyMap>];
+```
+
+### `UseFilterQueryUrlConfig` reference
+
+| Option | Type | Description |
+|--------|------|--------------|
+| `parsers` | nuqs `UseQueryStatesKeysMap` | The nuqs parser map — defines which URL query params exist and their types. Same shape you'd pass to nuqs's own `useQueryStates`. |
+| `apply` | `(builder: Builder, values: Values<KeyMap>) => void` | Rebuilds the **complete** query from an empty builder given the current URL values. Called on mount and on every URL change (builder is `clear()`ed first) — must be a pure function of `values`; don't rely on prior builder state. |
+| `options` | `Partial<UseQueryStatesOptions<KeyMap>>` | Passed straight through to nuqs's `useQueryStates` (history mode, `shallow`, `clearOnDefault`, etc.). |
+
+### Example
+
+```tsx
+import { useFilterQueryUrl } from '@dudousxd/nestjs-filter-react/nuqs';
+import { parseAsInteger, parseAsString } from 'nuqs';
+import { api } from './generated/api.js';
+
+function UsersTable() {
+  const [qb, body, values, setValues] = useFilterQueryUrl(api.users.search.filterQuery, {
+    parsers: {
+      q: parseAsString.withDefault(''),
+      role: parseAsString,
+      page: parseAsInteger.withDefault(1),
+    },
+    apply: (builder, { q, role, page }) => {
+      builder.include('role').sort('email', 'asc').page(page - 1, 20);
+      if (role) builder.where('role.name', 'equals', role);
+      const term = q.trim();
+      if (term) {
+        builder.or((group) => {
+          group.where('name', 'iContains', term);
+          group.where('email', 'iContains', term);
+        });
+      }
+    },
+  });
+
+  const { data } = useQuery(api.users.search.queryOptions(body));
+
+  return (
+    <input value={values.q} onChange={(e) => setValues({ q: e.target.value, page: 1 })} />
+  );
+}
+```
+
+`apply` runs against a **freshly cleared** builder every time — it's the single place your URL → query mapping lives, so keep it total (handle every combination of `values`, including all-empty).
+
+<Callout type="info">
+  `useFilterTable` is `useFilterQueryUrl` with `parsers`/`apply` generated from a `FilterTableConfig` for you, plus the debounced search box and 1-based page translation built in. Prefer it unless you specifically need custom parsers or non-standard `apply` logic.
+</Callout>
+
+---
+
+## TanStack Table interop
+
+If you're driving an actual `@tanstack/react-table` instance (column defs, header groups, built-in sorting/filtering state) rather than building your own table markup, `@dudousxd/nestjs-filter-client` (not this package) exports `applyTanstackTableState`/`tanstackTableToFilterQuery` for translating vanilla TanStack Table state directly into a filter query:
+
+```tsx
+import { filterQuery } from '@dudousxd/nestjs-filter-client';
+import { applyTanstackTableState } from '@dudousxd/nestjs-filter-client/tanstack';
+import { useFilterQuery } from '@dudousxd/nestjs-filter-react';
+import { useQuery } from '@tanstack/react-query';
+import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
+
+function TanstackDrivenTable({ users, columns }: { users: User[]; columns: ColumnDef<User>[] }) {
+  const [qb] = useFilterQuery(filterQuery);
+  const table = useReactTable({
+    data: users,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    manualFiltering: true,
+    manualSorting: true,
+    manualPagination: true,
+  });
+
+  const body = applyTanstackTableState(qb, {
+    columnFilters: table.getState().columnFilters,
+    sorting: table.getState().sorting,
+    pagination: table.getState().pagination,
+  }).build();
+
+  const { data } = useQuery({ queryKey: ['table', body] as const, queryFn: () => fetchUsers(body) });
+}
+```
+
+`applyTanstackTableState` is framework-agnostic (it only needs `@tanstack/table-core`'s state shapes, a types-only peer), so it works the same way with `@tanstack/vue-table` or `@tanstack/solid-table`. Pair it with this package's `useFilterQuery` in a React app to get the reference-stable `body` these docs rely on elsewhere; without it you'd need your own `useMemo` to avoid rebuilding the query — and therefore refetching — on every render.
+
+See the [Operators guide](/docs/guides/operators#client-side-filter-builder) for `whereDynamic`/`sortDynamic`, the escape hatch `applyTanstackTableState`'s default `resolveOperator` is built on for translating a DataGrid's runtime column-filter model.
+
+---
+
+## Exports reference
+
+### `@dudousxd/nestjs-filter-react` (root)
+
+| Export | Kind | Description |
+|--------|------|--------------|
+| `useFilterQuery` | function | The core hook — see [above](#usefilterquery--the-core). |
+| `ReactiveFilterBuilder` | type | The minimal `subscribe`/`getSnapshot` contract `useFilterQuery` requires. |
+
+### `@dudousxd/nestjs-filter-react/nuqs`
+
+| Export | Kind | Description |
+|--------|------|--------------|
+| `useFilterTable` | function | The declarative, URL-synced table hook — see [above](#usefiltertable--declarative). |
+| `FilterTable` | type | Return type of `useFilterTable`. |
+| `FilterTableConfig` | type | Config type of `useFilterTable`. |
+| `useFilterQueryUrl` | function | The low-level, URL-synced hook — see [above](#usefilterqueryurl--low-level-url-control). |
+| `ResettableFilterBuilder` | type | The `ReactiveFilterBuilder` + `clear()` contract `useFilterQueryUrl` requires. |
+| `UseFilterQueryUrlConfig` | type | Config type of `useFilterQueryUrl`. |
+
+---
+
+## Pitfalls
+
+<Callout type="warn">
+  **Missing `NuqsAdapter`.** `useFilterTable` and `useFilterQueryUrl` throw at runtime if no `NuqsAdapter` is mounted above them in the tree (nuqs's own error, not this package's). Mount it once near your app root — see [Install](#install) — not per-page.
+</Callout>
+
+<Callout type="warn">
+  **`init`/`apply` running more than you expect.** `useFilterQuery`'s `init` runs exactly once, before the first render — don't rely on it reacting to prop changes. `useFilterQueryUrl`'s `apply` runs on mount **and** on every URL change; if it reads anything besides its `values` argument (component props, closures over stale state), you'll get a query rebuilt from stale data. Keep `apply` a pure function of `values`.
+</Callout>
+
+<Callout type="warn">
+  **Forgetting `manualFiltering`/`manualSorting`/`manualPagination` with TanStack Table.** All of these hooks assume the *server* is doing the filtering/sorting/pagination. If you drive a `useReactTable` instance without setting those three flags, TanStack Table will also filter/sort/paginate client-side on top of an already-filtered server response, double-applying (and likely contradicting) your query.
+</Callout>
+
+<Callout type="warn">
+  **Reading `t.page` as 0-based.** `useFilterTable.page`/`setPage` are 1-based to match typical pagination UI, but the underlying query body's `paginate.page` is 0-based. If you bypass `t.queryOptions()` and read `t.body.paginate.page` directly for UI, remember to add 1.
+</Callout>
+
+<Callout type="warn">
+  **Mutating `body` in place.** The builder's reactivity (and TanStack Query's cache-key comparison) depends on `body`'s reference only changing via the builder's own methods. Never push into `body.filter.where` or assign into `body.paginate` directly — always call `qb.where(...)`/`qb.page(...)` etc.
+</Callout>
+
+<Callout type="info">
+  **`filters` config value shorthand vs. object form.** `filters: { role: 'role.name' }` implies `equals`. If you need a different operator (e.g. a status dropdown that should use `in` for multi-select), use the object form: `filters: { status: { field: 'status', op: 'in' } }`.
+</Callout>

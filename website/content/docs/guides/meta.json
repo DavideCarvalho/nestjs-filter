@@ -8,6 +8,7 @@
     "validation",
     "testing",
     "operators",
-    "codegen"
+    "codegen",
+    "react"
   ]
 }
