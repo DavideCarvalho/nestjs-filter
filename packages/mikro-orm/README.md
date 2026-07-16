@@ -233,13 +233,16 @@ or `@Computed` (below).
 
 Besides the inline `computed` map, a method can be declared computed with the
 `@Computed` decorator — the alias defaults to the method name, and the method
-body is the source, using the exact same three forms above:
+body is the source. A `@Computed` method is always wrapped as a **function**
+source (form 2 or 3 above), never the bare-string form — so the `{alias}`
+token (form 1, inline-map strings only) is never substituted in a `@Computed`
+method's return value. Take the `ctx.alias` parameter instead:
 
 ```ts
 class WorkOrderFilter extends MikroOrmFilter<WorkOrder> {
   @Computed({ type: 'number' })
-  subwosCount() {
-    return '(SELECT COUNT(*) FROM subwo WHERE subwo.wo_id = {alias}.id)';
+  subwosCount({ alias }: ComputedContext) {
+    return `(SELECT COUNT(*) FROM subwo WHERE subwo.wo_id = ${alias}.id)`;
   }
 
   @Computed('openSubwos', { type: 'number' })
