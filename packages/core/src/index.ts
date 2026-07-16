@@ -22,7 +22,13 @@ export type {
 } from './decorator/filter-for.decorator.js';
 export { Computed, getComputedMap, getComputedOptsMap } from './decorator/computed.decorator.js';
 export type { ComputedOptions } from './decorator/computed.decorator.js';
-export type { ComputedContext, ComputedReturn, ComputedSource, ComputedEntry, ComputedMap } from './types.js';
+export type {
+  ComputedContext,
+  ComputedReturn,
+  ComputedSource,
+  ComputedEntry,
+  ComputedMap,
+} from './types.js';
 export { ApplyFilter, getApplyFilterMetadata } from './decorator/apply-filter.decorator.js';
 export { Relations, getRelationsMap, resolveRelation } from './decorator/relations.decorator.js';
 export type { RelationConfig, RelationsMap } from './decorator/relations.decorator.js';

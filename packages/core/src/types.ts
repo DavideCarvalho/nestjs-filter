@@ -43,9 +43,7 @@ export type ComputedSource = string | ((ctx: ComputedContext) => ComputedReturn)
 
 /** A computed map value: the bare source, or `{ source, type }` where `type` is
  * a codegen-only value-type hint. */
-export type ComputedEntry =
-  | ComputedSource
-  | { source: ComputedSource; type: FilterFieldTypeHint };
+export type ComputedEntry = ComputedSource | { source: ComputedSource; type: FilterFieldTypeHint };
 
 export type ComputedMap = Record<string, ComputedEntry>;
 

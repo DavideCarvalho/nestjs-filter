@@ -1,6 +1,10 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { Computed, getComputedMap, getComputedOptsMap } from '../src/decorator/computed.decorator.js';
+import {
+  Computed,
+  getComputedMap,
+  getComputedOptsMap,
+} from '../src/decorator/computed.decorator.js';
 
 class Base {
   @Computed({ type: 'number' })
