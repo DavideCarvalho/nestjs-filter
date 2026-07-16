@@ -84,6 +84,11 @@ function projectWithComputed() {
       decorated() {
         return '(SELECT 3)';
       }
+
+      @Computed('explicitAlias', { type: 'number' })
+      explicit() {
+        return '(SELECT 4)';
+      }
     }
     `,
   );
@@ -103,6 +108,55 @@ function projectWithComputed() {
     project,
     controllerRef: {
       className: 'ComputedController',
+      methodName: 'list',
+      filePath: controllerPath,
+    },
+  };
+}
+
+/**
+ * In-memory controller + filter class pair with `autoFields: false` and no
+ * entity/@FilterFor fields at all — only the inline `computed` map. Upstream
+ * discovery (`@dudousxd/nestjs-codegen`) would yield no `filterFields` for
+ * this shape; the route fixture below leaves `filterFields` undefined to
+ * match that.
+ */
+function projectWithComputedOnly() {
+  const project = inMemoryProject();
+  const controllerPath = '/virtual/computed-only.controller.ts';
+  const filterPath = '/virtual/computed-only.filter.ts';
+
+  project.createSourceFile(
+    filterPath,
+    `
+    class Entity {}
+
+    @Filterable({
+      entity: Entity,
+      autoFields: false,
+      computed: {
+        onlyComputed: '(SELECT 1)',
+      },
+    })
+    export class ComputedOnlyFilter {}
+    `,
+  );
+
+  project.createSourceFile(
+    controllerPath,
+    `
+    import { ComputedOnlyFilter } from './computed-only.filter';
+
+    export class ComputedOnlyController {
+      list(@ApplyFilter(ComputedOnlyFilter) filter: ComputedOnlyFilter) {}
+    }
+    `,
+  );
+
+  return {
+    project,
+    controllerRef: {
+      className: 'ComputedOnlyController',
       methodName: 'list',
       filePath: controllerPath,
     },
@@ -156,5 +210,75 @@ describe('nestjsFilterCodegen transformRoutes (computed fields)', () => {
 
     expect(filterFieldsOf(routes[0])).toEqual(['id']);
     expect(filterFieldTypesOf(routes[0])).toBeUndefined();
+  });
+
+  it('supports the explicit alias + opts @Computed overload (alias, { type })', () => {
+    const { project, controllerRef } = projectWithComputed();
+    const ext = nestjsFilterCodegen();
+    const routes = [routeFixture({ filterFields: ['id'], controllerRef })];
+
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    expect(filterFieldsOf(routes[0])).toContain('explicitAlias');
+    expect(filterFieldTypesOf(routes[0])).toContainEqual({ name: 'explicitAlias', kind: 'number' });
+  });
+
+  it('surfaces computed fields on a filter with no entity/@FilterFor fields (autoFields: false)', () => {
+    const { project, controllerRef } = projectWithComputedOnly();
+    const ext = nestjsFilterCodegen();
+    // Upstream discovery yields no `filterFields` at all for this shape
+    // (autoFields: false, no @FilterFor/class-property field) — `filterFields`
+    // is left undefined here to match that real "no fields discovered" output.
+    const routes = [routeFixture({ controllerRef })];
+
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    expect(filterFieldsOf(routes[0])).toEqual(['onlyComputed']);
+  });
+
+  it('routes with genuinely zero fields (no entity/@FilterFor, no computed) are still skipped', () => {
+    const project = inMemoryProject();
+    const controllerPath = '/virtual/empty.controller.ts';
+    const filterPath = '/virtual/empty.filter.ts';
+
+    project.createSourceFile(
+      filterPath,
+      `
+      class Entity {}
+
+      @Filterable({ entity: Entity, autoFields: false })
+      export class EmptyFilter {}
+      `,
+    );
+    project.createSourceFile(
+      controllerPath,
+      `
+      import { EmptyFilter } from './empty.filter';
+
+      export class EmptyController {
+        list(@ApplyFilter(EmptyFilter) filter: EmptyFilter) {}
+      }
+      `,
+    );
+
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        controllerRef: {
+          className: 'EmptyController',
+          methodName: 'list',
+          filePath: controllerPath,
+        },
+      }),
+    ];
+
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    // Augmentation still runs (the filter class resolves) but contributes
+    // nothing, so `filterFields` normalizes to an empty array rather than
+    // staying `undefined` — functionally equivalent (both are zero-length),
+    // and the route is still skipped for pruning/emit purposes.
+    expect(filterFieldsOf(routes[0]) ?? []).toEqual([]);
+    expect(filterFieldTypesOf(routes[0]) ?? []).toEqual([]);
   });
 });

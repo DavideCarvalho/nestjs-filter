@@ -395,10 +395,16 @@ export function nestjsFilterCodegen(options: NestjsFilterCodegenOptions = {}): C
       const project = ctx.project();
       for (const route of routes) {
         const contractSource = route.contract?.contractSource as FilterContract | undefined;
-        if (!contractSource?.filterFields?.length) continue;
+        if (!contractSource) continue;
 
         const filterClass = resolveFilterClassFromControllerRef(route.controllerRef, project);
         if (filterClass) augmentContractWithComputed(filterClass, contractSource);
+
+        // Only now check: a route with neither upstream-discovered fields NOR
+        // computed fields (the augmentation above is a no-op without a
+        // resolvable filter class / without @Computed / inline `computed`
+        // entries) has nothing to prune or emit — skip it.
+        if (!contractSource.filterFields?.length) continue;
 
         const maxDepth =
           (filterClass && readFilterableCodegenMaxDepth(filterClass)) ?? options.maxDepth;
