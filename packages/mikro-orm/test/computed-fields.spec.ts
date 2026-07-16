@@ -204,4 +204,14 @@ describe('MikroORM computed / virtual fields', () => {
     expect(rows.map((r) => r.name)).toEqual(['Grace', 'Alan', 'Ada']);
     await mod.close();
   });
+
+  it('filters by a function-source computed field (gt)', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterFn, { filter: { booksCount: { gt: 1 } } }, qb);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+    await mod.close();
+  });
 });
