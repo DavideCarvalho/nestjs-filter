@@ -486,21 +486,57 @@ export class MikroOrmAdapter implements FilterAdapter {
     return raw((alias) => {
       const out = source({ alias, em: this.em });
       if (typeof out === 'string') return out;
-      // Adapter-specific return (e.g. a raw fragment) → its SQL. QB support
-      // (an ORM query builder returned from the function) lands in Task 6.
+      // Adapter-specific return (a raw fragment `{ sql }` or a MikroORM
+      // QueryBuilder) → its SQL, via `computedReturnToSql`.
       return this.computedReturnToSql(out, alias);
     });
   }
 
   /**
-   * Converts a computed function's non-string return into SQL. For now only a
-   * raw fragment (`{ sql: string }`) is supported; an ORM query builder return
-   * will be handled by a later step (Task 6 — QB extraction).
+   * Converts a computed function's non-string return into SQL.
+   *
+   * QB return (an object with a `getFormattedQuery` method, i.e. a MikroORM
+   * `QueryBuilder`): `getFormattedQuery()` — which inlines bound params into a
+   * single self-contained SQL string — is used over `getQuery()` (`?`
+   * placeholders + a separate `getParams()`) because MikroORM v7 dropped its
+   * knex dependency (there is no `getKnexQuery()` escape hatch any more), and
+   * an inline scalar subquery is exactly what an ORDER BY / WHERE fragment
+   * needs — there's no bound-param slot to give it inside a raw fragment.
+   * Inlining is injection-safe here because the QB is built entirely from
+   * dev-authored code inside the computed source function — it never carries
+   * client-supplied filter values; those ride separately through
+   * `resolveOperator` as a bound parameter (see `applyComputedField`).
+   *
+   * SPIKE finding (correlated-alias substitution survives the double `raw`
+   * nesting): `raw((alias) => …)` resolves by invoking the callback eagerly
+   * with a sentinel placeholder token (`[::alias::]`), embedding whatever the
+   * callback returns verbatim into the surrounding SQL, and only substituting
+   * every occurrence of that sentinel with the real build-time alias (e.g.
+   * `a0`) once the *outer* query is finally compiled/formatted. Calling the
+   * subquery's `getFormattedQuery()` from inside the outer callback runs
+   * before that final substitution pass, so its output still contains the
+   * literal, unsubstituted sentinel text (e.g. `where b0.author_id =
+   * [::alias::].id`) — which is exactly what's wanted: it gets swept up
+   * unchanged into the string this method returns, and the OUTER raw's own
+   * substitution pass then replaces it, wherever it lands, including inside
+   * this embedded subquery text. Confirmed empirically (scratch spike, not
+   * committed): the final outer SQL correctly reads `... = a0.id`, not `...
+   * = [::alias::].id`.
+   *
+   * Also confirmed: `.count()`'s `select count(*) as \`count\`` column alias
+   * is harmless once the whole subquery is wrapped in parens and used as a
+   * scalar expression in ORDER BY / WHERE (SQLite and MySQL both accept an
+   * aliased column inside a parenthesized scalar subquery) — no need to fall
+   * back to `.count('id', true)` or a raw select.
    */
   private computedReturnToSql(out: object, _alias: string): string {
+    if (typeof (out as { getFormattedQuery?: unknown }).getFormattedQuery === 'function') {
+      const sql = (out as { getFormattedQuery: () => string }).getFormattedQuery();
+      return `(${sql})`;
+    }
     const sql = (out as { sql?: string }).sql;
     if (typeof sql === 'string') return sql;
-    throw new Error('Unsupported computed return; QB support lands in a later step');
+    throw new Error('Unsupported computed return type for MikroORM adapter');
   }
 
   applyComputedSort(qb: unknown, source: ComputedSource, direction: 'asc' | 'desc'): void {

@@ -5,7 +5,7 @@ import {
   FilterRunner,
   Filterable,
 } from '@dudousxd/nestjs-filter';
-import { Collection, MikroORM } from '@mikro-orm/core';
+import { Collection, MikroORM, raw } from '@mikro-orm/core';
 import {
   Entity,
   ManyToOne,
@@ -15,6 +15,7 @@ import {
   ReflectMetadataProvider,
 } from '@mikro-orm/decorators/legacy';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
+import type { SqlEntityManager } from '@mikro-orm/sql';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -81,6 +82,23 @@ class AuthorFilter extends MikroOrmFilter<Author> {}
 })
 class AuthorFilterFn extends MikroOrmFilter<Author> {}
 
+// A QB-callback computed field: the source function builds and returns a real
+// MikroORM QueryBuilder for a correlated subquery (rather than a hand-written
+// SQL string), using `raw` to correlate the subquery to the outer row via the
+// callback's `alias`.
+@Injectable()
+@Filterable({
+  entity: Author,
+  computed: {
+    booksCount: ({ em, alias }: ComputedContext) =>
+      (em as SqlEntityManager)
+        .createQueryBuilder(Book)
+        .where({ author: raw(`${alias}.id`) })
+        .count(),
+  },
+})
+class AuthorFilterQb extends MikroOrmFilter<Author> {}
+
 // ─── Test Suite ─────────────────────────────────────────────────────────────────
 
 describe('MikroORM computed / virtual fields', () => {
@@ -99,7 +117,7 @@ describe('MikroORM computed / virtual fields', () => {
         }),
         FilterModule.forRoot({ validation: 'off' }),
         MikroOrmFilterModule.forRoot(),
-        FilterModule.forFeature([AuthorFilter, AuthorFilterFn]),
+        FilterModule.forFeature([AuthorFilter, AuthorFilterFn, AuthorFilterQb]),
       ],
     }).compile();
 
@@ -212,6 +230,16 @@ describe('MikroORM computed / virtual fields', () => {
     await runner.apply(AuthorFilterFn, { filter: { booksCount: { gt: 1 } } }, qb);
     const rows = await qb.getResultList();
     expect(rows.map((r) => r.name)).toEqual(['Ada']);
+    await mod.close();
+  });
+
+  it('sorts by a QB-callback computed field', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterQb, { filter: {}, sort: '-booksCount' }, qb);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name)).toEqual(['Ada', 'Alan', 'Grace']);
     await mod.close();
   });
 });
