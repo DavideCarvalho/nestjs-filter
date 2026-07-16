@@ -149,6 +149,31 @@ export class UserFilter extends MikroOrmFilter<User> {
   Dot-notation requires the adapter to implement `getEntityRelations()` and `applyAutoRelationField()`. Both the MikroORM and TypeORM adapters support this. For complex cases (e.g. nested relations, custom join conditions), use `@Relations` or manual relation filtering instead.
 </Callout>
 
+## Sorting by an aggregate of a to-many relation
+
+Dot-notation sort (`sort=posts.title`) orders the list by a column of a **to-one**
+relation via an auto-join. It cannot order by an **aggregate of a to-many**
+collection (e.g. *number of posts*) — a join would multiply rows and break
+pagination. For that, declare a [computed field](/docs/guides/filter-classes#computed-fields)
+backed by a correlated subquery and sort by its alias:
+
+```ts
+@Filterable({
+  entity: User,
+  computed: {
+    postsCount: '(SELECT COUNT(*) FROM posts WHERE posts.author_id = {alias}.id)',
+  },
+})
+export class UserFilter extends MikroOrmFilter<User> {}
+// GET /users?sort=-postsCount  →  users ordered by how many posts they have
+```
+
+<Callout type="info">
+  This orders the **root rows** by the relation's count. To order the *collection
+  inside each row* instead (each user's posts), that's an ORM concern — set the
+  `orderBy` option on the `@OneToMany` relation, not a filter field.
+</Callout>
+
 ---
 
 ## Manual relation filtering
