@@ -11,8 +11,24 @@ export interface ComputedOptions {
 
 /** Declares a computed/virtual field whose SQL source is the decorated method's
  * return value (a string, raw fragment, or ORM query builder). The alias
- * defaults to the method name. */
-export function Computed(alias?: string, opts?: ComputedOptions): MethodDecorator {
+ * defaults to the method name.
+ *
+ * Supports both an explicit alias and an opts-first form (opts object as the
+ * sole/first argument), matching the approved spec's primary usage of
+ * `@Computed({ type: 'number' })` with no alias:
+ * - `@Computed()` — alias = method name, no opts
+ * - `@Computed({ type: 'number' })` — alias = method name, opts first
+ * - `@Computed('openSubwos')` — explicit alias
+ * - `@Computed('openSubwos', { type: 'number' })` — alias + opts
+ */
+export function Computed(opts?: ComputedOptions): MethodDecorator;
+export function Computed(alias: string, opts?: ComputedOptions): MethodDecorator;
+export function Computed(
+  aliasOrOpts?: string | ComputedOptions,
+  maybeOpts?: ComputedOptions,
+): MethodDecorator {
+  const alias = typeof aliasOrOpts === 'string' ? aliasOrOpts : undefined;
+  const opts = typeof aliasOrOpts === 'string' ? maybeOpts : aliasOrOpts;
   return (target, propertyKey) => {
     const methodName = String(propertyKey);
     const key = alias ?? methodName;
