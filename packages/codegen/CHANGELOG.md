@@ -1,5 +1,17 @@
 # @dudousxd/nestjs-filter-codegen
 
+## 0.3.0
+
+### Minor Changes
+
+- [#45](https://github.com/DavideCarvalho/nestjs-filter/pull/45) [`99c7010`](https://github.com/DavideCarvalho/nestjs-filter/commit/99c70105fc667085e59a81b8441cdcc990b8a275) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Computed fields now accept three source forms — a SQL string, a function
+  (`(ctx) => string | raw`), or an ORM query-builder callback — via the inline
+  `computed` map or the new `@Computed` method decorator. Both attachment styles
+  are surfaced as typed fields by the codegen (`@Computed`/`{ source, type }`
+  carry value types; bare map entries type the field name). Adapter hook
+  signatures `applyComputedField`/`applyComputedSort` now receive the raw
+  `ComputedSource` (internal change; only bundled adapters implement them).
+
 ## 0.2.0
 
 ### Minor Changes

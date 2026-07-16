@@ -1,5 +1,14 @@
 # @integration/contract
 
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies [[`99c7010`](https://github.com/DavideCarvalho/nestjs-filter/commit/99c70105fc667085e59a81b8441cdcc990b8a275)]:
+  - @dudousxd/nestjs-filter@1.14.0
+  - @dudousxd/nestjs-filter-mikro-orm@1.14.0
+  - @dudousxd/nestjs-filter-typeorm@1.14.0
+
 ## 0.0.10
 
 ### Patch Changes
