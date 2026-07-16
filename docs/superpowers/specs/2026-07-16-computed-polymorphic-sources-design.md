@@ -43,7 +43,13 @@ type ComputedSource =
   | string                                   // (1) SQL string, {alias} token
   | ((ctx: ComputedContext) => ComputedReturn); // (2) fn → string/raw, (3) fn → QB
 
-type ComputedMap = Record<string, ComputedSource>;
+// A map value is the bare source (alias typed, where-value type broad) or a
+// `{ source, type }` object that additionally declares the codegen value type.
+type ComputedEntry =
+  | ComputedSource
+  | { source: ComputedSource; type: FilterFieldTypeHint };
+
+type ComputedMap = Record<string, ComputedEntry>;
 ```
 
 1. **String** — today's behavior. Agnostic across adapters. `{alias}` token.
@@ -70,8 +76,11 @@ type ComputedMap = Record<string, ComputedSource>;
 })
 ```
 
-Concise and agnostic, but **opaque to codegen** (object-literal values, especially
-functions, are not statically typed) → not in the typed union.
+Concise and agnostic. **Now codegen-typed too:** the map's *keys* are read
+statically from the object literal → each alias is appended to the typed
+`filterFields` union (so `sort("alias")` / `where("alias", …)` accept the name).
+The `{ source, type }` object form additionally declares the value type → appended
+to `filterFieldTypes`. The bare-source form leaves the where-value type broad.
 
 ### b) `@Computed` method decorator (new)
 
@@ -112,7 +121,8 @@ interface ComputedOptions {
 |---|---|---|
 | Verbosity | minimal | full method |
 | Logic / context | function ok, lives in config | co-located, natural |
-| Codegen typed? | no (opaque) | yes |
+| Codegen — field name typed? | yes (keys read statically) | yes |
+| Codegen — value type typed? | yes, via `{ source, type }` | yes, via `type` opt |
 | Backward compatible | yes (exists) | new |
 
 Both feed the **same** computed registry; an author mixes them freely.
@@ -159,11 +169,22 @@ contract).
 
 ### Codegen
 
-- `@dudousxd/nestjs-filter-codegen` reads `@Computed`-decorated methods statically
-  (ts-morph), exactly like `@FilterFor`: extract alias (first arg or method name) +
-  `type` hint → inject the alias into `filterFields` and its type into
+The augmentation happens **entirely in `@dudousxd/nestjs-filter-codegen`** (this repo),
+not the upstream `@dudousxd/nestjs-codegen` discovery pass. This package already
+resolves the filter `ClassDeclaration`, reads its `@Filterable` decorator
+(`readFilterableCodegenMaxDepth`), and mutates `contractSource.filterFields`
+(`pruneToMaxDepth`). We hook the same place to **append** computed aliases/types to
+the contract after upstream discovery:
+
+- **`@Computed` methods** — read statically like `@FilterFor`: alias (first arg or
+  method name) + `type` opt → append alias to `filterFields`, type to
   `filterFieldTypes`.
-- The inline `computed` map stays opaque (untyped). Documented trade-off.
+- **Inline `computed` map** — read the object-literal *keys* → append each alias to
+  `filterFields`. Where a value uses the `{ source, type }` object form, also append
+  the declared type to `filterFieldTypes`. Bare-source values contribute the alias
+  only (broad where-value type).
+
+Aliases are 0-hop, so they survive `pruneToMaxDepth`.
 
 ## Testing
 
@@ -175,7 +196,9 @@ contract).
 - **typeorm**: all three forms sort/filter (string, function, QB), mirroring the
   mikro-orm coverage.
 - **codegen**: a filter with `@Computed({ type: 'number' })` emits the alias in the
-  field union with a `number` value type; inline-map computed does not appear.
+  field union with a `number` value type; an inline `computed` map key emits the alias
+  in the field union (bare form → alias only; `{ source, type }` form → alias + value
+  type). Assert both attachment styles reach `filterFields`/`filterFieldTypes`.
 
 ## Risks / unknowns
 
@@ -191,7 +214,10 @@ contract).
 
 ## Out of scope
 
-- Typing the inline `computed` map in codegen (stays opaque by design).
+- Changes to the upstream `@dudousxd/nestjs-codegen` discovery pass (the computed
+  augmentation lives entirely in `-filter-codegen`).
+- Inferring a value type from a bare SQL string (physically impossible — authors opt
+  into value typing via `{ source, type }` or the decorator's `type`).
 - Any flip-side consumption changes (separate task; the flip bump to mikro-orm 1.13.0
   is already unblocked and independent of this v2 work).
 
