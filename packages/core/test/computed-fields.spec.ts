@@ -37,11 +37,11 @@ function makeAdapter(supportComputed = true): FilterAdapter {
     },
   };
   if (supportComputed) {
-    adapter.applyComputedField = (qb, expression, value) => {
-      (qb as MockQB).andWhere({ $computed: { expression, value } });
+    adapter.applyComputedField = (qb, source, value) => {
+      (qb as MockQB).andWhere({ $computed: { expression: source, value } });
     };
-    adapter.applyComputedSort = (qb, expression, direction) => {
-      (qb as MockQB).andWhere({ $computedSort: { expression, direction } });
+    adapter.applyComputedSort = (qb, source, direction) => {
+      (qb as MockQB).andWhere({ $computedSort: { expression: source, direction } });
     };
   }
   return adapter;
