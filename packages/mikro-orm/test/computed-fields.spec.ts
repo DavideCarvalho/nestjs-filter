@@ -1,5 +1,10 @@
 import 'reflect-metadata';
-import { FilterModule, FilterRunner, Filterable } from '@dudousxd/nestjs-filter';
+import {
+  type ComputedContext,
+  FilterModule,
+  FilterRunner,
+  Filterable,
+} from '@dudousxd/nestjs-filter';
 import { Collection, MikroORM } from '@mikro-orm/core';
 import {
   Entity,
@@ -63,6 +68,19 @@ class Book {
 })
 class AuthorFilter extends MikroOrmFilter<Author> {}
 
+// A function-source computed field: same correlated subquery as `AuthorFilter`,
+// but built from the real build-time alias handed to the callback rather than a
+// `{alias}` string token.
+@Injectable()
+@Filterable({
+  entity: Author,
+  computed: {
+    booksCount: ({ alias }: ComputedContext) =>
+      `(SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id)`,
+  },
+})
+class AuthorFilterFn extends MikroOrmFilter<Author> {}
+
 // ─── Test Suite ─────────────────────────────────────────────────────────────────
 
 describe('MikroORM computed / virtual fields', () => {
@@ -81,7 +99,7 @@ describe('MikroORM computed / virtual fields', () => {
         }),
         FilterModule.forRoot({ validation: 'off' }),
         MikroOrmFilterModule.forRoot(),
-        FilterModule.forFeature([AuthorFilter]),
+        FilterModule.forFeature([AuthorFilter, AuthorFilterFn]),
       ],
     }).compile();
 
@@ -173,6 +191,17 @@ describe('MikroORM computed / virtual fields', () => {
     expect(params).toContain(0);
     const rows = await qb.getResultList();
     expect(rows.map((r) => r.name)).toEqual(['Grace']);
+    await mod.close();
+  });
+
+  it('sorts by a function-source computed field', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterFn, { filter: {}, sort: 'booksCount' }, qb);
+    const rows = await qb.getResultList();
+    // 0, 1, 3 → Grace, Alan, Ada
+    expect(rows.map((r) => r.name)).toEqual(['Grace', 'Alan', 'Ada']);
     await mod.close();
   });
 });
