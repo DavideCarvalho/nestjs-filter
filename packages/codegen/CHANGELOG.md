@@ -1,5 +1,13 @@
 # @dudousxd/nestjs-filter-codegen
 
+## 0.3.1
+
+### Patch Changes
+
+- [#47](https://github.com/DavideCarvalho/nestjs-filter/pull/47) [`d2a2a71`](https://github.com/DavideCarvalho/nestjs-filter/commit/d2a2a71f5aa08959b4683ee3bfddb9a06065012a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix computed fields (`@Computed` methods / inline `computed` map) not being surfaced in `filterFields`/`filterFieldTypes` when running under `@dudousxd/nestjs-codegen` >= 0.3.
+
+  The extension resolved a route's filter class through `ctx.project()`, which recent `nestjs-codegen` returns as an empty, tsconfig-less ts-morph `Project`. The controller source was never found, so the augmentation silently no-op'd (entity columns still rendered because those come pre-expanded from the discovery pass). The extension now seeds its own `Project` from the app's `tsconfig.json` — so `paths` aliases like `@/api/...` resolve — and adds the controller file on demand, falling back to `ctx.project()` when no tsconfig is loadable. Adds an on-disk regression test exercising a `paths`-aliased filter import.
+
 ## 0.3.0
 
 ### Minor Changes
