@@ -1,4 +1,5 @@
 import type { Type } from '@nestjs/common';
+import type { FilterFieldTypeHint } from './decorator/filter-for.decorator.js';
 import type { FilterOperator } from './operators/types.js';
 
 /**
@@ -23,6 +24,30 @@ export interface FilterContext {
   user?: unknown;
   raw?: unknown;
 }
+
+/** Runtime handle passed to a computed function source. `em` is the adapter's
+ * ORM manager (SqlEntityManager on mikro-orm, DataSource/repo on typeorm),
+ * typed as `unknown` in core and narrowed by each adapter's re-export. */
+export interface ComputedContext {
+  alias: string;
+  em: unknown;
+}
+
+/** What a computed function may return: a SQL string, or an adapter-specific
+ * object (a raw fragment or an ORM query builder). Opaque to core. */
+export type ComputedReturn = string | object;
+
+/** A computed field's SQL source: a static string (with `{alias}` token) or a
+ * function evaluated at query-build time. */
+export type ComputedSource = string | ((ctx: ComputedContext) => ComputedReturn);
+
+/** A computed map value: the bare source, or `{ source, type }` where `type` is
+ * a codegen-only value-type hint. */
+export type ComputedEntry =
+  | ComputedSource
+  | { source: ComputedSource; type: FilterFieldTypeHint };
+
+export type ComputedMap = Record<string, ComputedEntry>;
 
 export interface FilterableOptions {
   entity: Type<unknown>;
@@ -69,7 +94,7 @@ export interface FilterableOptions {
    * never by the client. The client only references the declared alias; the
    * value is always parameterized. Alias names must be safe identifiers.
    */
-  computed?: Record<string, string>;
+  computed?: ComputedMap;
   /**
    * Declarative field-name remapping: maps a client-supplied field name to
    * the real entity path (a column, a relation path like `"base"`, a dotted
@@ -304,7 +329,7 @@ export interface FilterMetadata {
   autoFields?: boolean | readonly string[];
   throwOnInvalid?: boolean;
   defaultSort?: string | SortItem[];
-  computed?: Record<string, string>;
+  computed?: ComputedMap;
   /**
    * Declarative field-name remapping (see {@link FilterableOptions.aliases}
    * for full semantics and the `where[]`-column-filter motivation).
