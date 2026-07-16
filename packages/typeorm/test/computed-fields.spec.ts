@@ -30,6 +30,16 @@ class Person {
 })
 class PersonFilter extends TypeOrmFilter<Person> {}
 
+// Function-source mirror of `PersonFilter`: same expression, but built at
+// query-time from the real alias instead of a static `{alias}`-style string.
+@Injectable()
+@Filterable({
+  entity: Person,
+  autoFields: true,
+  computed: { fullName: ({ alias }) => `${alias}.first || ' ' || ${alias}.last` },
+})
+class PersonFilterFn extends TypeOrmFilter<Person> {}
+
 describe('TypeORM computed / virtual fields', () => {
   let ds: DataSource;
   let runner: FilterRunner;
@@ -45,7 +55,7 @@ describe('TypeORM computed / virtual fields', () => {
         }),
         FilterModule.forRoot({ validation: 'off' }),
         TypeOrmFilterModule.forRoot(),
-        FilterModule.forFeature([PersonFilter]),
+        FilterModule.forFeature([PersonFilter, PersonFilterFn]),
       ],
     }).compile();
     ds = mod.get(DataSource);
@@ -95,6 +105,18 @@ describe('TypeORM computed / virtual fields', () => {
     const repo = ds.getRepository(Person);
     const qb = repo.createQueryBuilder('person');
     await runner.apply(PersonFilter, { filter: {}, sort: '-fullName' }, qb);
+    const rows = await qb.getMany();
+    // Descending by "first last": Grace Hopper, Alan Turing, Ada Lovelace
+    expect(rows.map((r) => r.first)).toEqual(['Grace', 'Alan', 'Ada']);
+    await mod.close();
+  });
+
+  it('sorts by a function-source computed field', async () => {
+    const mod = await createModule();
+    await seed();
+    const repo = ds.getRepository(Person);
+    const qb = repo.createQueryBuilder('person');
+    await runner.apply(PersonFilterFn, { filter: {}, sort: '-fullName' }, qb);
     const rows = await qb.getMany();
     // Descending by "first last": Grace Hopper, Alan Turing, Ada Lovelace
     expect(rows.map((r) => r.first)).toEqual(['Grace', 'Alan', 'Ada']);

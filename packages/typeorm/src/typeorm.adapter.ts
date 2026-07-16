@@ -1,5 +1,6 @@
 import {
   type ColumnFilter,
+  type ComputedSource,
   type EntityFieldInfo,
   type EntityRelationInfo,
   type FilterAdapter,
@@ -244,9 +245,37 @@ export class TypeOrmAdapter implements FilterAdapter {
     }
   }
 
-  applyComputedField(qb: unknown, expression: string, value: unknown): void {
+  /**
+   * Resolves a dev-declared computed source (a static string, or a function
+   * evaluated at query-build time) to a plain SQL expression string.
+   *
+   * TypeORM's `addOrderBy`/`andWhere` inline expressions as strings and the
+   * adapter knows its alias eagerly (`queryBuilder.alias`), unlike MikroORM's
+   * `raw((alias) => ...)` deferred-callback form — so a function source can be
+   * invoked immediately with the real alias, no deferred resolution needed.
+   *
+   * A string source substitutes `{alias}` for the query's alias (preserving
+   * prior behavior — most existing filters already write the alias literally
+   * and have no `{alias}` token to replace, so `replaceAll` is a no-op for
+   * them). A function source is called with `{ alias, em: dataSource }`; a
+   * string return is used directly, any other return is delegated to
+   * `computedReturnToSql` (QB-callback extraction lands in a later task).
+   */
+  private resolveComputedExpression(source: ComputedSource, alias: string): string {
+    if (typeof source === 'string') return source.replaceAll('{alias}', alias);
+    const out = source({ alias, em: this.dataSource });
+    if (typeof out === 'string') return out;
+    return this.computedReturnToSql(out);
+  }
+
+  private computedReturnToSql(_out: object): string {
+    throw new Error('Unsupported computed return; QB support lands in a later step');
+  }
+
+  applyComputedField(qb: unknown, source: ComputedSource, value: unknown): void {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = queryBuilder.alias;
+    const expression = this.resolveComputedExpression(source, alias);
     // A stable, safe field token for parameter names (the expression itself is
     // not safe as an identifier). Dev-provided expression is used verbatim as
     // the comparison target; client values stay parameterized.
@@ -256,8 +285,9 @@ export class TypeOrmAdapter implements FilterAdapter {
     }
   }
 
-  applyComputedSort(qb: unknown, expression: string, direction: 'asc' | 'desc'): void {
+  applyComputedSort(qb: unknown, source: ComputedSource, direction: 'asc' | 'desc'): void {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const expression = this.resolveComputedExpression(source, queryBuilder.alias);
     queryBuilder.addOrderBy(expression, direction.toUpperCase() as 'ASC' | 'DESC');
   }
 
