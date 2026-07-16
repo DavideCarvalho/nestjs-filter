@@ -20,6 +20,9 @@ export type {
   FilterFieldTypeHint,
   FilterForOptions,
 } from './decorator/filter-for.decorator.js';
+export { Computed, getComputedMap, getComputedOptsMap } from './decorator/computed.decorator.js';
+export type { ComputedOptions } from './decorator/computed.decorator.js';
+export type { ComputedContext, ComputedReturn, ComputedSource, ComputedEntry, ComputedMap } from './types.js';
 export { ApplyFilter, getApplyFilterMetadata } from './decorator/apply-filter.decorator.js';
 export { Relations, getRelationsMap, resolveRelation } from './decorator/relations.decorator.js';
 export type { RelationConfig, RelationsMap } from './decorator/relations.decorator.js';
@@ -48,6 +51,8 @@ export {
   FILTERABLE_METADATA,
   FILTER_FOR_METADATA,
   FILTER_FOR_OPTS_METADATA,
+  COMPUTED_METADATA,
+  COMPUTED_OPTS_METADATA,
   FILTER_RELATIONS_METADATA,
   APPLY_FILTER_METADATA,
   APPLY_FILTER_REQ_KEY,
