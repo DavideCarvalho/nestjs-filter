@@ -1,6 +1,11 @@
 import 'reflect-metadata';
-import { FilterModule, FilterRunner, Filterable } from '@dudousxd/nestjs-filter';
-import { Collection, MikroORM } from '@mikro-orm/core';
+import {
+  type ComputedContext,
+  FilterModule,
+  FilterRunner,
+  Filterable,
+} from '@dudousxd/nestjs-filter';
+import { Collection, MikroORM, raw } from '@mikro-orm/core';
 import {
   Entity,
   ManyToOne,
@@ -10,6 +15,7 @@ import {
   ReflectMetadataProvider,
 } from '@mikro-orm/decorators/legacy';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
+import type { SqlEntityManager } from '@mikro-orm/sql';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -63,6 +69,36 @@ class Book {
 })
 class AuthorFilter extends MikroOrmFilter<Author> {}
 
+// A function-source computed field: same correlated subquery as `AuthorFilter`,
+// but built from the real build-time alias handed to the callback rather than a
+// `{alias}` string token.
+@Injectable()
+@Filterable({
+  entity: Author,
+  computed: {
+    booksCount: ({ alias }: ComputedContext) =>
+      `(SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id)`,
+  },
+})
+class AuthorFilterFn extends MikroOrmFilter<Author> {}
+
+// A QB-callback computed field: the source function builds and returns a real
+// MikroORM QueryBuilder for a correlated subquery (rather than a hand-written
+// SQL string), using `raw` to correlate the subquery to the outer row via the
+// callback's `alias`.
+@Injectable()
+@Filterable({
+  entity: Author,
+  computed: {
+    booksCount: ({ em, alias }: ComputedContext) =>
+      (em as SqlEntityManager)
+        .createQueryBuilder(Book)
+        .where({ author: raw(`${alias}.id`) })
+        .count(),
+  },
+})
+class AuthorFilterQb extends MikroOrmFilter<Author> {}
+
 // ─── Test Suite ─────────────────────────────────────────────────────────────────
 
 describe('MikroORM computed / virtual fields', () => {
@@ -81,7 +117,7 @@ describe('MikroORM computed / virtual fields', () => {
         }),
         FilterModule.forRoot({ validation: 'off' }),
         MikroOrmFilterModule.forRoot(),
-        FilterModule.forFeature([AuthorFilter]),
+        FilterModule.forFeature([AuthorFilter, AuthorFilterFn, AuthorFilterQb]),
       ],
     }).compile();
 
@@ -169,6 +205,62 @@ describe('MikroORM computed / virtual fields', () => {
     await runner.apply(AuthorFilter, { filter: { booksCount: { equals: 0 } } }, qb);
     const [sql, params] = [qb.getQuery(), qb.getParams()];
     // The dev expression is inlined; the client value is bound as a parameter.
+    expect(sql).toContain('author_id');
+    expect(params).toContain(0);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name)).toEqual(['Grace']);
+    await mod.close();
+  });
+
+  it('sorts by a function-source computed field', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterFn, { filter: {}, sort: 'booksCount' }, qb);
+    const rows = await qb.getResultList();
+    // 0, 1, 3 → Grace, Alan, Ada
+    expect(rows.map((r) => r.name)).toEqual(['Grace', 'Alan', 'Ada']);
+    await mod.close();
+  });
+
+  it('filters by a function-source computed field (gt)', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterFn, { filter: { booksCount: { gt: 1 } } }, qb);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+    await mod.close();
+  });
+
+  it('sorts by a QB-callback computed field', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterQb, { filter: {}, sort: '-booksCount' }, qb);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name)).toEqual(['Ada', 'Alan', 'Grace']);
+    await mod.close();
+  });
+
+  it('filters by a QB-callback computed field (gt)', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterQb, { filter: { booksCount: { gt: 1 } } }, qb);
+    const rows = await qb.getResultList();
+    // Only Ada has more than 1 book.
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+    await mod.close();
+  });
+
+  it('parameterizes the client value for a QB-callback computed field (no SQL injection via the value)', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterQb, { filter: { booksCount: { equals: 0 } } }, qb);
+    const [sql, params] = [qb.getQuery(), qb.getParams()];
+    // The dev-built QB subquery is inlined; the client value is bound as a parameter.
     expect(sql).toContain('author_id');
     expect(params).toContain(0);
     const rows = await qb.getResultList();

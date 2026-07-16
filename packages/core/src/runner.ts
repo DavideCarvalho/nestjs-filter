@@ -16,6 +16,7 @@ import {
   allowedFieldNames,
   normalizeAllowed,
 } from './decorator/allowed.js';
+import { getComputedMap } from './decorator/computed.decorator.js';
 import { getFilterForMap } from './decorator/filter-for.decorator.js';
 import { getFilterableMetadata } from './decorator/filterable.decorator.js';
 import { type RelationConfig, resolveRelation } from './decorator/relations.decorator.js';
@@ -39,6 +40,8 @@ import {
 } from './pagination/cursor.js';
 import { CONTEXT_ACCESSOR, FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
 import type {
+  ComputedEntry,
+  ComputedSource,
   CursorPage,
   EntityDescription,
   FieldMeta,
@@ -57,6 +60,48 @@ import type {
 type AutoFieldSet = { has(key: string): boolean };
 
 const MATCH_ALL_SET: AutoFieldSet = { has: () => true };
+
+/**
+ * Merges the inline `@Filterable.computed` map and `@Computed`-decorated
+ * methods into a single alias → {@link ComputedSource} registry.
+ *
+ * - Inline map entries are unwrapped: `{ source, type }` → `.source` (the
+ *   `type` is a codegen-only hint, never read at runtime).
+ * - `@Computed` methods are bound to `instance` and wrapped so they satisfy
+ *   the `ComputedSource` function shape (`(ctx) => ComputedReturn`).
+ * - On an alias clash between the inline map and a decorator method, the
+ *   decorator wins — it is the more specific, closer-to-usage declaration.
+ *
+ * `FilterClass` (the constructor) is the metadata target — matching
+ * `getFilterableMetadata`/`getFilterForMap`'s convention — while `instance` is
+ * used only to bind decorated methods.
+ */
+export function buildComputedRegistry(
+  FilterClass: Function,
+  instance: object,
+): Map<string, ComputedSource> {
+  const registry = new Map<string, ComputedSource>();
+
+  const inline = (getFilterableMetadata(FilterClass as never)?.computed ?? {}) as Record<
+    string,
+    ComputedEntry
+  >;
+  for (const [alias, entry] of Object.entries(inline)) {
+    const source =
+      typeof entry === 'object' && entry !== null && 'source' in entry ? entry.source : entry;
+    registry.set(alias, source as ComputedSource);
+  }
+
+  for (const [alias, methodName] of getComputedMap(FilterClass)) {
+    const method = (instance as Record<string, unknown>)[methodName];
+    if (typeof method === 'function') {
+      const bound = method as (ctx: unknown) => unknown;
+      registry.set(alias, ((ctx) => bound.call(instance, ctx)) as ComputedSource);
+    }
+  }
+
+  return registry;
+}
 
 @Injectable()
 export class FilterRunner {
@@ -337,6 +382,9 @@ export class FilterRunner {
     // filters, structured filter keys, sort, distinct, select) as well as
     // the computed-field/entity lookups further down.
     const filterableMeta = getFilterableMetadata(FilterClass);
+    // Merges the inline `computed` map and `@Computed` methods into one
+    // alias → source registry, resolved once per apply() call.
+    const computedRegistry = buildComputedRegistry(FilterClass, filter);
 
     const {
       rawInclude,
@@ -403,7 +451,6 @@ export class FilterRunner {
 
         // Resolve auto-fields configuration
         const autoFieldSet = this.resolveAutoFields(FilterClass);
-        const computed = filterableMeta?.computed;
 
         // Collect relation-bound keys for batched processing
         const relationBatches = new Map<
@@ -437,8 +484,10 @@ export class FilterRunner {
             relationBatches.get(relationName)!.entries.push([key, value]);
             continue;
           }
-          // Check if this key is a computed/virtual field (dev-declared SQL).
-          if (computed && Object.hasOwn(computed, key)) {
+          // Check if this key is a computed/virtual field (dev-declared SQL or
+          // an `@Computed` method), resolved via the merged registry.
+          const computedSource = computedRegistry.get(key);
+          if (computedSource !== undefined) {
             if (adapter?.applyComputedField) {
               const filtered = this.enforceAutoFieldOperators(
                 key,
@@ -447,7 +496,7 @@ export class FilterRunner {
                 throwOnInvalidPolicy,
               );
               if (filtered !== undefined) {
-                adapter.applyComputedField(qb as unknown, computed[key]!, filtered);
+                adapter.applyComputedField(qb as unknown, computedSource, filtered);
               }
             } else {
               this.warnUnsupported(`Computed field "${key}" provided`, 'applyComputedField');
@@ -608,7 +657,7 @@ export class FilterRunner {
             adapter,
             filterableMeta?.entity,
             this.resolveThrowOnInvalid(FilterClass),
-            computed,
+            computedRegistry,
           );
         }
 
@@ -1638,9 +1687,9 @@ export class FilterRunner {
     adapter: FilterAdapter,
     entity: Type<unknown> | undefined,
     throwOnInvalid: boolean,
-    computed: Record<string, string> | undefined,
+    computed: Map<string, ComputedSource> | undefined,
   ): void {
-    const hasComputedSort = !!computed && sorts.some((s) => Object.hasOwn(computed, s.field));
+    const hasComputedSort = !!computed && sorts.some((s) => computed.has(s.field));
 
     // Fast path / backward-compatible behavior: no computed sorts → validate
     // all sorts and apply them in a single batched `applySort` call (preserving
@@ -1656,9 +1705,9 @@ export class FilterRunner {
     // Mixed path: route computed aliases to applyComputedSort and real columns
     // to applySort, per item, so the resulting ORDER BY honors request order.
     for (const sort of sorts) {
-      if (computed && Object.hasOwn(computed, sort.field)) {
+      if (computed?.has(sort.field)) {
         if (adapter.applyComputedSort) {
-          adapter.applyComputedSort(qb as unknown, computed[sort.field]!, sort.direction);
+          adapter.applyComputedSort(qb as unknown, computed.get(sort.field)!, sort.direction);
         } else {
           this.warnUnsupported(`Computed sort "${sort.field}" requested`, 'applyComputedSort');
         }

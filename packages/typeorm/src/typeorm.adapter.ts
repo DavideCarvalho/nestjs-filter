@@ -1,5 +1,6 @@
 import {
   type ColumnFilter,
+  type ComputedSource,
   type EntityFieldInfo,
   type EntityRelationInfo,
   type FilterAdapter,
@@ -244,9 +245,57 @@ export class TypeOrmAdapter implements FilterAdapter {
     }
   }
 
-  applyComputedField(qb: unknown, expression: string, value: unknown): void {
+  /**
+   * Resolves a dev-declared computed source (a static string, or a function
+   * evaluated at query-build time) to a plain SQL expression string.
+   *
+   * TypeORM's `addOrderBy`/`andWhere` inline expressions as strings and the
+   * adapter knows its alias eagerly (`queryBuilder.alias`), unlike MikroORM's
+   * `raw((alias) => ...)` deferred-callback form — so a function source can be
+   * invoked immediately with the real alias, no deferred resolution needed.
+   *
+   * A string source substitutes `{alias}` for the query's alias (preserving
+   * prior behavior — most existing filters already write the alias literally
+   * and have no `{alias}` token to replace, so `replaceAll` is a no-op for
+   * them). A function source is called with `{ alias, em: dataSource }`; a
+   * string return is used directly, any other return (a TypeORM
+   * `SelectQueryBuilder` for a correlated subquery) is delegated to
+   * `computedReturnToSql`.
+   */
+  private resolveComputedExpression(source: ComputedSource, alias: string): string {
+    if (typeof source === 'string') return source.replaceAll('{alias}', alias);
+    const out = source({ alias, em: this.dataSource });
+    if (typeof out === 'string') return out;
+    return this.computedReturnToSql(out);
+  }
+
+  /**
+   * Resolves a non-string computed return to SQL. The only supported shape is
+   * a TypeORM `SelectQueryBuilder` (duck-typed via `getQuery`), for a
+   * correlated subquery built directly against the outer query's real alias
+   * (TypeORM resolves aliases eagerly, unlike MikroORM's deferred-callback
+   * form). `getQuery()` renders the builder's SQL with `:param`-style
+   * placeholders inlined as literal text — it does NOT copy the subquery's
+   * bound parameters into the outer builder. Wrapping in parens makes the
+   * result safe to inline into a `WHERE`/`ORDER BY` expression.
+   *
+   * Constraint: the source must build a **param-free** subquery — e.g. a
+   * correlated COUNT with the alias interpolated as a raw string
+   * (`.where(\`b.authorId = ${alias}.id\`)`) rather than bound via `:param`.
+   * A subquery that does bind params would silently lose them here; merging
+   * them (`outer.setParameters(subQb.getParameters())`) is not implemented.
+   */
+  private computedReturnToSql(out: object): string {
+    if (typeof (out as { getQuery?: unknown }).getQuery === 'function') {
+      return `(${(out as { getQuery: () => string }).getQuery()})`;
+    }
+    throw new Error('Unsupported computed return type for TypeORM adapter');
+  }
+
+  applyComputedField(qb: unknown, source: ComputedSource, value: unknown): void {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = queryBuilder.alias;
+    const expression = this.resolveComputedExpression(source, alias);
     // A stable, safe field token for parameter names (the expression itself is
     // not safe as an identifier). Dev-provided expression is used verbatim as
     // the comparison target; client values stay parameterized.
@@ -256,8 +305,9 @@ export class TypeOrmAdapter implements FilterAdapter {
     }
   }
 
-  applyComputedSort(qb: unknown, expression: string, direction: 'asc' | 'desc'): void {
+  applyComputedSort(qb: unknown, source: ComputedSource, direction: 'asc' | 'desc'): void {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const expression = this.resolveComputedExpression(source, queryBuilder.alias);
     queryBuilder.addOrderBy(expression, direction.toUpperCase() as 'ASC' | 'DESC');
   }
 

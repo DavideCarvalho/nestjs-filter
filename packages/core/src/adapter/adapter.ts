@@ -1,6 +1,6 @@
 import type { Type } from '@nestjs/common';
 import type { ColumnFilter } from '../operators/types.js';
-import type { SortItem } from '../types.js';
+import type { ComputedSource, SortItem } from '../types.js';
 
 /**
  * Describes a single scalar field on an entity, as reported by the ORM's
@@ -285,32 +285,32 @@ export interface FilterAdapter {
 
   /**
    * Applies a WHERE condition on a **computed/virtual field** — a developer-
-   * provided SQL expression declared via `@Filterable.computed`. Behaves like
-   * {@link applyAutoField} (scalar → equals, array → IN, operator object →
-   * those operators) but evaluates the raw `expression` instead of a column
-   * reference. The expression is dev-provided (never client input); values are
-   * always parameterized.
+   * provided SQL expression or function declared via `@Filterable.computed`
+   * or an `@Computed` method. Behaves like {@link applyAutoField} (scalar →
+   * equals, array → IN, operator object → those operators) but evaluates the
+   * raw `source` instead of a column reference. The source is dev-provided
+   * (never client input); values are always parameterized.
    *
    * Optional — adapters that don't support computed fields should not
    * implement this.
    *
    * @param qb - The query builder instance.
-   * @param expression - The raw SQL expression for the computed field.
+   * @param source - The computed source (string | function).
    * @param value - The filter value (scalar, array, or operator object).
    */
-  applyComputedField?(qb: unknown, expression: string, value: unknown): void;
+  applyComputedField?(qb: unknown, source: ComputedSource, value: unknown): void;
 
   /**
-   * Applies an ORDER BY on a computed/virtual field's SQL expression.
+   * Applies an ORDER BY on a computed/virtual field's source.
    *
    * Optional — adapters that don't support computed fields should not
    * implement this.
    *
    * @param qb - The query builder instance.
-   * @param expression - The raw SQL expression for the computed field.
+   * @param source - The computed source (string | function).
    * @param direction - Sort direction.
    */
-  applyComputedSort?(qb: unknown, expression: string, direction: 'asc' | 'desc'): void;
+  applyComputedSort?(qb: unknown, source: ComputedSource, direction: 'asc' | 'desc'): void;
 
   /**
    * Applies offset-based pagination to the query builder.

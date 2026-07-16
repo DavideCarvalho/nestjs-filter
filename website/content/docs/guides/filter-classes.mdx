@@ -446,6 +446,87 @@ GET /work-orders?subwosCount[gt]=0        # only WOs that have at least one subw
 
 This is the right tool when you need to sort/filter the **root rows** by an aggregate of a nested collection — a plain relation-path sort (`sort=base.name`) only orders by a to-one relation's column, and a `JOIN` + `COUNT` would multiply rows and break pagination. To order the *collection inside each row* instead (e.g. each WO's subwos), use MikroORM's `orderBy` option on the `@OneToMany` relation — that's an ORM concern, not a filter one.
 
+### Three source forms
+
+A computed entry's source can take three forms, implemented identically in both the MikroORM and TypeORM adapters:
+
+1. **A SQL string**, optionally with an `{alias}` token (above) — substituted with the query's root alias at build time.
+2. **A function** `(ctx) => string`, where `ctx = { alias, em }` (the real build-time alias and the ORM's `EntityManager`/`DataSource`) — for expressions that need runtime context rather than a static string:
+
+   ```ts
+   @Filterable({
+     entity: Author,
+     computed: {
+       booksCount: ({ alias }) => `(SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id)`,
+     },
+   })
+   export class AuthorFilter extends MikroOrmFilter<Author> {}
+   ```
+
+3. **A function that returns an ORM query builder** — a correlated subquery built with the ORM's own query-builder API instead of hand-written SQL:
+
+   ```ts
+   @Filterable({
+     entity: Author,
+     computed: {
+       booksCount: ({ em, alias }) =>
+         em.createQueryBuilder(Book)
+           .where({ author: raw(`${alias}.id`) })
+           .count(),
+     },
+   })
+   export class AuthorFilterQb extends MikroOrmFilter<Author> {}
+   ```
+
+   <Callout type="info">
+     Adapter-specific mechanics for the QB form: MikroORM uses `raw((alias) => …)`, resolving the correlated alias via an internal sentinel that's substituted once the outer query compiles — you just use the callback's `alias` and it works. TypeORM resolves its alias eagerly, so the subquery is built directly against the outer alias, but it must be **param-free** — inline the correlating alias as a raw string (`.where(\`b.authorId = ${alias}.id\`)`) rather than binding it via `:param`, since TypeORM's `getQuery()` does not carry a subquery's bound parameters to the outer query. See the [MikroORM](https://github.com/DavideCarvalho/nestjs-filter/blob/main/packages/mikro-orm/README.md) and [TypeORM](https://github.com/DavideCarvalho/nestjs-filter/blob/main/packages/typeorm/README.md) adapter READMEs for full detail.
+   </Callout>
+
+An inline map entry can also be `{ source, type }` instead of a bare source — `type` is a codegen-only hint (see below), the source itself works the same in either form:
+
+```ts
+@Filterable({
+  entity: Author,
+  computed: {
+    booksCount: { source: '(SELECT COUNT(*) FROM books WHERE books.author_id = {alias}.id)', type: 'number' },
+  },
+})
+```
+
+### The `@Computed` method decorator
+
+Besides the inline `computed` map, a method can be declared computed with `@Computed` — the alias defaults to the method name, and the method body is the source. A `@Computed` method is always wrapped as a **function** source (form 2 or 3 above), never the bare-string form — so the `{alias}` token (form 1, inline-map strings only) is never substituted in a `@Computed` method's return value. Take the `ctx.alias` parameter instead:
+
+```ts
+export class WorkOrderFilter extends MikroOrmFilter<WorkOrder> {
+  @Computed({ type: 'number' })
+  subwosCount({ alias }: ComputedContext) {
+    return `(SELECT COUNT(*) FROM subwo WHERE subwo.wo_id = ${alias}.id)`;
+  }
+
+  @Computed('openSubwos', { type: 'number' })
+  openSubwosCount({ alias }: ComputedContext) {
+    return `(SELECT COUNT(*) FROM subwo WHERE subwo.wo_id = ${alias}.id AND subwo.status = 'open')`;
+  }
+}
+```
+
+```
+GET /work-orders?sort=-openSubwos
+GET /work-orders?openSubwos[gt]=0
+```
+
+Call forms: `@Computed()`, `@Computed({ type: 'number' })`, `@Computed('alias')`, `@Computed('alias', { type: 'number' })` — omitting an explicit alias defaults to the method name. If both the inline `computed` map and a `@Computed` method declare the same alias, **the decorator wins** — it's the more specific, closer-to-usage declaration.
+
+### Codegen typing
+
+Both attachment styles surface the field as a NAME in the generated, typed `filterQuery()` — `sort()` and `where()` accept the alias either way, whether it came from the inline map or `@Computed`. To additionally type the `where()` *value*, declare a `type` hint:
+
+- Inline map: `{ source, type }` instead of a bare source.
+- `@Computed`: pass `{ type }` — `@Computed({ type: 'number' })` or `@Computed('alias', { type: 'number' })`.
+
+A bare inline entry (`computed: { subwosCount: '...' }` with no `type`) types only the field name in `filterQuery()` — `where('subwosCount', ...)` is accepted, but the value isn't narrowed to a specific type.
+
 ---
 
 ## Declarative field aliases

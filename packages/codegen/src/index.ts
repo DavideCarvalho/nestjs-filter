@@ -184,15 +184,15 @@ function readFilterableCodegenMaxDepth(filterClass: ClassDeclaration): number | 
 }
 
 /**
- * Resolve a route's per-filter `codegen.maxDepth` override by statically
- * walking from its controller method to the `@ApplyFilter(FilterClass)`
- * parameter, then to that class's `@Filterable({ codegen: { maxDepth } })`.
- * Returns `undefined` when unresolvable (falls back to the global option).
+ * Statically resolve a route's filter `ClassDeclaration` by walking from its
+ * controller method to the `@ApplyFilter(FilterClass)` parameter. Returns
+ * `undefined` when the controller/method/parameter chain isn't resolvable
+ * (e.g. no `controllerRef`, or the route isn't `@ApplyFilter`-decorated).
  */
-function resolvePerFilterMaxDepth(
+function resolveFilterClassFromControllerRef(
   controllerRef: ControllerRefLike | undefined,
   project: Project,
-): number | undefined {
+): ClassDeclaration | undefined {
   if (!controllerRef) return undefined;
 
   const sourceFile = project.getSourceFile(controllerRef.filePath);
@@ -205,10 +205,7 @@ function resolvePerFilterMaxDepth(
   const filterClassName = findApplyFilterClassName(method);
   if (!filterClassName) return undefined;
 
-  const filterClass = resolveClassDeclaration(filterClassName, sourceFile);
-  if (!filterClass) return undefined;
-
-  return readFilterableCodegenMaxDepth(filterClass);
+  return resolveClassDeclaration(filterClassName, sourceFile);
 }
 
 /** Prune `filterFields`/`filterFieldTypes` (mutating in place) to `maxDepth` relation hops. */
@@ -225,6 +222,142 @@ function pruneToDepth(contractSource: FilterContract, maxDepth: number): void {
       keptNames.has(ft.name),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// computed fields: surface @Computed methods + the inline `computed` map
+// ---------------------------------------------------------------------------
+//
+// `filterFields`/`filterFieldTypes` arrive from `@dudousxd/nestjs-codegen`'s
+// discovery pass, which only knows about entity columns and `@FilterFor`
+// virtual fields — it has no notion of nestjs-filter's own `@Computed` method
+// decorator or the inline `@Filterable({ computed })` map (both added by
+// nestjs-filter, statically read here via ts-morph, mirroring the AST-reading
+// style of `readFilterableCodegenMaxDepth` above).
+
+/**
+ * Parse a `type` hint node into a `{ kind, enumValues? }` shape. Mirrors the
+ * sibling `nestjs-codegen`'s `classifyFilterForHint` token mapping — the
+ * primitive tokens `'string' | 'number' | 'boolean' | 'Date'`, or a
+ * string-literal array (enum) → a `string` kind + `enumValues` — since
+ * `@Computed`'s (and the inline `computed` map's) `type` option reuses the
+ * same `FilterFieldTypeHint` shape as `@FilterFor`. Returns `undefined` for
+ * anything unrecognised (no hint, a non-literal expression, etc).
+ */
+function readTypeHint(
+  node: Node | undefined,
+): Pick<FilterFieldType, 'kind' | 'enumValues'> | undefined {
+  if (!node) return undefined;
+
+  if (Node.isStringLiteral(node)) {
+    switch (node.getLiteralValue()) {
+      case 'string':
+        return { kind: 'string' };
+      case 'number':
+        return { kind: 'number' };
+      case 'boolean':
+        return { kind: 'boolean' };
+      case 'Date':
+        return { kind: 'date' };
+      default:
+        return undefined;
+    }
+  }
+
+  if (Node.isArrayLiteralExpression(node)) {
+    const enumValues: string[] = [];
+    for (const el of node.getElements()) {
+      if (!Node.isStringLiteral(el)) return undefined; // non-literal element → bail
+      enumValues.push(el.getLiteralValue());
+    }
+    if (enumValues.length === 0) return undefined;
+    return { kind: 'string', enumValues };
+  }
+
+  return undefined;
+}
+
+/** Read the `type` property off an options/entry object literal (e.g. `{ type: 'number' }`
+ * from `@Computed({ type })` or the inline `computed` map's `{ source, type }` entry form),
+ * and parse it via `readTypeHint`. */
+function readTypeProperty(
+  node: Node | undefined,
+): Pick<FilterFieldType, 'kind' | 'enumValues'> | undefined {
+  if (!node || !Node.isObjectLiteralExpression(node)) return undefined;
+
+  const typeProp = node.getProperty('type');
+  if (!typeProp || !Node.isPropertyAssignment(typeProp)) return undefined;
+
+  return readTypeHint(typeProp.getInitializer());
+}
+
+/**
+ * Append computed-field aliases — from `@Computed` methods and the inline
+ * `@Filterable({ computed })` map — to `filterFields`/`filterFieldTypes` so the
+ * typed `filterQuery()` output accepts them. Mutates `contract` in place,
+ * mirroring `pruneToDepth`. An alias already present in `filterFields` (from
+ * entity/`@FilterFor` discovery, or an earlier computed source) is skipped
+ * entirely — not re-added, no type contributed for it either.
+ */
+function augmentContractWithComputed(
+  filterClass: ClassDeclaration,
+  contract: FilterContract,
+): void {
+  const fields = new Set(contract.filterFields ?? []);
+  const types = contract.filterFieldTypes ? [...contract.filterFieldTypes] : [];
+
+  // `@Computed` methods. Alias = first string-literal arg, else the method
+  // name (covers the opts-first overload, e.g. `@Computed({ type: 'number' })`,
+  // where the first/only arg is the options object, not an alias).
+  for (const method of filterClass.getMethods()) {
+    const decorator = method.getDecorators().find((d) => d.getName() === 'Computed');
+    if (!decorator) continue;
+
+    const [firstArg, secondArg] = decorator.getArguments();
+    let alias: string;
+    let optsArg: Node | undefined;
+    if (firstArg && Node.isStringLiteral(firstArg)) {
+      alias = firstArg.getLiteralValue();
+      optsArg = secondArg;
+    } else {
+      alias = method.getName();
+      optsArg = firstArg;
+    }
+
+    if (fields.has(alias)) continue;
+    fields.add(alias);
+
+    const hint = readTypeProperty(optsArg);
+    if (hint) types.push({ name: alias, ...hint });
+  }
+
+  // Inline `@Filterable({ computed: { alias: source | { source, type } } })` map.
+  const filterableDecorator = filterClass.getDecorators().find((d) => d.getName() === 'Filterable');
+  const [optionsArg] = filterableDecorator?.getArguments() ?? [];
+  const computedProp =
+    optionsArg && Node.isObjectLiteralExpression(optionsArg)
+      ? optionsArg.getProperty('computed')
+      : undefined;
+  const computedInit =
+    computedProp && Node.isPropertyAssignment(computedProp)
+      ? computedProp.getInitializer()
+      : undefined;
+
+  if (computedInit && Node.isObjectLiteralExpression(computedInit)) {
+    for (const prop of computedInit.getProperties()) {
+      if (!Node.isPropertyAssignment(prop)) continue;
+      const alias = prop.getName();
+
+      if (fields.has(alias)) continue;
+      fields.add(alias);
+
+      const hint = readTypeProperty(prop.getInitializer());
+      if (hint) types.push({ name: alias, ...hint });
+    }
+  }
+
+  contract.filterFields = [...fields];
+  contract.filterFieldTypes = types;
 }
 
 export interface NestjsFilterCodegenOptions {
@@ -262,9 +395,19 @@ export function nestjsFilterCodegen(options: NestjsFilterCodegenOptions = {}): C
       const project = ctx.project();
       for (const route of routes) {
         const contractSource = route.contract?.contractSource as FilterContract | undefined;
-        if (!contractSource?.filterFields?.length) continue;
+        if (!contractSource) continue;
 
-        const maxDepth = resolvePerFilterMaxDepth(route.controllerRef, project) ?? options.maxDepth;
+        const filterClass = resolveFilterClassFromControllerRef(route.controllerRef, project);
+        if (filterClass) augmentContractWithComputed(filterClass, contractSource);
+
+        // Only now check: a route with neither upstream-discovered fields NOR
+        // computed fields (the augmentation above is a no-op without a
+        // resolvable filter class / without @Computed / inline `computed`
+        // entries) has nothing to prune or emit — skip it.
+        if (!contractSource.filterFields?.length) continue;
+
+        const maxDepth =
+          (filterClass && readFilterableCodegenMaxDepth(filterClass)) ?? options.maxDepth;
         if (maxDepth === undefined) continue;
 
         pruneToDepth(contractSource, maxDepth);
