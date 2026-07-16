@@ -7,7 +7,7 @@ import {
   type ClassDeclaration,
   type MethodDeclaration,
   Node,
-  type Project,
+  Project,
   type SourceFile,
 } from 'ts-morph';
 
@@ -195,7 +195,14 @@ function resolveFilterClassFromControllerRef(
 ): ClassDeclaration | undefined {
   if (!controllerRef) return undefined;
 
-  const sourceFile = project.getSourceFile(controllerRef.filePath);
+  // The project may not have this file loaded yet: since @dudousxd/nestjs-codegen
+  // ≥0.3 `ctx.project()` (and our tsconfig-seeded project below) start empty —
+  // `skipAddingFilesFromTsConfig` — so add the controller on demand. Its imports
+  // (e.g. the `@ApplyFilter(FilterClass)` target under a `@/` path alias) resolve
+  // lazily through the project's tsconfig `paths`.
+  const sourceFile =
+    project.getSourceFile(controllerRef.filePath) ??
+    project.addSourceFileAtPathIfExists(controllerRef.filePath);
   if (!sourceFile) return undefined;
 
   const controllerClass = sourceFile.getClass(controllerRef.className);
@@ -382,6 +389,41 @@ export interface NestjsFilterCodegenOptions {
 }
 
 /**
+ * Build a ts-morph `Project` seeded from the app's `tsconfig.json`, so filter-class
+ * resolution can follow `paths` aliases (e.g. `@/api/...`) from a controller to its
+ * `@ApplyFilter(FilterClass)` target.
+ *
+ * We do NOT reuse `ctx.project()`: since @dudousxd/nestjs-codegen ≥0.3 that shared
+ * project is created lazily WITHOUT a `tsConfigFilePath`, so it carries no `paths`
+ * mapping — `getModuleSpecifierSourceFile()` can't resolve alias imports through it.
+ * (nestjs-filter-codegen 0.3.0 relied on the older, discovery-populated `ctx.project()`
+ * and silently no-op'd its computed augmentation once that contract changed.) Files are
+ * still added on demand — `skipAddingFilesFromTsConfig` — so this stays cheap.
+ *
+ * Falls back to `ctx.project()` when the tsconfig can't be loaded (e.g. no `app` config),
+ * preserving prior behaviour for setups that never needed alias resolution.
+ */
+function resolveFilterCodegenProject(ctx: ExtensionContext): Project {
+  try {
+    // Portable join (this package carries no @types/node, so no `node:path`):
+    // ts-morph accepts forward slashes on every platform.
+    const cwd = (ctx.cwd ?? '').replace(/[/\\]+$/, '');
+    const tsconfigPath = ctx.config?.app?.tsconfig ?? `${cwd}/tsconfig.json`;
+    return new Project({
+      tsConfigFilePath: tsconfigPath,
+      skipAddingFilesFromTsConfig: true,
+      skipLoadingLibFiles: true,
+      skipFileDependencyResolution: true,
+    });
+  } catch {
+    // No loadable tsconfig (e.g. a minimal/in-memory test ctx, or a config
+    // without `app`). Fall back to the shared project — preserving prior
+    // behaviour for setups that never needed `paths`-alias resolution.
+    return ctx.project();
+  }
+}
+
+/**
  * nestjs-filter codegen extension. Adds a typed `filterQuery()` helper to every generated
  * `api.ts` leaf whose route is decorated with `@ApplyFilter`/`@FilterFor`, backed by
  * `@dudousxd/nestjs-filter-client`. Register it via
@@ -392,7 +434,7 @@ export function nestjsFilterCodegen(options: NestjsFilterCodegenOptions = {}): C
     name: 'nestjs-filter',
 
     transformRoutes(routes, ctx) {
-      const project = ctx.project();
+      const project = resolveFilterCodegenProject(ctx);
       for (const route of routes) {
         const contractSource = route.contract?.contractSource as FilterContract | undefined;
         if (!contractSource) continue;
