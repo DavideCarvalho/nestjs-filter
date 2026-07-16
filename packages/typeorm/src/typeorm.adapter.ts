@@ -258,8 +258,9 @@ export class TypeOrmAdapter implements FilterAdapter {
    * prior behavior — most existing filters already write the alias literally
    * and have no `{alias}` token to replace, so `replaceAll` is a no-op for
    * them). A function source is called with `{ alias, em: dataSource }`; a
-   * string return is used directly, any other return is delegated to
-   * `computedReturnToSql` (QB-callback extraction lands in a later task).
+   * string return is used directly, any other return (a TypeORM
+   * `SelectQueryBuilder` for a correlated subquery) is delegated to
+   * `computedReturnToSql`.
    */
   private resolveComputedExpression(source: ComputedSource, alias: string): string {
     if (typeof source === 'string') return source.replaceAll('{alias}', alias);
@@ -268,8 +269,27 @@ export class TypeOrmAdapter implements FilterAdapter {
     return this.computedReturnToSql(out);
   }
 
-  private computedReturnToSql(_out: object): string {
-    throw new Error('Unsupported computed return; QB support lands in a later step');
+  /**
+   * Resolves a non-string computed return to SQL. The only supported shape is
+   * a TypeORM `SelectQueryBuilder` (duck-typed via `getQuery`), for a
+   * correlated subquery built directly against the outer query's real alias
+   * (TypeORM resolves aliases eagerly, unlike MikroORM's deferred-callback
+   * form). `getQuery()` renders the builder's SQL with `:param`-style
+   * placeholders inlined as literal text — it does NOT copy the subquery's
+   * bound parameters into the outer builder. Wrapping in parens makes the
+   * result safe to inline into a `WHERE`/`ORDER BY` expression.
+   *
+   * Constraint: the source must build a **param-free** subquery — e.g. a
+   * correlated COUNT with the alias interpolated as a raw string
+   * (`.where(\`b.authorId = ${alias}.id\`)`) rather than bound via `:param`.
+   * A subquery that does bind params would silently lose them here; merging
+   * them (`outer.setParameters(subQb.getParameters())`) is not implemented.
+   */
+  private computedReturnToSql(out: object): string {
+    if (typeof (out as { getQuery?: unknown }).getQuery === 'function') {
+      return `(${(out as { getQuery: () => string }).getQuery()})`;
+    }
+    throw new Error('Unsupported computed return type for TypeORM adapter');
   }
 
   applyComputedField(qb: unknown, source: ComputedSource, value: unknown): void {
