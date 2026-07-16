@@ -153,9 +153,9 @@ contract).
 ### Adapter scope
 
 - **MikroORM: all three forms** (flip's need) — first-class.
-- **TypeORM: string + function-returning-string/raw now**; **QB form deferred** to a
-  follow-up (SQL extraction differs; not an immediate need). An unresolved form hits
-  the existing `warnUnsupported` path.
+- **TypeORM: all three forms** too. The QB form's SQL extraction differs from
+  MikroORM (`SelectQueryBuilder.getQuery()` + parameter handling via the outer
+  builder), so it is a distinct implementation, but shipped in the same change.
 
 ### Codegen
 
@@ -172,16 +172,18 @@ contract).
 - **mikro-orm** (sqlite in-memory + `.db.spec` on mysql/pg): sort + filter for each of
   the three forms; correlated-subquery correctness (counts); value parameterization;
   composition with real-column sorts (already covered, keep green).
-- **typeorm**: string + function forms sort/filter; QB form asserts `warnUnsupported`
-  (until the follow-up).
+- **typeorm**: all three forms sort/filter (string, function, QB), mirroring the
+  mikro-orm coverage.
 - **codegen**: a filter with `@Computed({ type: 'number' })` emits the alias in the
   field union with a `number` value type; inline-map computed does not appear.
 
 ## Risks / unknowns
 
 1. **QB → SQL extraction with correct alias correlation** (form 3) is the highest-risk
-   piece: the subquery must correlate to the outer alias only known at build time, and
-   the extracted SQL must inline safely. Spike this first in the plan.
+   piece, and differs per adapter (MikroORM `getFormattedQuery`/`getKnexQuery` vs
+   TypeORM `getQuery` + parameter reconciliation): the subquery must correlate to the
+   outer alias only known at build time, and the extracted SQL must inline safely.
+   Spike this first in the plan, per adapter.
 2. **Alias timing** for the function forms: the resolver must run inside the build-time
    `raw` callback, not eagerly, or `{alias}`/`ctx.alias` is wrong.
 3. **Hook signature change** ripples to any external `FilterAdapter` implementers
@@ -189,7 +191,6 @@ contract).
 
 ## Out of scope
 
-- TypeORM QB form (follow-up).
 - Typing the inline `computed` map in codegen (stays opaque by design).
 - Any flip-side consumption changes (separate task; the flip bump to mikro-orm 1.13.0
   is already unblocked and independent of this v2 work).
