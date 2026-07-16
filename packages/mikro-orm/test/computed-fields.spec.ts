@@ -242,4 +242,29 @@ describe('MikroORM computed / virtual fields', () => {
     expect(rows.map((r) => r.name)).toEqual(['Ada', 'Alan', 'Grace']);
     await mod.close();
   });
+
+  it('filters by a QB-callback computed field (gt)', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterQb, { filter: { booksCount: { gt: 1 } } }, qb);
+    const rows = await qb.getResultList();
+    // Only Ada has more than 1 book.
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+    await mod.close();
+  });
+
+  it('parameterizes the client value for a QB-callback computed field (no SQL injection via the value)', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterQb, { filter: { booksCount: { equals: 0 } } }, qb);
+    const [sql, params] = [qb.getQuery(), qb.getParams()];
+    // The dev-built QB subquery is inlined; the client value is bound as a parameter.
+    expect(sql).toContain('author_id');
+    expect(params).toContain(0);
+    const rows = await qb.getResultList();
+    expect(rows.map((r) => r.name)).toEqual(['Grace']);
+    await mod.close();
+  });
 });
