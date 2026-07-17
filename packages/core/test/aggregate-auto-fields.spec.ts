@@ -45,10 +45,11 @@ const postFields: EntityFieldInfo[] = [
 /**
  * A fake adapter that implements the full discovery + aggregate-apply
  * capability set: `getEntityFields`, `getEntityRelations`, `getRelatedFields`,
- * `applyAggregateField`. Every accepted aggregate filter records the parsed
- * `AggregatePath` + `ColumnFilter` on the mock query builder so tests can
- * assert exactly what reached the adapter (i.e. what the resolved auto-field
- * set allowed through).
+ * `applyAggregateField`, `applyAggregateSort`, `applySort`. Every accepted
+ * aggregate filter/sort records the parsed `AggregatePath` (+ `ColumnFilter`
+ * or direction) on the mock query builder so tests can assert exactly what
+ * reached the adapter (i.e. what the resolved auto-field set allowed
+ * through).
  */
 function makeDiscoveryAdapter(): FilterAdapter {
   return {
@@ -58,6 +59,12 @@ function makeDiscoveryAdapter(): FilterAdapter {
     getRelatedFields: (_entity, relationName) => (relationName === 'posts' ? postFields : null),
     applyAggregateField: (qb, aggregate, filter) => {
       (qb as MockQB).andWhere({ $aggregateField: { aggregate, filter } });
+    },
+    applyAggregateSort: (qb, aggregate, direction) => {
+      (qb as MockQB).andWhere({ $aggregateSort: { aggregate, direction } });
+    },
+    applySort: (qb, sorts) => {
+      (qb as MockQB).andWhere({ $sort: sorts });
     },
   };
 }
@@ -69,6 +76,12 @@ class UserFilter extends BaseFilter<MockQB> {}
 @Injectable()
 @Filterable({ entity: User, autoFields: true, blocked: ['posts'] })
 class UserFilterBlockedPosts extends BaseFilter<MockQB> {}
+
+@Injectable()
+@Filterable({ entity: User, autoFields: true })
+class UserFilterSortAllowlistOmitsPosts extends BaseFilter<MockQB> {
+  static sort = ['name'] as const;
+}
 
 async function makeModule(FilterClass: new (...args: never[]) => object, adapter: FilterAdapter) {
   return Test.createTestingModule({
@@ -211,6 +224,97 @@ describe('auto-field discovery of aggregate paths', () => {
             filter: { field: 'posts.$count', operator: 'gt', value: 5 },
           },
         },
+      ],
+    ]);
+  });
+});
+
+// ─── Sort-side enforcement (symmetry with the filter/where path above) ──────
+
+describe('auto-field discovery of aggregate paths — sort side', () => {
+  it('(a) an allowed aggregate sort still routes to applyAggregateSort', async () => {
+    const mod = await makeModule(UserFilter, makeDiscoveryAdapter());
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(UserFilter, { filter: {}, sort: '-posts.$count' }, qb);
+    expect(qb.calls).toEqual([
+      [
+        'andWhere',
+        { $aggregateSort: { aggregate: { relation: 'posts', fn: 'count' }, direction: 'desc' } },
+      ],
+    ]);
+  });
+
+  it('(b) a blocked relation rejects its aggregate sort (not routed to applyAggregateSort)', async () => {
+    const mod = await makeModule(UserFilterBlockedPosts, makeDiscoveryAdapter());
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(UserFilterBlockedPosts, { filter: {}, sort: '-posts.$count' }, qb);
+    expect(qb.calls).toEqual([]);
+  });
+
+  it('(c) a to-one relation rejects its aggregate sort (author is many-to-one)', async () => {
+    const mod = await makeModule(UserFilter, makeDiscoveryAdapter());
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(UserFilter, { filter: {}, sort: '-author.$count' }, qb);
+    expect(qb.calls).toEqual([]);
+  });
+
+  it('(d) throwOnInvalid throws on a disallowed aggregate sort instead of silently dropping it', async () => {
+    const mod = await Test.createTestingModule({
+      providers: [
+        UserFilterBlockedPosts,
+        FilterRunner,
+        {
+          provide: FILTER_MODULE_OPTIONS,
+          useValue: {
+            inputNormalizer: 'camelCase',
+            validation: 'off',
+            dropId: false,
+            throwOnInvalid: true,
+          },
+        },
+        { provide: FILTER_ADAPTER, useValue: makeDiscoveryAdapter() },
+      ],
+    }).compile();
+    const runner = mod.get(FilterRunner);
+    await expect(
+      runner.apply(UserFilterBlockedPosts, { filter: {}, sort: '-posts.$count' }, makeMockQB()),
+    ).rejects.toThrow('Invalid sort field');
+  });
+
+  it('a static `sort` allowlist that omits the relation also rejects its aggregate sort', async () => {
+    const mod = await makeModule(UserFilterSortAllowlistOmitsPosts, makeDiscoveryAdapter());
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(
+      UserFilterSortAllowlistOmitsPosts,
+      { filter: {}, sort: '-posts.$count' },
+      qb,
+    );
+    expect(qb.calls).toEqual([]);
+  });
+
+  it('still accepts any well-formed aggregate sort when the adapter lacks relation discovery (pre-discovery back-compat)', async () => {
+    const adapter: FilterAdapter = {
+      createQueryBuilder: () => makeMockQB(),
+      getEntityFields: () => userFields,
+      applySort: (qb, sorts) => {
+        (qb as MockQB).andWhere({ $sort: sorts });
+      },
+      applyAggregateSort: (qb, aggregate, direction) => {
+        (qb as MockQB).andWhere({ $aggregateSort: { aggregate, direction } });
+      },
+    };
+    const mod = await makeModule(UserFilter, adapter);
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(UserFilter, { filter: {}, sort: '-posts.$count' }, qb);
+    expect(qb.calls).toEqual([
+      [
+        'andWhere',
+        { $aggregateSort: { aggregate: { relation: 'posts', fn: 'count' }, direction: 'desc' } },
       ],
     ]);
   });

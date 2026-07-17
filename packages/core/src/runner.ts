@@ -702,6 +702,7 @@ export class FilterRunner {
             filterableMeta?.entity,
             this.resolveThrowOnInvalid(FilterClass),
             computedRegistry,
+            autoFieldSet,
           );
         }
 
@@ -1799,12 +1800,45 @@ export class FilterRunner {
   }
 
   /**
+   * Validates a single to-many aggregate sort field (`posts.$count`, …),
+   * mirroring how {@link validateSorts} gates a real column: the static
+   * `FilterClass.sort` allowlist wins when declared (exact membership,
+   * same as a real column); otherwise falls back to the resolved auto-field
+   * set — the same `Set` `resolveAutoFields`/`addAggregateAutoFields` build
+   * for the filter/where path, which already honors `@Filterable.blocked`
+   * and to-many-only exposure (a to-one relation or a blocked relation never
+   * makes it into that Set).
+   *
+   * When the adapter can't introspect relation cardinality / related columns
+   * (`getEntityRelations`/`getRelatedFields` absent) there is nothing to
+   * validate the aggregate key against, so — matching the same graceful
+   * degradation the filter/where aggregate branch uses — this returns `true`
+   * (accept any well-formed aggregate path), the pre-discovery behavior.
+   */
+  private isAggregateSortAllowed(
+    field: string,
+    allowlist: string[] | undefined,
+    adapter: FilterAdapter,
+    autoFieldSet: AutoFieldSet | null,
+  ): boolean {
+    if (allowlist) return allowlist.includes(field);
+    const canValidateAggregate = !!(adapter.getEntityRelations && adapter.getRelatedFields);
+    if (!canValidateAggregate) return true;
+    return !!autoFieldSet?.has(field);
+  }
+
+  /**
    * Applies a list of sorts, routing computed/virtual aliases to
    * `applyComputedSort` (their dev-provided SQL expression) and regular columns
    * to `applySort`. Order is preserved across the mix so the resulting
    * `ORDER BY` matches the requested column order. Regular columns are still
    * validated against the allowlist / entity metadata; computed aliases bypass
-   * that check because they are dev-declared, not real columns.
+   * that check because they are dev-declared, not real columns. To-many
+   * aggregate sorts (`posts.$count`, …) ARE validated — see
+   * {@link isAggregateSortAllowed} — the same allow/block-list enforcement
+   * the filter/where path applies to aggregate keys (`apply()`'s aggregate-
+   * path branch), so a blocked or to-one relation can't be reached through
+   * `sort` even though it can't be reached through `where` either.
    */
   private applySortsWithComputed<Q>(
     qb: Q,
@@ -1814,6 +1848,7 @@ export class FilterRunner {
     entity: Type<unknown> | undefined,
     throwOnInvalid: boolean,
     computed: Map<string, ComputedSource> | undefined,
+    autoFieldSet: AutoFieldSet | null,
   ): void {
     const hasComputedSort = !!computed && sorts.some((s) => computed.has(s.field));
     // A to-many aggregate sort (`posts.$count`, `posts.$sum.views`, …) is
@@ -1847,6 +1882,12 @@ export class FilterRunner {
       const aggregatePath = parseAggregatePath(sort.field);
       if (aggregatePath) {
         if (adapter.applyAggregateSort) {
+          if (!this.isAggregateSortAllowed(sort.field, allowlist, adapter, autoFieldSet)) {
+            if (throwOnInvalid) {
+              throw new BadRequestException(`Invalid sort field: "${sort.field}".`);
+            }
+            continue;
+          }
           adapter.applyAggregateSort(qb as unknown, aggregatePath, sort.direction);
         } else {
           this.warnUnsupported(`Aggregate sort "${sort.field}" requested`, 'applyAggregateSort');
