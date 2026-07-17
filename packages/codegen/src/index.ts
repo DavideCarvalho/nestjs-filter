@@ -442,17 +442,61 @@ function findToManyRelationNames(entityClass: ClassDeclaration): string[] {
 }
 
 /**
+ * Statically determine whether the runtime would synthesize to-many aggregate
+ * auto-fields for this filter class — mirrors the gate in
+ * `FilterRunner.resolveAutoFields` (packages/core/src/runner.ts, the
+ * `resolveAutoFields`/`addAggregateAutoFields` pair): `addAggregateAutoFields`
+ * only runs inside the `autoFieldsConfig === true` branch (`autoFields` is
+ * `true` or absent — default `true`), and only when no `allowed` list narrows
+ * the field set first (an `allowed` list resolves via a different branch that
+ * returns before the entity-metadata/aggregate step is ever reached).
+ * `autoFields: false` and an explicit `autoFields: [...]` array both fall
+ * into other branches that never call `addAggregateAutoFields` either.
+ *
+ * Codegen must match this exactly — typing an aggregate path the server then
+ * 400s on (unknown field) is worse than typing nothing. `blocked` is
+ * deliberately NOT checked here: upstream `@dudousxd/nestjs-codegen`
+ * discovery doesn't honor `blocked` for any relation field today, so gating
+ * only the new aggregate paths on it would be an inconsistency of its own.
+ */
+function filterableAllowsAggregateAutoFields(filterClass: ClassDeclaration): boolean {
+  const filterableDecorator = filterClass.getDecorator('Filterable');
+  if (!filterableDecorator) return false;
+
+  const [optionsArg] = filterableDecorator.getArguments();
+  if (!optionsArg || !Node.isObjectLiteralExpression(optionsArg)) return false;
+
+  // Any `allowed` property — regardless of its value — routes the runtime
+  // through a branch that returns before `addAggregateAutoFields` runs.
+  if (optionsArg.getProperty('allowed')) return false;
+
+  const autoFieldsProp = optionsArg.getProperty('autoFields');
+  if (!autoFieldsProp) return true; // absent → default `true`
+  if (!Node.isPropertyAssignment(autoFieldsProp)) return false;
+
+  const init = autoFieldsProp.getInitializer();
+  // Only a literal `true` (or omission, handled above) matches the runtime's
+  // `autoFieldsConfig === true` branch. `false` and an explicit array
+  // literal/expression both take other branches that never emit aggregates.
+  return init !== undefined && Node.isTrueLiteral(init);
+}
+
+/**
  * Append to-many aggregate paths (`<rel>.$count`, `<rel>.$<fn>.<col>`) to
  * `filterFields`/`filterFieldTypes`, one set per to-many relation discovered on
  * the filter's `@Filterable({ entity })` class. All synthesized entries are
  * typed `number` (counts/sums/avgs/mins/maxes are always numeric). Mutates
  * `contract` in place, mirroring `augmentContractWithComputed`. A no-op when
- * the entity class isn't statically resolvable, or has no to-many relation.
+ * the entity class isn't statically resolvable, has no to-many relation, or
+ * the filter's `autoFields`/`allowed` config means the runtime would never
+ * synthesize these fields anyway (see `filterableAllowsAggregateAutoFields`).
  */
 function augmentContractWithAggregates(
   filterClass: ClassDeclaration,
   contract: FilterContract,
 ): void {
+  if (!filterableAllowsAggregateAutoFields(filterClass)) return;
+
   const entityName = readFilterableEntityIdentifierName(filterClass);
   if (!entityName) return;
 
