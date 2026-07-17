@@ -40,15 +40,26 @@ interface JsonArrayPath {
 interface AggregateEntityMeta {
   tableName: string;
   primaryKeys?: string[];
-  properties?: Record<
-    string,
-    {
-      kind: ReferenceKind;
-      type?: unknown;
-      mappedBy?: string;
-      fieldNames?: string[];
-    }
-  >;
+  properties?: Record<string, AggregateEntityProp>;
+}
+
+/**
+ * The slice of a relation/scalar `EntityProperty` the aggregate-subquery
+ * compiler reads. `mappedBy` resolves a ONE_TO_MANY's inverse FK (the
+ * ManyToOne property on the child). `pivotTable`/`joinColumns`/
+ * `inverseJoinColumns` resolve a MANY_TO_MANY's join table — MikroORM
+ * normalizes these per-side regardless of which end owns the relation:
+ * `joinColumns` is always THIS entity's own FK column(s) in the pivot table,
+ * `inverseJoinColumns` is always the TARGET entity's FK column(s).
+ */
+interface AggregateEntityProp {
+  kind: ReferenceKind;
+  type?: unknown;
+  mappedBy?: string;
+  fieldNames?: string[];
+  pivotTable?: string;
+  joinColumns?: string[];
+  inverseJoinColumns?: string[];
 }
 
 export class MikroOrmAdapter implements FilterAdapter {
@@ -618,64 +629,150 @@ export class MikroOrmAdapter implements FilterAdapter {
    * fragment is minted per call (never cached/reused across calls), matching
    * `resolveComputed`'s own single-use contract.
    *
-   * Always a correlated `SELECT <agg> FROM <child> WHERE <child>.<fk> =
-   * <outerAlias>.<pk>` — never a JOIN + GROUP BY, which would multiply root
-   * rows. The relation/column identifiers come from validated ORM metadata
-   * (`em.getMetadata()`), never from client-supplied text.
+   * Dispatches on the relation's `ReferenceKind`:
+   * - ONE_TO_MANY → {@link aggregateSubqueryOneToMany} (FK-on-child correlation).
+   * - MANY_TO_MANY → {@link aggregateSubqueryManyToMany} (pivot-table correlation).
+   *
+   * Both always compile a single correlated scalar subquery — never a JOIN +
+   * GROUP BY on the OUTER query, which would multiply root rows. The
+   * many-to-many case DOES join inside the subquery (pivot → child), but that
+   * join lives entirely inside the parenthesized scalar expression and can't
+   * multiply outer rows either way. All relation/column identifiers come from
+   * validated ORM metadata (`em.getMetadata()`), never from client-supplied
+   * text.
    */
   private aggregateSubquery(qb: unknown, aggregate: AggregatePath) {
     const rootMeta = (qb as { mainAlias: { meta: AggregateEntityMeta } }).mainAlias.meta;
-    const { childMeta, fkColumn, pkColumn } = this.resolveAggregateRelation(
-      rootMeta,
-      aggregate.relation,
+    const prop = rootMeta.properties?.[aggregate.relation];
+    if (!prop) {
+      throw new Error(`Cannot resolve aggregate relation "${aggregate.relation}".`);
+    }
+    if (prop.kind === ReferenceKind.ONE_TO_MANY) {
+      return this.aggregateSubqueryOneToMany(rootMeta, prop, aggregate);
+    }
+    if (prop.kind === ReferenceKind.MANY_TO_MANY) {
+      return this.aggregateSubqueryManyToMany(rootMeta, prop, aggregate);
+    }
+    throw new Error(
+      `Aggregate relation "${aggregate.relation}" (kind "${prop.kind}") is not a to-many relation the MikroORM adapter can correlate — only one-to-many and many-to-many are supported.`,
     );
+  }
+
+  /**
+   * ONE_TO_MANY correlation: a direct FK on the child row points back at the
+   * root's PK.
+   *
+   *   (SELECT <agg> FROM `child` WHERE `child`.`fk` = <outerAlias>.`pk`)
+   */
+  private aggregateSubqueryOneToMany(
+    rootMeta: AggregateEntityMeta,
+    prop: AggregateEntityProp,
+    aggregate: AggregatePath,
+  ) {
+    const childMeta = this.resolveChildMeta(prop, aggregate.relation);
+    const mappedBy = prop.mappedBy;
+    const fkProp = mappedBy ? childMeta.properties?.[mappedBy] : undefined;
+    const fkColumn = fkProp?.fieldNames?.[0];
+    if (!fkColumn) {
+      throw new Error(
+        `Cannot resolve the inverse FK column for aggregate relation "${aggregate.relation}".`,
+      );
+    }
+    const pkColumn = this.resolveRootPkColumn(rootMeta, aggregate.relation);
     const aggExpr = this.buildAggregateExpr(aggregate, childMeta);
-    const childTable = childMeta.tableName;
+    const childTable = this.quoteIdent(childMeta.tableName);
+    const fk = this.quoteIdent(fkColumn);
+    const pk = this.quoteIdent(pkColumn);
     const source: ComputedSource = ({ alias }) =>
-      `(SELECT ${aggExpr} FROM \`${childTable}\` WHERE \`${childTable}\`.\`${fkColumn}\` = ${alias}.\`${pkColumn}\`)`;
+      `(SELECT ${aggExpr} FROM ${childTable} WHERE ${childTable}.${fk} = ${alias}.${pk})`;
     return this.resolveComputed(source);
   }
 
   /**
-   * Resolves the child entity metadata + inverse FK column + root PK column
-   * needed to correlate a to-many aggregate subquery, from ORM relation
-   * metadata (`em.getMetadata()`).
+   * MANY_TO_MANY correlation: no FK on the child itself — the relationship is
+   * mediated by a pivot table. `$count` counts pivot rows directly (no need
+   * to touch the child table); `$sum`/`$avg`/`$min`/`$max` join pivot → child
+   * INSIDE the scalar subquery to reach the child column.
    *
-   * Only ONE_TO_MANY relations are supported: the correlated subquery this
-   * feeds assumes a single `child.<fk> = parent.<pk>` predicate, which a
-   * MANY_TO_MANY relation (join-table-mediated, no FK on the child itself)
-   * doesn't have.
+   *   $count: (SELECT COUNT(*) FROM `pivot`
+   *              WHERE `pivot`.`ownerFk` = <outerAlias>.`ownerPk`)
+   *
+   *   $sum/…: (SELECT <agg> FROM `child`
+   *              JOIN `pivot` ON `child`.`childPk` = `pivot`.`inverseFk`
+   *              WHERE `pivot`.`ownerFk` = <outerAlias>.`ownerPk`)
+   *
+   * MikroORM normalizes `joinColumns`/`inverseJoinColumns` per relation side
+   * regardless of which end owns the mapping: `joinColumns` is always THIS
+   * (root) entity's own FK column(s) in the pivot table (`ownerFk`), and
+   * `inverseJoinColumns` is always the TARGET (child) entity's FK column(s)
+   * in the pivot table (`inverseFk`) — so the same resolution works whether
+   * the aggregated relation property is the owning side or the `mappedBy`
+   * inverse side.
    */
-  private resolveAggregateRelation(
+  private aggregateSubqueryManyToMany(
     rootMeta: AggregateEntityMeta,
-    relationName: string,
-  ): { childMeta: AggregateEntityMeta; fkColumn: string; pkColumn: string } {
-    const prop = rootMeta.properties?.[relationName];
-    if (!prop || prop.kind !== ReferenceKind.ONE_TO_MANY) {
+    prop: AggregateEntityProp,
+    aggregate: AggregatePath,
+  ) {
+    const childMeta = this.resolveChildMeta(prop, aggregate.relation);
+    const pivotTable = prop.pivotTable;
+    const ownerFk = prop.joinColumns?.[0];
+    const inverseFk = prop.inverseJoinColumns?.[0];
+    if (!pivotTable || !ownerFk || !inverseFk) {
       throw new Error(
-        `Aggregate relation "${relationName}" is not a one-to-many relation the MikroORM adapter can correlate.`,
+        `Cannot resolve pivot-table metadata for aggregate relation "${aggregate.relation}".`,
       );
     }
+    const ownerPkColumn = this.resolveRootPkColumn(rootMeta, aggregate.relation);
+    const pivot = this.quoteIdent(pivotTable);
+    const ownerFkQ = this.quoteIdent(ownerFk);
+    const ownerPk = this.quoteIdent(ownerPkColumn);
+
+    if (aggregate.fn === 'count') {
+      const source: ComputedSource = ({ alias }) =>
+        `(SELECT COUNT(*) FROM ${pivot} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk})`;
+      return this.resolveComputed(source);
+    }
+
+    const childPkName = childMeta.primaryKeys?.[0];
+    const childPkColumn = childPkName
+      ? childMeta.properties?.[childPkName]?.fieldNames?.[0]
+      : undefined;
+    if (!childPkColumn) {
+      throw new Error(
+        `Cannot resolve the primary key column of the child entity for aggregate relation "${aggregate.relation}".`,
+      );
+    }
+    const aggExpr = this.buildAggregateExpr(aggregate, childMeta);
+    const childTable = this.quoteIdent(childMeta.tableName);
+    const childPk = this.quoteIdent(childPkColumn);
+    const inverseFkQ = this.quoteIdent(inverseFk);
+    const source: ComputedSource = ({ alias }) =>
+      `(SELECT ${aggExpr} FROM ${childTable} JOIN ${pivot} ON ${childTable}.${childPk} = ${pivot}.${inverseFkQ} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk})`;
+    return this.resolveComputed(source);
+  }
+
+  /** Resolves a relation property's target entity metadata via `em.getMetadata()`. */
+  private resolveChildMeta(prop: AggregateEntityProp, relationName: string): AggregateEntityMeta {
     const childMeta = this.em.getMetadata().get(prop.type as unknown as new () => unknown) as
       | AggregateEntityMeta
       | undefined;
     if (!childMeta) {
       throw new Error(`Cannot resolve metadata for aggregate relation "${relationName}".`);
     }
-    const mappedBy = prop.mappedBy;
-    const fkProp = mappedBy ? childMeta.properties?.[mappedBy] : undefined;
-    const fkColumn = fkProp?.fieldNames?.[0];
-    if (!fkColumn) {
-      throw new Error(
-        `Cannot resolve the inverse FK column for aggregate relation "${relationName}".`,
-      );
-    }
+    return childMeta;
+  }
+
+  /** Resolves the root entity's (single-column) primary key's DB column name. */
+  private resolveRootPkColumn(rootMeta: AggregateEntityMeta, relationName: string): string {
     const pkName = rootMeta.primaryKeys?.[0];
     const pkColumn = pkName ? rootMeta.properties?.[pkName]?.fieldNames?.[0] : undefined;
     if (!pkColumn) {
-      throw new Error('Cannot resolve the primary key column for the aggregate root entity.');
+      throw new Error(
+        `Cannot resolve the primary key column for aggregate relation "${relationName}"'s root entity.`,
+      );
     }
-    return { childMeta, fkColumn, pkColumn };
+    return pkColumn;
   }
 
   /** Builds the `<agg>` expression inside `SELECT <agg> FROM …`, per `aggregate.fn`. */
@@ -688,7 +785,7 @@ export class MikroOrmAdapter implements FilterAdapter {
         `Cannot resolve child column "${aggregate.column}" for aggregate function "${aggregate.fn}".`,
       );
     }
-    const col = `\`${childMeta.tableName}\`.\`${column}\``;
+    const col = `${this.quoteIdent(childMeta.tableName)}.${this.quoteIdent(column)}`;
     switch (aggregate.fn) {
       case 'sum':
         return `COALESCE(SUM(${col}),0)`;
@@ -701,6 +798,17 @@ export class MikroOrmAdapter implements FilterAdapter {
       default:
         throw new Error(`Unsupported aggregate function "${aggregate.fn}".`);
     }
+  }
+
+  /**
+   * Backtick-quotes a metadata-derived SQL identifier, escaping embedded
+   * backticks — the same defensive quoting {@link buildJsonArrayCondition}
+   * applies to a JSON column name. Identifiers here always come from ORM
+   * metadata (table/column/FK names), never client-supplied text, but this
+   * keeps the identifier well-formed even if metadata ever contained one.
+   */
+  private quoteIdent(name: string): string {
+    return `\`${name.replace(/`/g, '``')}\``;
   }
 
   applyOffsetPagination(qb: unknown, page: number, size: number): void {
