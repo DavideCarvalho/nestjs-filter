@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import type { FilterAdapter } from './adapter/adapter.js';
+import { parseAggregatePath } from './aggregate/aggregate-path.js';
 import { runWithFilterState } from './als-store.js';
 import type { ContextAccessor } from './context-accessor.js';
 import { resolveFieldAlias } from './decorator/aliases.js';
@@ -500,6 +501,29 @@ export class FilterRunner {
               }
             } else {
               this.warnUnsupported(`Computed field "${key}" provided`, 'applyComputedField');
+            }
+            continue;
+          }
+          // Check if this key is a to-many aggregate path (`posts.$count`,
+          // `posts.$sum.views`, …). Intercepted before auto-field / dot-notation
+          // relation handling so the aggregate's `$fn` segment is never mistaken
+          // for a real relation field. A parse-miss falls through unchanged.
+          const aggregatePath = parseAggregatePath(key);
+          if (aggregatePath) {
+            if (adapter?.applyAggregateField) {
+              const filtered = this.enforceAutoFieldOperators(
+                key,
+                value,
+                normalizedAllowed,
+                throwOnInvalidPolicy,
+              );
+              if (filtered !== undefined) {
+                for (const columnFilter of this.valueToColumnFilters(key, filtered)) {
+                  adapter.applyAggregateField(qb as unknown, aggregatePath, columnFilter);
+                }
+              }
+            } else {
+              this.warnUnsupported(`Aggregate field "${key}" provided`, 'applyAggregateField');
             }
             continue;
           }
@@ -1551,6 +1575,37 @@ export class FilterRunner {
   }
 
   /**
+   * Converts an auto-field-shaped value (scalar, array, or operator object —
+   * the same three shapes {@link enforceAutoFieldOperators} interprets) into
+   * one or more single-operator {@link ColumnFilter} entries for `field`.
+   *
+   * Used by aggregate-path filter routing, whose adapter capability
+   * (`applyAggregateField`) takes a single-operator `ColumnFilter` (mirroring
+   * the `where[]` shape) rather than a raw value. An operator object with
+   * multiple keys (e.g. `{ gte: 1, lte: 10 }`) yields one `ColumnFilter` per
+   * operator, ANDed by the caller issuing one `applyAggregateField` call per
+   * entry — the same implicit AND semantics as multiple `where[]` clauses on
+   * the same field.
+   *
+   * - scalar → `[{ field, operator: 'equals', value }]`
+   * - array → `[{ field, operator: 'in', value }]`
+   * - operator object → one entry per `{ operator, value }` pair
+   */
+  private valueToColumnFilters(field: string, value: unknown): ColumnFilter[] {
+    if (Array.isArray(value)) {
+      return [{ field, operator: 'in', value }];
+    }
+    if (value != null && typeof value === 'object') {
+      return Object.entries(value as Record<string, unknown>).map(([op, opVal]) => ({
+        field,
+        operator: normalizeOperator(op),
+        value: opVal,
+      }));
+    }
+    return [{ field, operator: 'equals', value }];
+  }
+
+  /**
    * Applies global search for dynamic mode: auto-detects all string columns
    * from entity metadata (no filter class with static search config).
    */
@@ -1690,11 +1745,15 @@ export class FilterRunner {
     computed: Map<string, ComputedSource> | undefined,
   ): void {
     const hasComputedSort = !!computed && sorts.some((s) => computed.has(s.field));
+    // A to-many aggregate sort (`posts.$count`, `posts.$sum.views`, …) is
+    // parsed on demand — it's never in the `computed` registry — so detect it
+    // the same way the per-item mixed path below does.
+    const hasAggregateSort = sorts.some((s) => parseAggregatePath(s.field) !== null);
 
-    // Fast path / backward-compatible behavior: no computed sorts → validate
-    // all sorts and apply them in a single batched `applySort` call (preserving
-    // the prior contract relied upon by existing tests and adapters).
-    if (!hasComputedSort) {
+    // Fast path / backward-compatible behavior: no computed or aggregate sorts
+    // → validate all sorts and apply them in a single batched `applySort` call
+    // (preserving the prior contract relied upon by existing tests and adapters).
+    if (!hasComputedSort && !hasAggregateSort) {
       const validSorts = this.validateSorts(sorts, allowlist, adapter, entity, throwOnInvalid);
       if (validSorts.length > 0 && adapter.applySort) {
         adapter.applySort(qb as unknown, validSorts);
@@ -1702,14 +1761,24 @@ export class FilterRunner {
       return;
     }
 
-    // Mixed path: route computed aliases to applyComputedSort and real columns
-    // to applySort, per item, so the resulting ORDER BY honors request order.
+    // Mixed path: route computed aliases to applyComputedSort, aggregate paths
+    // to applyAggregateSort, and real columns to applySort, per item, so the
+    // resulting ORDER BY honors request order.
     for (const sort of sorts) {
       if (computed?.has(sort.field)) {
         if (adapter.applyComputedSort) {
           adapter.applyComputedSort(qb as unknown, computed.get(sort.field)!, sort.direction);
         } else {
           this.warnUnsupported(`Computed sort "${sort.field}" requested`, 'applyComputedSort');
+        }
+        continue;
+      }
+      const aggregatePath = parseAggregatePath(sort.field);
+      if (aggregatePath) {
+        if (adapter.applyAggregateSort) {
+          adapter.applyAggregateSort(qb as unknown, aggregatePath, sort.direction);
+        } else {
+          this.warnUnsupported(`Aggregate sort "${sort.field}" requested`, 'applyAggregateSort');
         }
         continue;
       }
