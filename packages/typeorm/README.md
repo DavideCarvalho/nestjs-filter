@@ -100,6 +100,13 @@ token is still substituted for backward compatibility if present.
 
 ### Three source forms
 
+> **Parenthesize subqueries yourself in the string and function forms (1 and 2).**
+> The adapter inlines their return **verbatim** into the `ORDER BY` / `WHERE`. A
+> plain scalar expression needs no wrapping (`person.first || ' ' || person.last`),
+> but a **subquery** is only valid as a scalar when wrapped in `( … )` —
+> `'(SELECT COUNT(*) FROM …)'`. The QueryBuilder form (3) is the exception: the
+> adapter wraps it in parens for you, so don't add your own.
+
 A computed entry's source can be:
 
 1. **A SQL string** with the alias inlined directly (above).
@@ -172,17 +179,32 @@ declaration).
 
 ### Codegen typing
 
-Both attachment styles surface the field as a NAME in the generated, typed
-`filterQuery()` — `sort()`/`where()` accept the alias either way. To also type
-the `where()` *value*, declare a `type` hint:
+Both attachment styles — the inline `computed` map and the `@Computed`
+decorator — are read **statically** by the codegen extension, so a computed
+alias is surfaced in the generated, typed `filterQuery()` regardless of which
+you use: `sort()`/`where()` accept the alias either way. What differs is only
+whether the `where()` *value* is narrowed, and that's driven by the `type` hint,
+**not** by the attachment style:
 
-- Inline map: `{ source, type }` instead of a bare source —
-  `computed: { fullName: { source: '...', type: 'string' } }`
-- `@Computed`: pass `{ type }` — `@Computed({ type: 'string' })` or
-  `@Computed('alias', { type: 'string' })`
+| Declaration | Alias in `sort()`/`where()` | `where()` value |
+| --- | :---: | --- |
+| `computed: { fullName: '...' }` (bare string) | ✅ | `unknown` (not narrowed) |
+| `computed: { fullName: { source: '...', type: 'string' } }` | ✅ | `string` |
+| `@Computed() fullName(ctx) {…}` (no `type`) | ✅ | `unknown` (not narrowed) |
+| `@Computed({ type: 'string' }) fullName(ctx) {…}` | ✅ | `string` |
 
-A bare inline entry (`computed: { fullName: '...' }`) types only the field
-name — `where('fullName', ...)` is accepted, but the value isn't narrowed.
+So the inline map and `@Computed` are **equivalent for codegen** — pick by taste
+(the decorator keeps the SQL next to the method; the inline map keeps every field
+in one place). Add a `type` hint (either `{ source, type }` on the map or
+`{ type }` on the decorator) whenever you want the value narrowed.
+
+> **Requires `@dudousxd/nestjs-filter-codegen` ≥ 0.3.1.** When the host app runs
+> `@dudousxd/nestjs-codegen` ≥ 0.3, the extension resolves your filter class from
+> the app's `tsconfig.json` (so `paths` aliases like `@/…` resolve). Older
+> filter-codegen (≤ 0.3.0) relied on a codegen-internal ts-morph project that
+> newer nestjs-codegen no longer populates, so computed aliases silently never
+> reached the generated types — the runtime filter/sort still worked, only the
+> typing was missing. Plain entity columns are unaffected either way.
 
 **Engine support:** implemented in both the **TypeORM** and **MikroORM**
 adapters — see the MikroORM README for its `{alias}`-token / deferred-callback
