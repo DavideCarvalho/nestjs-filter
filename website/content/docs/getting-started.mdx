@@ -278,8 +278,8 @@ populating a filter dropdown with the distinct values of a column:
 
 ```ts
 // "Which statuses exist among the rows matching the current filters?"
-{ filter: { baseId: 'b1' }, distinct: 'status', sort: 'status' }
-// → SELECT DISTINCT status FROM ... WHERE base_id = 'b1' ORDER BY status
+{ filter: { companyId: 'c1' }, distinct: 'status', sort: 'status' }
+// → SELECT DISTINCT status FROM ... WHERE company_id = 'c1' ORDER BY status
 ```
 
 Accepts a single field, a comma-separated string, or an array (`distinct: ['status', 'type']`
@@ -295,20 +295,20 @@ entity-hydrating one:
 ```ts
 // controller
 @Post('search')
-listStatuses(@ApplyFilter(WorkOrderFilter) qb: QueryBuilder<WorkOrder>) {
-  return qb.execute(); // [{ status: 'OPEN' }, { status: 'CLOSED' }]
+listStatuses(@ApplyFilter(UserFilter) qb: QueryBuilder<User>) {
+  return qb.execute(); // [{ status: 'active' }, { status: 'inactive' }]
 }
 ```
 
 `runner.findAndCount()` (see the "findAndCount" section below) handles this automatically: whenever the structured input carries `distinct` fields, it routes to the adapter's raw-row execution path instead of the entity-hydrating one, skips the to-many relation-loading phase (there's no entity identity to attach relations to), and returns `{ rows, total }` with `total` counting distinct tuples rather than entities:
 
 ```ts
-const { rows, total } = await runner.findAndCount(WorkOrder, {
-  filter: { baseId: 'b1' },
+const { rows, total } = await runner.findAndCount(User, {
+  filter: { companyId: 'c1' },
   distinct: 'status',
   sort: 'status',
 });
-// rows: [{ status: 'OPEN' }, { status: 'CLOSED' }], total: 2
+// rows: [{ status: 'active' }, { status: 'inactive' }], total: 2
 ```
 
 ### Dot-notation auto-joins

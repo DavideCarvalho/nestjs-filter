@@ -149,29 +149,86 @@ export class UserFilter extends MikroOrmFilter<User> {
   Dot-notation requires the adapter to implement `getEntityRelations()` and `applyAutoRelationField()`. Both the MikroORM and TypeORM adapters support this. For complex cases (e.g. nested relations, custom join conditions), use `@Relations` or manual relation filtering instead.
 </Callout>
 
-## Sorting by an aggregate of a to-many relation
+## Aggregating a to-many relation
 
 Dot-notation sort (`sort=posts.title`) orders the list by a column of a **to-one**
-relation via an auto-join. It cannot order by an **aggregate of a to-many**
-collection (e.g. *number of posts*) — a join would multiply rows and break
-pagination. For that, declare a [computed field](/docs/guides/filter-classes#computed-fields)
-backed by a correlated subquery and sort by its alias:
+relation via an auto-join. To sort or filter by an **aggregate of a to-many**
+collection instead (e.g. *how many posts a user has*, or *the sum of their
+posts' views*), you don't need a join, and you don't need to hand-write a
+[computed field](/docs/guides/filter-classes#computed-fields) either — the
+runtime auto-discovers virtual aggregate sub-paths straight from your ORM's
+relation metadata:
 
-```ts
-@Filterable({
-  entity: User,
-  computed: {
-    postsCount: '(SELECT COUNT(*) FROM posts WHERE posts.author_id = {alias}.id)',
-  },
-})
-export class UserFilter extends MikroOrmFilter<User> {}
-// GET /users?sort=-postsCount  →  users ordered by how many posts they have
+- `<relation>.$count` — number of related rows.
+- `<relation>.$sum.<column>` / `.$avg.<column>` / `.$min.<column>` / `.$max.<column>`
+  — one aggregate per **numeric** column on the related entity.
+
+These work as sort keys and filter fields, exactly like a real column:
+
+```
+GET /users?sort=-posts.$count                # users ordered by how many posts they have, most first
+GET /users?posts.$sum.views[gt]=100           # only users whose posts' views add up to more than 100
 ```
 
+Or through the typed client:
+
+```ts
+filterQuery()
+  .sortDesc('posts.$count')
+  .where('posts.$sum.views', 'gt', 100)
+  .build();
+```
+
+This works for both to-many cardinalities — `@OneToMany` and `@ManyToMany`:
+
+```
+GET /users?sort=-tags.$count                  # order users by how many tags they have (many-to-many)
+```
+
+No declaration is required beyond the relation itself: with `autoFields: true`
+(the default) and no `allowed` list, every `@OneToMany`/`@ManyToMany` relation
+on the entity gets `.$count` plus a `.$sum`/`.$avg`/`.$min`/`.$max` set for
+each of its numeric child columns. Exclude a relation from aggregation the same
+way you'd exclude any other field — add its name to `@Filterable.blocked`.
+
 <Callout type="info">
-  This orders the **root rows** by the relation's count. To order the *collection
-  inside each row* instead (each user's posts), that's an ORM concern — set the
-  `orderBy` option on the `@OneToMany` relation, not a filter field.
+  Only **numeric** child columns are eligible for `$sum`/`$avg`/`$min`/`$max` —
+  string and date columns never qualify, so a client can't probe non-numeric
+  columns through the aggregate path. The comparison value (`gt=100` above) is
+  always bound as a query parameter, never inlined into SQL.
+</Callout>
+
+### Empty collections
+
+A row with no related children still participates in sort/filter — the
+aggregate just resolves to the identity value for that function, not `NULL`
+across the board:
+
+| Function | Value when the collection is empty |
+|----------|-------------------------------------|
+| `$count` | `0` |
+| `$sum` | `0` (`COALESCE`d) |
+| `$avg` / `$min` / `$max` | `NULL` — there's nothing to average, and no minimum/maximum of an empty set |
+
+So `posts.$avg.views[isNull]=true` matches users with zero posts, while
+`posts.$count[equals]=0` is the equivalent check phrased as a count.
+
+### How it compiles
+
+Every aggregate path — one-to-many or many-to-many — compiles to a single
+**correlated scalar subquery**, never a `JOIN` + `GROUP BY` on the outer query.
+That's what keeps pagination correct: root rows are never multiplied, no
+matter how many (or how few) children a row has. For a many-to-many relation,
+the subquery additionally joins through the pivot table to reach the child
+column, but that join lives entirely inside the parenthesized scalar
+expression and can't affect the outer row count either way. Implemented
+identically on both the MikroORM and TypeORM adapters.
+
+<Callout type="info">
+  This orders the **root rows** by the relation's aggregate. To order the
+  *collection inside each row* instead (each user's posts), that's an ORM
+  concern — set the `orderBy` option on the `@OneToMany` relation, not a
+  filter field.
 </Callout>
 
 ---

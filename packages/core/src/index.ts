@@ -122,3 +122,5 @@ export {
 } from './operators/validate-column-filter.js';
 export type { FieldPathSegment } from './operators/validate-column-filter.js';
 export { isOperatorObject, valueToColumnFilters } from './operators/value-shape.js';
+export { parseAggregatePath } from './aggregate/aggregate-path.js';
+export type { AggregateFn, AggregatePath } from './aggregate/aggregate-path.js';

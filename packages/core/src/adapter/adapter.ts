@@ -1,4 +1,5 @@
 import type { Type } from '@nestjs/common';
+import type { AggregatePath } from '../aggregate/aggregate-path.js';
 import type { ColumnFilter } from '../operators/types.js';
 import type { ComputedSource, SortItem } from '../types.js';
 
@@ -311,6 +312,46 @@ export interface FilterAdapter {
    * @param direction - Sort direction.
    */
   applyComputedSort?(qb: unknown, source: ComputedSource, direction: 'asc' | 'desc'): void;
+
+  /**
+   * Applies an ORDER BY on a **to-many aggregate field** — a virtual sub-path
+   * like `posts.$count` or `posts.$sum.views`, parsed via `parseAggregatePath`.
+   * Implementations compile the aggregate into a correlated scalar subquery
+   * (never a JOIN + GROUP BY, which would multiply root rows) and order by it,
+   * the same technique {@link applyComputedSort} uses for dev-provided SQL.
+   *
+   * Optional — adapters that don't support to-many aggregate fields should not
+   * implement this. When a client requests one and the adapter lacks this
+   * method, the runner logs a warning and skips the sort.
+   *
+   * @param qb - The query builder instance.
+   * @param aggregate - The parsed aggregate path (relation + fn + optional column).
+   * @param direction - Sort direction.
+   */
+  applyAggregateSort?(qb: unknown, aggregate: AggregatePath, direction: 'asc' | 'desc'): void;
+
+  /**
+   * Applies a WHERE condition on a **to-many aggregate field** — a virtual
+   * sub-path like `posts.$count` or `posts.$sum.views`, parsed via
+   * `parseAggregatePath`. Implementations compile the aggregate into a
+   * correlated scalar subquery and compare it using `filter.operator` /
+   * `filter.value`, the same technique {@link applyComputedField} uses for
+   * dev-provided SQL. The client-supplied comparison value is always
+   * parameterized, never inlined; only the dev-derived subquery SQL
+   * (relation/column names, already validated against ORM metadata) is
+   * ever emitted verbatim.
+   *
+   * Optional — adapters that don't support to-many aggregate fields should not
+   * implement this. When a client requests one and the adapter lacks this
+   * method, the runner logs a warning and skips the filter.
+   *
+   * @param qb - The query builder instance.
+   * @param aggregate - The parsed aggregate path (relation + fn + optional column).
+   * @param filter - The single-operator condition to apply (`field` carries the
+   *   original client-facing path; adapters typically ignore it in favor of the
+   *   compiled subquery, using `operator`/`value` for the comparison).
+   */
+  applyAggregateField?(qb: unknown, aggregate: AggregatePath, filter: ColumnFilter): void;
 
   /**
    * Applies offset-based pagination to the query builder.

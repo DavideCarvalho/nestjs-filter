@@ -66,11 +66,13 @@ class UsersController {
 }
 ```
 
-## Computed fields (correlated subqueries)
+## Computed fields
 
-A `computed` map on `@Filterable` declares virtual fields backed by a
-developer-supplied SQL expression. The alias becomes **filterable and sortable**
-like a real column — the client only ever references the alias, never the SQL:
+A `computed` map on `@Filterable` declares **virtual columns that don't exist
+in a table** — a value derived from a developer-supplied SQL expression (e.g.
+concatenating two columns into a `fullName`). The alias becomes **filterable
+and sortable** like a real column — the client only ever references the
+alias, never the SQL:
 
 ```ts
 @Injectable()
@@ -93,10 +95,16 @@ Every filter operator works on a computed field (`equals`, `gt`, `between`,
 static, developer-declared expression is inlined — so computed filters are
 SQL-injection safe.
 
-Unlike the MikroORM adapter, TypeORM resolves the query's alias eagerly
-(`queryBuilder.alias`), so a string source is written with the alias inlined
-directly (`person.first`, not a `{alias}` token) — though a literal `{alias}`
-token is still substituted for backward compatibility if present.
+TypeORM resolves the query's alias eagerly (`queryBuilder.alias`), so a
+string source is written with the alias inlined directly (`person.first`,
+above) — there's no token to substitute, unlike a deferred callback.
+
+> **Looking to sort/filter by the count (or sum/avg/min/max) of a to-many
+> relation** — e.g. how many books an author has? That's not a computed field
+> — the runtime auto-discovers `<relation>.$count` / `<relation>.$sum.<column>`
+> / … for every `@OneToMany`/`@ManyToMany` relation, no declaration needed. See
+> [Aggregating a to-many relation](https://davidecarvalho.github.io/nestjs-filter/docs/guides/relations#aggregating-a-to-many-relation)
+> in the guides.
 
 ### Three source forms
 
@@ -109,10 +117,13 @@ token is still substituted for backward compatibility if present.
 
 A computed entry's source can be:
 
-1. **A SQL string** with the alias inlined directly (above).
+1. **A SQL string**, emitted **verbatim** into the query, with the alias
+   inlined directly since TypeORM's alias is known up front (above).
 2. **A function** `(ctx: ComputedContext) => string`, called immediately with
    the real alias (`ctx.alias`) and the `DataSource` (`ctx.em`) — no deferred
-   resolution needed, since TypeORM's alias is known up front:
+   resolution needed, since TypeORM's alias is known up front. Use this
+   whenever the expression needs to reference the alias, most commonly a
+   correlated subquery:
 
    ```ts
    @Filterable({
@@ -207,8 +218,9 @@ in one place). Add a `type` hint (either `{ source, type }` on the map or
 > typing was missing. Plain entity columns are unaffected either way.
 
 **Engine support:** implemented in both the **TypeORM** and **MikroORM**
-adapters — see the MikroORM README for its `{alias}`-token / deferred-callback
-`raw()` mechanics, which differ from TypeORM's eager alias resolution above.
+adapters — see the MikroORM README for its deferred-callback `raw()`
+mechanics, which differ from TypeORM's eager alias resolution above (a string
+source is emitted verbatim on both — neither substitutes an alias token).
 
 ## API Reference
 

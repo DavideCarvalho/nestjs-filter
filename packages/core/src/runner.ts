@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import type { FilterAdapter } from './adapter/adapter.js';
+import { parseAggregatePath } from './aggregate/aggregate-path.js';
 import { runWithFilterState } from './als-store.js';
 import type { ContextAccessor } from './context-accessor.js';
 import { resolveFieldAlias } from './decorator/aliases.js';
@@ -60,6 +61,9 @@ import type {
 type AutoFieldSet = { has(key: string): boolean };
 
 const MATCH_ALL_SET: AutoFieldSet = { has: () => true };
+
+/** Numeric-column aggregate functions synthesized per to-many relation (see {@link FilterRunner.addAggregateAutoFields}). `$count` is handled separately — it needs no child column. */
+const AGGREGATE_COLUMN_FNS = ['sum', 'avg', 'min', 'max'] as const;
 
 /**
  * Merges the inline `@Filterable.computed` map and `@Computed`-decorated
@@ -503,6 +507,46 @@ export class FilterRunner {
             }
             continue;
           }
+          // Check if this key is a to-many aggregate path (`posts.$count`,
+          // `posts.$sum.views`, …). Intercepted before auto-field / dot-notation
+          // relation handling so the aggregate's `$fn` segment is never mistaken
+          // for a real relation field. A parse-miss falls through unchanged.
+          const aggregatePath = parseAggregatePath(key);
+          if (aggregatePath) {
+            if (adapter?.applyAggregateField) {
+              // When the adapter can introspect relation cardinality + related
+              // columns (the same capability `resolveAutoFields` uses to
+              // synthesize aggregate keys — see `addAggregateAutoFields`), the
+              // path must be a member of the resolved auto-field set: honors
+              // `@Filterable.blocked`, to-many-only exposure, and numeric-only
+              // child columns exactly like a real column would be. Adapters
+              // that can't introspect relations keep the pre-discovery
+              // behavior (accept any well-formed aggregate path) — same
+              // graceful degradation every other metadata-optional capability
+              // in this file uses.
+              const canValidateAggregate = !!(
+                adapter.getEntityRelations && adapter.getRelatedFields
+              );
+              if (canValidateAggregate && !autoFieldSet?.has(key)) {
+                this.handleUnknownKey(key);
+                continue;
+              }
+              const filtered = this.enforceAutoFieldOperators(
+                key,
+                value,
+                normalizedAllowed,
+                throwOnInvalidPolicy,
+              );
+              if (filtered !== undefined) {
+                for (const columnFilter of this.valueToColumnFilters(key, filtered)) {
+                  adapter.applyAggregateField(qb as unknown, aggregatePath, columnFilter);
+                }
+              }
+            } else {
+              this.warnUnsupported(`Aggregate field "${key}" provided`, 'applyAggregateField');
+            }
+            continue;
+          }
           // Check if this key is an auto-field
           if (autoFieldSet?.has(key)) {
             if (adapter?.applyAutoField) {
@@ -658,6 +702,7 @@ export class FilterRunner {
             filterableMeta?.entity,
             this.resolveThrowOnInvalid(FilterClass),
             computedRegistry,
+            autoFieldSet,
           );
         }
 
@@ -884,6 +929,7 @@ export class FilterRunner {
           for (const field of entityFields) {
             if (!filterForMap.has(field.name)) set.add(field.name);
           }
+          this.addAggregateAutoFields(set, meta, adapter);
           return set;
         }
       }
@@ -897,6 +943,56 @@ export class FilterRunner {
 
     // Explicit list of auto-field names
     return new Set(autoFieldsConfig);
+  }
+
+  /**
+   * Synthesizes allowed to-many aggregate keys (`<rel>.$count`,
+   * `<rel>.$sum.<col>`, …) from ORM relation/field metadata, and adds them to
+   * the auto-field `set` in place.
+   *
+   * For every relation reported by `getEntityRelations` whose cardinality is
+   * `one-to-many` or `many-to-many` (a to-one relation has no "many" to
+   * aggregate) and that isn't excluded by `@Filterable.blocked`, adds:
+   * - `${rel.name}.$count` — always (no child column needed).
+   * - `${rel.name}.$sum.${col}` / `.$avg.` / `.$min.` / `.$max.` — one set per
+   *   **numeric** child column reported by `getRelatedFields`. Non-numeric
+   *   child columns (strings, dates, …) never qualify — `SUM`/`AVG`/`MIN`/
+   *   `MAX` over them is either a SQL error or nonsensical, and allowing them
+   *   would let a client probe arbitrary child columns through the aggregate
+   *   path.
+   *
+   * A no-op unless the adapter implements both `getEntityRelations` and
+   * `getRelatedFields` (relation-cardinality + related-field introspection)
+   * AND at least one of the aggregate-apply capabilities
+   * (`applyAggregateSort`/`applyAggregateField`) — without those, there is
+   * nothing for the synthesized keys to ever be consumed by.
+   */
+  private addAggregateAutoFields(
+    set: Set<string>,
+    meta: FilterMetadata,
+    adapter: FilterAdapter,
+  ): void {
+    if (!adapter.getEntityRelations || !adapter.getRelatedFields) return;
+    if (!adapter.applyAggregateSort && !adapter.applyAggregateField) return;
+
+    const relations = adapter.getEntityRelations(meta.entity);
+    if (!relations) return;
+
+    for (const relation of relations) {
+      if (relation.type !== 'one-to-many' && relation.type !== 'many-to-many') continue;
+      if (meta.blocked?.includes(relation.name)) continue;
+
+      set.add(`${relation.name}.$count`);
+
+      const relatedFields = adapter.getRelatedFields(meta.entity, relation.name);
+      if (!relatedFields) continue;
+      for (const field of relatedFields) {
+        if (field.type !== 'number') continue;
+        for (const fn of AGGREGATE_COLUMN_FNS) {
+          set.add(`${relation.name}.$${fn}.${field.name}`);
+        }
+      }
+    }
   }
 
   /**
@@ -1551,6 +1647,37 @@ export class FilterRunner {
   }
 
   /**
+   * Converts an auto-field-shaped value (scalar, array, or operator object —
+   * the same three shapes {@link enforceAutoFieldOperators} interprets) into
+   * one or more single-operator {@link ColumnFilter} entries for `field`.
+   *
+   * Used by aggregate-path filter routing, whose adapter capability
+   * (`applyAggregateField`) takes a single-operator `ColumnFilter` (mirroring
+   * the `where[]` shape) rather than a raw value. An operator object with
+   * multiple keys (e.g. `{ gte: 1, lte: 10 }`) yields one `ColumnFilter` per
+   * operator, ANDed by the caller issuing one `applyAggregateField` call per
+   * entry — the same implicit AND semantics as multiple `where[]` clauses on
+   * the same field.
+   *
+   * - scalar → `[{ field, operator: 'equals', value }]`
+   * - array → `[{ field, operator: 'in', value }]`
+   * - operator object → one entry per `{ operator, value }` pair
+   */
+  private valueToColumnFilters(field: string, value: unknown): ColumnFilter[] {
+    if (Array.isArray(value)) {
+      return [{ field, operator: 'in', value }];
+    }
+    if (value != null && typeof value === 'object') {
+      return Object.entries(value as Record<string, unknown>).map(([op, opVal]) => ({
+        field,
+        operator: normalizeOperator(op),
+        value: opVal,
+      }));
+    }
+    return [{ field, operator: 'equals', value }];
+  }
+
+  /**
    * Applies global search for dynamic mode: auto-detects all string columns
    * from entity metadata (no filter class with static search config).
    */
@@ -1673,12 +1800,45 @@ export class FilterRunner {
   }
 
   /**
+   * Validates a single to-many aggregate sort field (`posts.$count`, …),
+   * mirroring how {@link validateSorts} gates a real column: the static
+   * `FilterClass.sort` allowlist wins when declared (exact membership,
+   * same as a real column); otherwise falls back to the resolved auto-field
+   * set — the same `Set` `resolveAutoFields`/`addAggregateAutoFields` build
+   * for the filter/where path, which already honors `@Filterable.blocked`
+   * and to-many-only exposure (a to-one relation or a blocked relation never
+   * makes it into that Set).
+   *
+   * When the adapter can't introspect relation cardinality / related columns
+   * (`getEntityRelations`/`getRelatedFields` absent) there is nothing to
+   * validate the aggregate key against, so — matching the same graceful
+   * degradation the filter/where aggregate branch uses — this returns `true`
+   * (accept any well-formed aggregate path), the pre-discovery behavior.
+   */
+  private isAggregateSortAllowed(
+    field: string,
+    allowlist: string[] | undefined,
+    adapter: FilterAdapter,
+    autoFieldSet: AutoFieldSet | null,
+  ): boolean {
+    if (allowlist) return allowlist.includes(field);
+    const canValidateAggregate = !!(adapter.getEntityRelations && adapter.getRelatedFields);
+    if (!canValidateAggregate) return true;
+    return !!autoFieldSet?.has(field);
+  }
+
+  /**
    * Applies a list of sorts, routing computed/virtual aliases to
    * `applyComputedSort` (their dev-provided SQL expression) and regular columns
    * to `applySort`. Order is preserved across the mix so the resulting
    * `ORDER BY` matches the requested column order. Regular columns are still
    * validated against the allowlist / entity metadata; computed aliases bypass
-   * that check because they are dev-declared, not real columns.
+   * that check because they are dev-declared, not real columns. To-many
+   * aggregate sorts (`posts.$count`, …) ARE validated — see
+   * {@link isAggregateSortAllowed} — the same allow/block-list enforcement
+   * the filter/where path applies to aggregate keys (`apply()`'s aggregate-
+   * path branch), so a blocked or to-one relation can't be reached through
+   * `sort` even though it can't be reached through `where` either.
    */
   private applySortsWithComputed<Q>(
     qb: Q,
@@ -1688,13 +1848,18 @@ export class FilterRunner {
     entity: Type<unknown> | undefined,
     throwOnInvalid: boolean,
     computed: Map<string, ComputedSource> | undefined,
+    autoFieldSet: AutoFieldSet | null,
   ): void {
     const hasComputedSort = !!computed && sorts.some((s) => computed.has(s.field));
+    // A to-many aggregate sort (`posts.$count`, `posts.$sum.views`, …) is
+    // parsed on demand — it's never in the `computed` registry — so detect it
+    // the same way the per-item mixed path below does.
+    const hasAggregateSort = sorts.some((s) => parseAggregatePath(s.field) !== null);
 
-    // Fast path / backward-compatible behavior: no computed sorts → validate
-    // all sorts and apply them in a single batched `applySort` call (preserving
-    // the prior contract relied upon by existing tests and adapters).
-    if (!hasComputedSort) {
+    // Fast path / backward-compatible behavior: no computed or aggregate sorts
+    // → validate all sorts and apply them in a single batched `applySort` call
+    // (preserving the prior contract relied upon by existing tests and adapters).
+    if (!hasComputedSort && !hasAggregateSort) {
       const validSorts = this.validateSorts(sorts, allowlist, adapter, entity, throwOnInvalid);
       if (validSorts.length > 0 && adapter.applySort) {
         adapter.applySort(qb as unknown, validSorts);
@@ -1702,14 +1867,30 @@ export class FilterRunner {
       return;
     }
 
-    // Mixed path: route computed aliases to applyComputedSort and real columns
-    // to applySort, per item, so the resulting ORDER BY honors request order.
+    // Mixed path: route computed aliases to applyComputedSort, aggregate paths
+    // to applyAggregateSort, and real columns to applySort, per item, so the
+    // resulting ORDER BY honors request order.
     for (const sort of sorts) {
       if (computed?.has(sort.field)) {
         if (adapter.applyComputedSort) {
           adapter.applyComputedSort(qb as unknown, computed.get(sort.field)!, sort.direction);
         } else {
           this.warnUnsupported(`Computed sort "${sort.field}" requested`, 'applyComputedSort');
+        }
+        continue;
+      }
+      const aggregatePath = parseAggregatePath(sort.field);
+      if (aggregatePath) {
+        if (adapter.applyAggregateSort) {
+          if (!this.isAggregateSortAllowed(sort.field, allowlist, adapter, autoFieldSet)) {
+            if (throwOnInvalid) {
+              throw new BadRequestException(`Invalid sort field: "${sort.field}".`);
+            }
+            continue;
+          }
+          adapter.applyAggregateSort(qb as unknown, aggregatePath, sort.direction);
+        } else {
+          this.warnUnsupported(`Aggregate sort "${sort.field}" requested`, 'applyAggregateSort');
         }
         continue;
       }

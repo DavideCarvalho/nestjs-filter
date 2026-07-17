@@ -103,9 +103,21 @@ function anyRouteFilters(ctx: ExtensionContext): boolean {
 // cycle guard, not a depth limit). `maxDepth` prunes that flat list here, after
 // discovery, by counting relation hops per path.
 
-/** Number of relation hops in a dot-path field name: "name" → 0, "base.name" → 1. */
+/**
+ * Number of relation hops in a dot-path field name: "name" → 0, "base.name" → 1.
+ *
+ * To-many aggregate paths ("<rel>.$count", "<rel>.$<fn>.<col>" — see
+ * `augmentContractWithAggregates` below) are single-relation-hop by grammar
+ * (never deeper: `parseAggregatePath` in core rejects anything but exactly
+ * those two shapes). The `$<fn>` marker segment rides along with the relation
+ * hop it aggregates rather than adding one of its own, so "base.$sum.amount"
+ * sits at the same depth as "base.amount" — otherwise maxDepth would prune
+ * aggregates one level earlier than the plain relation fields they mirror.
+ */
 function fieldDepth(fieldName: string): number {
-  return fieldName.split('.').length - 1;
+  const segments = fieldName.split('.');
+  if (segments.length >= 2 && segments[1]?.startsWith('$')) return 1;
+  return segments.length - 1;
 }
 
 interface ControllerRefLike {
@@ -367,6 +379,165 @@ function augmentContractWithComputed(
   contract.filterFieldTypes = types;
 }
 
+// ---------------------------------------------------------------------------
+// to-many aggregate fields: surface <rel>.$count / <rel>.$<fn>.<col>
+// ---------------------------------------------------------------------------
+//
+// At runtime, `FilterRunner.addAggregateAutoFields` (packages/core/src/runner.ts)
+// synthesizes these paths from live ORM relation/field metadata: for every
+// `one-to-many`/`many-to-many` relation on the entity, `<rel>.$count` plus one
+// `<rel>.$<fn>.<col>` per NUMERIC child column (fn ∈ sum/avg/min/max).
+//
+// Codegen has no live ORM metadata to call — only static ts-morph AST reading.
+// But the relation's own child columns (names + classified `kind`) are ALREADY
+// present in `filterFields`/`filterFieldTypes`: upstream `@dudousxd/nestjs-codegen`
+// discovery flattens every relation (to-one AND to-many alike) into dot-paths
+// like "posts.views" before this extension ever runs (see the maxDepth section
+// above — "base.owner.name" is the same mechanism). So the ONLY new discovery
+// this needs is relation *cardinality* (to-many vs to-one), which nothing else
+// reports; the column names/types are reused verbatim from that existing list,
+// never re-derived — no parallel discovery.
+
+/** Numeric-column aggregate functions synthesized per to-many relation. Mirrors
+ * `AGGREGATE_COLUMN_FNS` in `packages/core/src/runner.ts`; `$count` needs no
+ * child column so it's handled separately. */
+const AGGREGATE_COLUMN_FNS = ['sum', 'avg', 'min', 'max'] as const;
+
+/** Decorator names that mark a to-many relation property, shared by TypeORM and
+ * MikroORM entity decorators (both use these exact names). A `many-to-one` /
+ * `one-to-one` relation has no "many" to aggregate, so those are never included. */
+const TO_MANY_RELATION_DECORATORS = new Set(['OneToMany', 'ManyToMany']);
+
+/**
+ * Statically read the `entity` identifier off `@Filterable({ entity: X, ... })`.
+ * Returns `undefined` when the class carries no `@Filterable`, or `entity` isn't
+ * a plain identifier (e.g. a factory expression) — mirrors
+ * `readFilterableCodegenMaxDepth`'s decorator-arg reading style.
+ */
+function readFilterableEntityIdentifierName(filterClass: ClassDeclaration): string | undefined {
+  const filterableDecorator = filterClass.getDecorator('Filterable');
+  if (!filterableDecorator) return undefined;
+
+  const [optionsArg] = filterableDecorator.getArguments();
+  if (!optionsArg || !Node.isObjectLiteralExpression(optionsArg)) return undefined;
+
+  const entityProp = optionsArg.getProperty('entity');
+  if (!entityProp || !Node.isPropertyAssignment(entityProp)) return undefined;
+
+  const entityInit = entityProp.getInitializer();
+  if (!entityInit || !Node.isIdentifier(entityInit)) return undefined;
+
+  return entityInit.getText();
+}
+
+/** Property names on `entityClass` decorated `@OneToMany`/`@ManyToMany` — the
+ * relations `addAggregateAutoFields` would treat as to-many at runtime. */
+function findToManyRelationNames(entityClass: ClassDeclaration): string[] {
+  const names: string[] = [];
+  for (const prop of entityClass.getProperties()) {
+    const isToMany = prop.getDecorators().some((d) => TO_MANY_RELATION_DECORATORS.has(d.getName()));
+    if (isToMany) names.push(prop.getName());
+  }
+  return names;
+}
+
+/**
+ * Statically determine whether the runtime would synthesize to-many aggregate
+ * auto-fields for this filter class — mirrors the gate in
+ * `FilterRunner.resolveAutoFields` (packages/core/src/runner.ts, the
+ * `resolveAutoFields`/`addAggregateAutoFields` pair): `addAggregateAutoFields`
+ * only runs inside the `autoFieldsConfig === true` branch (`autoFields` is
+ * `true` or absent — default `true`), and only when no `allowed` list narrows
+ * the field set first (an `allowed` list resolves via a different branch that
+ * returns before the entity-metadata/aggregate step is ever reached).
+ * `autoFields: false` and an explicit `autoFields: [...]` array both fall
+ * into other branches that never call `addAggregateAutoFields` either.
+ *
+ * Codegen must match this exactly — typing an aggregate path the server then
+ * 400s on (unknown field) is worse than typing nothing. `blocked` is
+ * deliberately NOT checked here: upstream `@dudousxd/nestjs-codegen`
+ * discovery doesn't honor `blocked` for any relation field today, so gating
+ * only the new aggregate paths on it would be an inconsistency of its own.
+ */
+function filterableAllowsAggregateAutoFields(filterClass: ClassDeclaration): boolean {
+  const filterableDecorator = filterClass.getDecorator('Filterable');
+  if (!filterableDecorator) return false;
+
+  const [optionsArg] = filterableDecorator.getArguments();
+  if (!optionsArg || !Node.isObjectLiteralExpression(optionsArg)) return false;
+
+  // Any `allowed` property — regardless of its value — routes the runtime
+  // through a branch that returns before `addAggregateAutoFields` runs.
+  if (optionsArg.getProperty('allowed')) return false;
+
+  const autoFieldsProp = optionsArg.getProperty('autoFields');
+  if (!autoFieldsProp) return true; // absent → default `true`
+  if (!Node.isPropertyAssignment(autoFieldsProp)) return false;
+
+  const init = autoFieldsProp.getInitializer();
+  // Only a literal `true` (or omission, handled above) matches the runtime's
+  // `autoFieldsConfig === true` branch. `false` and an explicit array
+  // literal/expression both take other branches that never emit aggregates.
+  return init !== undefined && Node.isTrueLiteral(init);
+}
+
+/**
+ * Append to-many aggregate paths (`<rel>.$count`, `<rel>.$<fn>.<col>`) to
+ * `filterFields`/`filterFieldTypes`, one set per to-many relation discovered on
+ * the filter's `@Filterable({ entity })` class. All synthesized entries are
+ * typed `number` (counts/sums/avgs/mins/maxes are always numeric). Mutates
+ * `contract` in place, mirroring `augmentContractWithComputed`. A no-op when
+ * the entity class isn't statically resolvable, has no to-many relation, or
+ * the filter's `autoFields`/`allowed` config means the runtime would never
+ * synthesize these fields anyway (see `filterableAllowsAggregateAutoFields`).
+ */
+function augmentContractWithAggregates(
+  filterClass: ClassDeclaration,
+  contract: FilterContract,
+): void {
+  if (!filterableAllowsAggregateAutoFields(filterClass)) return;
+
+  const entityName = readFilterableEntityIdentifierName(filterClass);
+  if (!entityName) return;
+
+  const entityClass = resolveClassDeclaration(entityName, filterClass.getSourceFile());
+  if (!entityClass) return;
+
+  const relationNames = findToManyRelationNames(entityClass);
+  if (relationNames.length === 0) return;
+
+  const fields = new Set(contract.filterFields ?? []);
+  // Snapshot before mutation: only the relation's already-discovered child
+  // columns (from upstream discovery) seed $sum/$avg/$min/$max — newly
+  // synthesized aggregate entries must never feed back into that scan.
+  const existingTypes = contract.filterFieldTypes ? [...contract.filterFieldTypes] : [];
+  const types = [...existingTypes];
+
+  const addField = (name: string): void => {
+    if (fields.has(name)) return;
+    fields.add(name);
+    types.push({ name, kind: 'number' });
+  };
+
+  for (const rel of relationNames) {
+    addField(`${rel}.$count`);
+
+    const prefix = `${rel}.`;
+    for (const ft of existingTypes) {
+      if (ft.kind !== 'number') continue;
+      if (!ft.name.startsWith(prefix)) continue;
+      const column = ft.name.slice(prefix.length);
+      if (!column || column.includes('.')) continue; // single relation hop only
+      for (const fn of AGGREGATE_COLUMN_FNS) {
+        addField(`${rel}.$${fn}.${column}`);
+      }
+    }
+  }
+
+  contract.filterFields = [...fields];
+  contract.filterFieldTypes = types;
+}
+
 export interface NestjsFilterCodegenOptions {
   /**
    * Caps relation-path recursion depth of every filtered route's
@@ -440,12 +611,16 @@ export function nestjsFilterCodegen(options: NestjsFilterCodegenOptions = {}): C
         if (!contractSource) continue;
 
         const filterClass = resolveFilterClassFromControllerRef(route.controllerRef, project);
-        if (filterClass) augmentContractWithComputed(filterClass, contractSource);
+        if (filterClass) {
+          augmentContractWithComputed(filterClass, contractSource);
+          augmentContractWithAggregates(filterClass, contractSource);
+        }
 
         // Only now check: a route with neither upstream-discovered fields NOR
-        // computed fields (the augmentation above is a no-op without a
-        // resolvable filter class / without @Computed / inline `computed`
-        // entries) has nothing to prune or emit — skip it.
+        // computed/aggregate fields (the augmentations above are a no-op
+        // without a resolvable filter class / without @Computed / inline
+        // `computed` entries / a to-many relation) has nothing to prune or
+        // emit — skip it.
         if (!contractSource.filterFields?.length) continue;
 
         const maxDepth =
