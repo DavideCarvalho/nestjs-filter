@@ -1,6 +1,7 @@
 ---
 title: Relation Filtering
 description: Cross-entity filtering with @Relations — delegate input keys to related entity filters via ORM joins.
+icon: Waypoints
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -155,7 +156,7 @@ Dot-notation sort (`sort=posts.title`) orders the list by a column of a **to-one
 relation via an auto-join. To sort or filter by an **aggregate of a to-many**
 collection instead (e.g. *how many posts a user has*, or *the sum of their
 posts' views*), you don't need a join, and you don't need to hand-write a
-[computed field](/docs/guides/filter-classes#computed-fields) either — the
+[computed field](/docs/guides/computed) either — the
 runtime auto-discovers virtual aggregate sub-paths straight from your ORM's
 relation metadata:
 
