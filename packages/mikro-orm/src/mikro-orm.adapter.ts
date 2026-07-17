@@ -1,4 +1,5 @@
 import {
+  type AggregatePath,
   type ColumnFilter,
   type ComputedSource,
   type EntityFieldInfo,
@@ -28,6 +29,26 @@ interface JsonArrayPath {
   elementPath: string;
   /** `$.b` — path to the array node itself, for `JSON_LENGTH` existence. */
   arrayPath: string;
+}
+
+/**
+ * The slice of MikroORM's `EntityMetadata` the aggregate-subquery compiler
+ * needs: table name, primary key(s), and per-property FK/relation/column
+ * info. Matches the shape returned by both `em.getMetadata().get(...)` and a
+ * QueryBuilder's `mainAlias.meta`.
+ */
+interface AggregateEntityMeta {
+  tableName: string;
+  primaryKeys?: string[];
+  properties?: Record<
+    string,
+    {
+      kind: ReferenceKind;
+      type?: unknown;
+      mappedBy?: string;
+      fieldNames?: string[];
+    }
+  >;
 }
 
 export class MikroOrmAdapter implements FilterAdapter {
@@ -554,6 +575,132 @@ export class MikroOrmAdapter implements FilterAdapter {
     if (conditions.length === 0) return;
     const condition = conditions.length === 1 ? conditions[0]! : { $and: conditions };
     (qb as { andWhere: (c: unknown) => void }).andWhere(condition);
+  }
+
+  /**
+   * Applies an ORDER BY on a to-many aggregate field (`posts.$count`,
+   * `posts.$sum.views`, …), compiling it to a correlated scalar subquery via
+   * {@link aggregateSubquery} and appending it exactly like
+   * {@link applyComputedSort} appends a dev-provided computed source.
+   */
+  applyAggregateSort(qb: unknown, aggregate: AggregatePath, direction: 'asc' | 'desc'): void {
+    const queryBuilder = qb as { andOrderBy: (order: Record<string, unknown>) => void };
+    queryBuilder.andOrderBy({ [this.aggregateSubquery(qb, aggregate)]: direction });
+  }
+
+  /**
+   * Applies a WHERE condition on a to-many aggregate field (`posts.$count`,
+   * `posts.$sum.views`, …), compiling it to a correlated scalar subquery via
+   * {@link aggregateSubquery} and binding the client-supplied comparison value
+   * through `resolveOperator` — never inlined — exactly like
+   * {@link applyComputedField} binds a computed source's value.
+   *
+   * The runner calls this once PER OPERATOR for a multi-operator filter
+   * (`{ 'posts.$count': { gt: 1, lt: 9 } }` → two calls), so a fresh subquery
+   * fragment is compiled on every call (via `aggregateSubquery` →
+   * `resolveComputed` → a fresh `raw(...)`) and ANDed onto the query builder
+   * via `andWhere` — a MikroORM raw fragment is consumed on first use and
+   * cannot be reused across the two conditions.
+   */
+  applyAggregateField(qb: unknown, aggregate: AggregatePath, filter: ColumnFilter): void {
+    const condition = resolveOperator({
+      ...filter,
+      field: this.aggregateSubquery(qb, aggregate) as unknown as string,
+    });
+    (qb as { andWhere: (c: unknown) => void }).andWhere(condition);
+  }
+
+  /**
+   * Compiles a to-many `AggregatePath` (`{ relation, fn, column? }`) into a
+   * correlated scalar subquery, reusing the same `resolveComputed` /
+   * `raw((alias) => …)` sentinel machinery a dev-provided computed field uses
+   * — an aggregate is essentially an auto-generated computed field. A FRESH
+   * fragment is minted per call (never cached/reused across calls), matching
+   * `resolveComputed`'s own single-use contract.
+   *
+   * Always a correlated `SELECT <agg> FROM <child> WHERE <child>.<fk> =
+   * <outerAlias>.<pk>` — never a JOIN + GROUP BY, which would multiply root
+   * rows. The relation/column identifiers come from validated ORM metadata
+   * (`em.getMetadata()`), never from client-supplied text.
+   */
+  private aggregateSubquery(qb: unknown, aggregate: AggregatePath) {
+    const rootMeta = (qb as { mainAlias: { meta: AggregateEntityMeta } }).mainAlias.meta;
+    const { childMeta, fkColumn, pkColumn } = this.resolveAggregateRelation(
+      rootMeta,
+      aggregate.relation,
+    );
+    const aggExpr = this.buildAggregateExpr(aggregate, childMeta);
+    const childTable = childMeta.tableName;
+    const source: ComputedSource = ({ alias }) =>
+      `(SELECT ${aggExpr} FROM \`${childTable}\` WHERE \`${childTable}\`.\`${fkColumn}\` = ${alias}.\`${pkColumn}\`)`;
+    return this.resolveComputed(source);
+  }
+
+  /**
+   * Resolves the child entity metadata + inverse FK column + root PK column
+   * needed to correlate a to-many aggregate subquery, from ORM relation
+   * metadata (`em.getMetadata()`).
+   *
+   * Only ONE_TO_MANY relations are supported: the correlated subquery this
+   * feeds assumes a single `child.<fk> = parent.<pk>` predicate, which a
+   * MANY_TO_MANY relation (join-table-mediated, no FK on the child itself)
+   * doesn't have.
+   */
+  private resolveAggregateRelation(
+    rootMeta: AggregateEntityMeta,
+    relationName: string,
+  ): { childMeta: AggregateEntityMeta; fkColumn: string; pkColumn: string } {
+    const prop = rootMeta.properties?.[relationName];
+    if (!prop || prop.kind !== ReferenceKind.ONE_TO_MANY) {
+      throw new Error(
+        `Aggregate relation "${relationName}" is not a one-to-many relation the MikroORM adapter can correlate.`,
+      );
+    }
+    const childMeta = this.em.getMetadata().get(prop.type as unknown as new () => unknown) as
+      | AggregateEntityMeta
+      | undefined;
+    if (!childMeta) {
+      throw new Error(`Cannot resolve metadata for aggregate relation "${relationName}".`);
+    }
+    const mappedBy = prop.mappedBy;
+    const fkProp = mappedBy ? childMeta.properties?.[mappedBy] : undefined;
+    const fkColumn = fkProp?.fieldNames?.[0];
+    if (!fkColumn) {
+      throw new Error(
+        `Cannot resolve the inverse FK column for aggregate relation "${relationName}".`,
+      );
+    }
+    const pkName = rootMeta.primaryKeys?.[0];
+    const pkColumn = pkName ? rootMeta.properties?.[pkName]?.fieldNames?.[0] : undefined;
+    if (!pkColumn) {
+      throw new Error('Cannot resolve the primary key column for the aggregate root entity.');
+    }
+    return { childMeta, fkColumn, pkColumn };
+  }
+
+  /** Builds the `<agg>` expression inside `SELECT <agg> FROM …`, per `aggregate.fn`. */
+  private buildAggregateExpr(aggregate: AggregatePath, childMeta: AggregateEntityMeta): string {
+    if (aggregate.fn === 'count') return 'COUNT(*)';
+    const columnProp = aggregate.column ? childMeta.properties?.[aggregate.column] : undefined;
+    const column = columnProp?.fieldNames?.[0];
+    if (!column) {
+      throw new Error(
+        `Cannot resolve child column "${aggregate.column}" for aggregate function "${aggregate.fn}".`,
+      );
+    }
+    const col = `\`${childMeta.tableName}\`.\`${column}\``;
+    switch (aggregate.fn) {
+      case 'sum':
+        return `COALESCE(SUM(${col}),0)`;
+      case 'avg':
+        return `AVG(${col})`;
+      case 'min':
+        return `MIN(${col})`;
+      case 'max':
+        return `MAX(${col})`;
+      default:
+        throw new Error(`Unsupported aggregate function "${aggregate.fn}".`);
+    }
   }
 
   applyOffsetPagination(qb: unknown, page: number, size: number): void {
