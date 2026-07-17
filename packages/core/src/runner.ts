@@ -62,6 +62,9 @@ type AutoFieldSet = { has(key: string): boolean };
 
 const MATCH_ALL_SET: AutoFieldSet = { has: () => true };
 
+/** Numeric-column aggregate functions synthesized per to-many relation (see {@link FilterRunner.addAggregateAutoFields}). `$count` is handled separately — it needs no child column. */
+const AGGREGATE_COLUMN_FNS = ['sum', 'avg', 'min', 'max'] as const;
+
 /**
  * Merges the inline `@Filterable.computed` map and `@Computed`-decorated
  * methods into a single alias → {@link ComputedSource} registry.
@@ -511,6 +514,23 @@ export class FilterRunner {
           const aggregatePath = parseAggregatePath(key);
           if (aggregatePath) {
             if (adapter?.applyAggregateField) {
+              // When the adapter can introspect relation cardinality + related
+              // columns (the same capability `resolveAutoFields` uses to
+              // synthesize aggregate keys — see `addAggregateAutoFields`), the
+              // path must be a member of the resolved auto-field set: honors
+              // `@Filterable.blocked`, to-many-only exposure, and numeric-only
+              // child columns exactly like a real column would be. Adapters
+              // that can't introspect relations keep the pre-discovery
+              // behavior (accept any well-formed aggregate path) — same
+              // graceful degradation every other metadata-optional capability
+              // in this file uses.
+              const canValidateAggregate = !!(
+                adapter.getEntityRelations && adapter.getRelatedFields
+              );
+              if (canValidateAggregate && !autoFieldSet?.has(key)) {
+                this.handleUnknownKey(key);
+                continue;
+              }
               const filtered = this.enforceAutoFieldOperators(
                 key,
                 value,
@@ -908,6 +928,7 @@ export class FilterRunner {
           for (const field of entityFields) {
             if (!filterForMap.has(field.name)) set.add(field.name);
           }
+          this.addAggregateAutoFields(set, meta, adapter);
           return set;
         }
       }
@@ -921,6 +942,56 @@ export class FilterRunner {
 
     // Explicit list of auto-field names
     return new Set(autoFieldsConfig);
+  }
+
+  /**
+   * Synthesizes allowed to-many aggregate keys (`<rel>.$count`,
+   * `<rel>.$sum.<col>`, …) from ORM relation/field metadata, and adds them to
+   * the auto-field `set` in place.
+   *
+   * For every relation reported by `getEntityRelations` whose cardinality is
+   * `one-to-many` or `many-to-many` (a to-one relation has no "many" to
+   * aggregate) and that isn't excluded by `@Filterable.blocked`, adds:
+   * - `${rel.name}.$count` — always (no child column needed).
+   * - `${rel.name}.$sum.${col}` / `.$avg.` / `.$min.` / `.$max.` — one set per
+   *   **numeric** child column reported by `getRelatedFields`. Non-numeric
+   *   child columns (strings, dates, …) never qualify — `SUM`/`AVG`/`MIN`/
+   *   `MAX` over them is either a SQL error or nonsensical, and allowing them
+   *   would let a client probe arbitrary child columns through the aggregate
+   *   path.
+   *
+   * A no-op unless the adapter implements both `getEntityRelations` and
+   * `getRelatedFields` (relation-cardinality + related-field introspection)
+   * AND at least one of the aggregate-apply capabilities
+   * (`applyAggregateSort`/`applyAggregateField`) — without those, there is
+   * nothing for the synthesized keys to ever be consumed by.
+   */
+  private addAggregateAutoFields(
+    set: Set<string>,
+    meta: FilterMetadata,
+    adapter: FilterAdapter,
+  ): void {
+    if (!adapter.getEntityRelations || !adapter.getRelatedFields) return;
+    if (!adapter.applyAggregateSort && !adapter.applyAggregateField) return;
+
+    const relations = adapter.getEntityRelations(meta.entity);
+    if (!relations) return;
+
+    for (const relation of relations) {
+      if (relation.type !== 'one-to-many' && relation.type !== 'many-to-many') continue;
+      if (meta.blocked?.includes(relation.name)) continue;
+
+      set.add(`${relation.name}.$count`);
+
+      const relatedFields = adapter.getRelatedFields(meta.entity, relation.name);
+      if (!relatedFields) continue;
+      for (const field of relatedFields) {
+        if (field.type !== 'number') continue;
+        for (const fn of AGGREGATE_COLUMN_FNS) {
+          set.add(`${relation.name}.$${fn}.${field.name}`);
+        }
+      }
+    }
   }
 
   /**
