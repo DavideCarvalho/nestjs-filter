@@ -2,6 +2,7 @@
   "title": "Guides",
   "pages": [
     "filter-classes",
+    "computed",
     "controllers",
     "repositories",
     "relations",
