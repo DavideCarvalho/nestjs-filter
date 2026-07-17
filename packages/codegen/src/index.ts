@@ -8,7 +8,10 @@ import {
   type MethodDeclaration,
   Node,
   Project,
+  type PropertyDeclaration,
   type SourceFile,
+  SyntaxKind,
+  type TypeNode,
 } from 'ts-morph';
 
 // Minimal structural views of the codegen IR fields this extension reads. (The full types
@@ -389,14 +392,23 @@ function augmentContractWithComputed(
 // `<rel>.$<fn>.<col>` per NUMERIC child column (fn ∈ sum/avg/min/max).
 //
 // Codegen has no live ORM metadata to call — only static ts-morph AST reading.
-// But the relation's own child columns (names + classified `kind`) are ALREADY
-// present in `filterFields`/`filterFieldTypes`: upstream `@dudousxd/nestjs-codegen`
-// discovery flattens every relation (to-one AND to-many alike) into dot-paths
-// like "posts.views" before this extension ever runs (see the maxDepth section
-// above — "base.owner.name" is the same mechanism). So the ONLY new discovery
-// this needs is relation *cardinality* (to-many vs to-one), which nothing else
-// reports; the column names/types are reused verbatim from that existing list,
-// never re-derived — no parallel discovery.
+// Usually the relation's own child columns (names + classified `kind`) are
+// ALREADY present in `filterFields`/`filterFieldTypes`: upstream
+// `@dudousxd/nestjs-codegen` discovery flattens every relation (to-one AND
+// to-many alike) into dot-paths like "posts.views" before this extension ever
+// runs (see the maxDepth section above — "base.owner.name" is the same
+// mechanism). When that's true, the only new discovery needed here is
+// relation *cardinality* (to-many vs to-one), which nothing else reports.
+//
+// But upstream discovery doesn't always expand a to-many relation's child
+// columns — e.g. a raw `@OneToMany`/`@ManyToMany` that isn't itself a
+// registered filterable relation path never gets flattened, so only
+// `<rel>.$count` would surface even though the runtime (which reads live ORM
+// metadata via `getRelatedFields`) offers `$sum`/`$avg`/`$min`/`$max` too. To
+// close that gap, this extension ALSO resolves the relation's target child
+// entity class directly (`@OneToMany(() => Child, ...)` / `@ManyToMany({
+// entity: () => Child, ... })`) and reads its own scalar numeric columns from
+// source, unioned with whatever the existing-column scan already found.
 
 /** Numeric-column aggregate functions synthesized per to-many relation. Mirrors
  * `AGGREGATE_COLUMN_FNS` in `packages/core/src/runner.ts`; `$count` needs no
@@ -481,11 +493,149 @@ function filterableAllowsAggregateAutoFields(filterClass: ClassDeclaration): boo
   return init !== undefined && Node.isTrueLiteral(init);
 }
 
+/** ORM decorators that mark a property as a plain scalar column — MikroORM's
+ * `@Property` and TypeORM's `@Column`. Relation decorators (`@OneToMany`,
+ * `@ManyToOne`, `@ManyToMany`, `@OneToOne`) are deliberately excluded even
+ * when they'd otherwise pass a type check, and a bare `@PrimaryKey()` with no
+ * `@Property`/`@Column` alongside it doesn't count either — conservative by
+ * construction, matching `findChildNumericColumnNames`'s "don't emit unless
+ * confident" rule. */
+const SCALAR_COLUMN_DECORATORS = new Set(['Property', 'Column']);
+
+/** Relation decorators that disqualify a child property from ever being a
+ * scalar column, regardless of what other decorators it carries. */
+const RELATION_DECORATORS = new Set(['OneToMany', 'ManyToOne', 'ManyToMany', 'OneToOne']);
+
+/**
+ * Unwrap `() => Identifier` (optionally parenthesized) down to the
+ * identifier's text — the shape both `@OneToMany`/`@ManyToMany` entity-thunk
+ * forms use (`() => Child`). Returns `undefined` for anything else (a
+ * non-arrow expression, a thunk returning something other than a bare
+ * identifier, etc.) — under-resolving here just means the child columns are
+ * skipped, never mis-attributed to the wrong class.
+ */
+function identifierFromEntityThunk(node: Node | undefined): string | undefined {
+  if (!node || !Node.isArrowFunction(node)) return undefined;
+
+  let body: Node = node.getBody();
+  while (Node.isParenthesizedExpression(body)) body = body.getExpression();
+
+  return Node.isIdentifier(body) ? body.getText() : undefined;
+}
+
+/**
+ * Resolve the target child entity identifier off a to-many relation
+ * property's `@OneToMany`/`@ManyToMany` decorator. Handles both argument
+ * shapes:
+ *   - Positional: `@OneToMany(() => Child, (c) => c.parent)` — first arg is
+ *     the entity thunk directly.
+ *   - Object: `@OneToMany({ entity: () => Child, mappedBy: 'parent' })` —
+ *     first arg is an options object; `entity` is the thunk.
+ * Returns `undefined` when the property carries no to-many decorator, or the
+ * decorator's shape doesn't match either form (e.g. a dynamic expression).
+ */
+function resolveToManyChildEntityName(prop: PropertyDeclaration): string | undefined {
+  const decorator = prop.getDecorators().find((d) => TO_MANY_RELATION_DECORATORS.has(d.getName()));
+  if (!decorator) return undefined;
+
+  const [firstArg] = decorator.getArguments();
+  if (!firstArg) return undefined;
+
+  if (Node.isObjectLiteralExpression(firstArg)) {
+    const entityProp = firstArg.getProperty('entity');
+    if (!entityProp || !Node.isPropertyAssignment(entityProp)) return undefined;
+    return identifierFromEntityThunk(entityProp.getInitializer());
+  }
+
+  return identifierFromEntityThunk(firstArg);
+}
+
+/**
+ * Conservatively classify a type node as `number`, recursively unwrapping the
+ * shapes MikroORM's `Opt<...>` "has a default/generated value" marker
+ * actually appears in on real entities:
+ *   - a bare `number` keyword;
+ *   - a union whose only non-`null`/`undefined` member resolves to `number`
+ *     (covers `number | null`, `number | undefined`, and an optional `?:`
+ *     property's `Opt<number> | null` — MikroORM's usual defaulted-column
+ *     shape — since the `Opt<...>` member itself unwraps to `number` below);
+ *   - an intersection where ANY member resolves to `number` (covers
+ *     `number & Opt<number>` — MikroORM's usual shape for a PK/generated
+ *     column: the plain `number` member alone would already qualify, but the
+ *     check doesn't require it specifically, so `Opt<number> & SomeOtherTag`
+ *     still resolves via the `Opt<number>` member);
+ *   - a single-argument `Opt<...>` generic wrapper whose inner type
+ *     recursively resolves to `number`.
+ * Anything else — other type references, an intersection with no numeric
+ * member, or a type we can't confidently unwrap — returns `false` rather than
+ * guessing: under-typing here is safe, over-typing lets a client probe a
+ * field the server would 400 on.
+ */
+function isNumericTypeNode(typeNode: TypeNode): boolean {
+  if (typeNode.getKind() === SyntaxKind.NumberKeyword) return true;
+
+  if (Node.isUnionTypeNode(typeNode)) {
+    // `null` parses as a `LiteralType` wrapping a null-keyword literal (not a
+    // bare `NullKeyword` type node the way `undefined` is a bare
+    // `UndefinedKeyword`), so match both members by their literal text rather
+    // than by syntax kind alone.
+    const nonNullish = typeNode
+      .getTypeNodes()
+      .filter((t) => t.getText() !== 'null' && t.getText() !== 'undefined');
+    return nonNullish.length === 1 && isNumericTypeNode(nonNullish[0] as TypeNode);
+  }
+
+  if (Node.isIntersectionTypeNode(typeNode)) {
+    return typeNode.getTypeNodes().some((t) => isNumericTypeNode(t as TypeNode));
+  }
+
+  if (Node.isTypeReference(typeNode) && typeNode.getTypeName().getText() === 'Opt') {
+    const [inner] = typeNode.getTypeArguments();
+    return inner !== undefined && isNumericTypeNode(inner);
+  }
+
+  return false;
+}
+
+/**
+ * Read a child entity class's own scalar numeric column names directly from
+ * source — the fallback discovery path for a to-many relation whose columns
+ * weren't already flattened into the route's `filterFields` by upstream
+ * `@dudousxd/nestjs-codegen` discovery (see the section comment above).
+ * Mirrors the runtime's `getRelatedFields` (numeric scalar columns only), but
+ * reading static AST instead of live ORM metadata: a property qualifies only
+ * when it carries a scalar-column decorator (`@Property`/`@Column`, never a
+ * relation decorator) AND has an explicit type annotation that
+ * `isNumericTypeNode` confidently classifies as `number`. `Collection<...>`-
+ * typed and otherwise-relation-typed properties are excluded by the decorator
+ * check; anything with no type annotation, or a type this function can't
+ * confidently resolve, is skipped rather than guessed at.
+ */
+function findChildNumericColumnNames(childClass: ClassDeclaration): string[] {
+  const names: string[] = [];
+  for (const prop of childClass.getProperties()) {
+    const decorators = prop.getDecorators();
+    if (decorators.some((d) => RELATION_DECORATORS.has(d.getName()))) continue;
+    if (!decorators.some((d) => SCALAR_COLUMN_DECORATORS.has(d.getName()))) continue;
+
+    const typeNode = prop.getTypeNode();
+    if (!typeNode || !isNumericTypeNode(typeNode)) continue;
+
+    names.push(prop.getName());
+  }
+  return names;
+}
+
 /**
  * Append to-many aggregate paths (`<rel>.$count`, `<rel>.$<fn>.<col>`) to
  * `filterFields`/`filterFieldTypes`, one set per to-many relation discovered on
- * the filter's `@Filterable({ entity })` class. All synthesized entries are
- * typed `number` (counts/sums/avgs/mins/maxes are always numeric). Mutates
+ * the filter's `@Filterable({ entity })` class. Numeric child columns for
+ * `$sum`/`$avg`/`$min`/`$max` are the union of the already-discovered scan
+ * (columns upstream `@dudousxd/nestjs-codegen` flattened into `filterFields`)
+ * and a direct from-source read of the relation's target child entity class
+ * (`findChildNumericColumnNames`) — the latter covers relations whose columns
+ * upstream discovery never expanded. All synthesized entries are typed
+ * `number` (counts/sums/avgs/mins/maxes are always numeric). Mutates
  * `contract` in place, mirroring `augmentContractWithComputed`. A no-op when
  * the entity class isn't statically resolvable, has no to-many relation, or
  * the filter's `autoFields`/`allowed` config means the runtime would never
@@ -522,12 +672,37 @@ function augmentContractWithAggregates(
   for (const rel of relationNames) {
     addField(`${rel}.$count`);
 
+    // Union of two discovery paths for this relation's numeric child columns:
+    // (1) already-discovered — columns upstream `@dudousxd/nestjs-codegen`
+    // flattened into `filterFields`/`filterFieldTypes` before this extension
+    // ran; (2) from-source — the child entity's own scalar columns, read
+    // directly via `findChildNumericColumnNames` for relations upstream never
+    // expanded (e.g. a raw `@OneToMany` that isn't a registered filterable
+    // relation path). A column found by either path contributes exactly once
+    // — `addField` dedups against `fields`/`types`.
+    const numericColumns = new Set<string>();
+
     const prefix = `${rel}.`;
     for (const ft of existingTypes) {
       if (ft.kind !== 'number') continue;
       if (!ft.name.startsWith(prefix)) continue;
       const column = ft.name.slice(prefix.length);
       if (!column || column.includes('.')) continue; // single relation hop only
+      numericColumns.add(column);
+    }
+
+    const relProp = entityClass.getProperty(rel);
+    const childEntityName = relProp ? resolveToManyChildEntityName(relProp) : undefined;
+    const childClass = childEntityName
+      ? resolveClassDeclaration(childEntityName, entityClass.getSourceFile())
+      : undefined;
+    if (childClass) {
+      for (const column of findChildNumericColumnNames(childClass)) {
+        numericColumns.add(column);
+      }
+    }
+
+    for (const column of numericColumns) {
       for (const fn of AGGREGATE_COLUMN_FNS) {
         addField(`${rel}.$${fn}.${column}`);
       }

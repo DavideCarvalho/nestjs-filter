@@ -324,3 +324,403 @@ describe('nestjsFilterCodegen transformRoutes (to-many aggregate fields)', () =>
     expect(fields).toEqual(baseFields);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fallback discovery: child entity columns read directly from source, for a
+// to-many relation whose columns were NOT already flattened into the route's
+// filterFields by upstream `@dudousxd/nestjs-codegen` discovery (e.g. a raw
+// `@OneToMany`/`@ManyToMany` that isn't itself a registered filterable
+// relation path). See `findChildNumericColumnNames`/`resolveToManyChildEntityName`
+// in src/index.ts.
+// ---------------------------------------------------------------------------
+
+/**
+ * In-memory controller + entity + filter class trio for the fallback
+ * discovery path: `Message` carries a to-many `posts` relation whose columns
+ * are NOT present in the route's filterFields (simulating upstream discovery
+ * never expanding it) — only `id`/`name` are. `Post` (the child) is defined
+ * with real scalar-column decorators (`@Property`/`@Column`) so
+ * `findChildNumericColumnNames` has something to discover. `relationDecl`
+ * lets each test swap in either the positional (`@OneToMany(() => Post, ...)`)
+ * or object (`@OneToMany({ entity: () => Post, ... })`) decorator form.
+ */
+function projectWithUnexpandedToManyRelation(options: {
+  relationDecl: string;
+  postBody: string;
+}) {
+  const project = inMemoryProject();
+  const controllerPath = '/virtual/unexpanded.controller.ts';
+  const filterPath = '/virtual/unexpanded.filter.ts';
+
+  project.createSourceFile(
+    filterPath,
+    `
+    class Post {
+      ${options.postBody}
+    }
+
+    class Message {
+      id: string;
+      name: string;
+
+      ${options.relationDecl}
+      posts: Post[];
+    }
+
+    @Filterable({ entity: Message, autoFields: true })
+    export class MessageFilter {}
+    `,
+  );
+
+  project.createSourceFile(
+    controllerPath,
+    `
+    import { MessageFilter } from './unexpanded.filter';
+
+    export class MessageController {
+      list(@ApplyFilter(MessageFilter) filter: MessageFilter) {}
+    }
+    `,
+  );
+
+  return {
+    project,
+    controllerRef: { className: 'MessageController', methodName: 'list', filePath: controllerPath },
+  };
+}
+
+// `posts` is deliberately absent from filterFields/filterFieldTypes here —
+// upstream discovery never expanded it, unlike `baseFields` above.
+const unexpandedFields = ['id', 'name'];
+const unexpandedFieldTypes = [
+  { name: 'id', kind: 'string' },
+  { name: 'name', kind: 'string' },
+];
+
+describe('nestjsFilterCodegen transformRoutes (to-many aggregate fields — child column fallback)', () => {
+  it('discovers numeric child columns (views, rating) from source when not already expanded (positional decorator form)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property()
+        views: number;
+
+        @Property()
+        rating: number | null;
+
+        @Property()
+        title: string;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        'posts.$count',
+        'posts.$sum.views',
+        'posts.$avg.views',
+        'posts.$min.views',
+        'posts.$max.views',
+        'posts.$sum.rating',
+        'posts.$avg.rating',
+        'posts.$min.rating',
+        'posts.$max.rating',
+      ]),
+    );
+    // title is not numeric — never emitted, matching the runtime.
+    expect(fields.filter((f) => f.endsWith('.title'))).toEqual([]);
+
+    const types = filterFieldTypesOf(routes[0]) ?? [];
+    for (const name of ['posts.$sum.views', 'posts.$avg.rating', 'posts.$min.rating']) {
+      expect(types).toEqual(expect.arrayContaining([{ name, kind: 'number' }]));
+    }
+  });
+
+  it('discovers the child entity via the object decorator form (`@OneToMany({ entity: () => Post, ... })`)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: "@OneToMany({ entity: () => Post, mappedBy: 'message' })",
+      postBody: `
+        @Column()
+        views: number;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toEqual(
+      expect.arrayContaining(['posts.$count', 'posts.$sum.views', 'posts.$avg.views']),
+    );
+  });
+
+  it('does not emit an aggregate for a numeric property with no scalar-column decorator (unconfident attribution)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        views: number;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toContain('posts.$count');
+    expect(fields.filter((f) => f.startsWith('posts.$sum') || f.startsWith('posts.$avg'))).toEqual(
+      [],
+    );
+  });
+
+  it('does not emit an aggregate for a `@PrimaryKey()`-only numeric column (no `@Property`/`@Column` alongside it)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @PrimaryKey()
+        id: number;
+
+        @Property()
+        views: number;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toContain('posts.$sum.views');
+    expect(fields.filter((f) => f.endsWith('.id') && f.startsWith('posts.$'))).toEqual([]);
+  });
+
+  it('a relation-decorated child property is never picked up as a column (relation decorator disqualifies)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property()
+        views: number;
+
+        @ManyToOne(() => Post)
+        parent: Post;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields.filter((f) => f.endsWith('.parent') && f.startsWith('posts.$'))).toEqual([]);
+  });
+
+  it('resolves an `Opt<number>`-wrapped column as numeric', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property()
+        score: Opt<number>;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toContain('posts.$sum.score');
+  });
+
+  // The next three cases mirror flip's real Subwo entity columns verbatim —
+  // an optional `Opt<number> | null` defaulted column, an intersection
+  // `number & Opt<number>` PK column, and a plain `number | null` column —
+  // the exact shapes that motivated extending `isNumericTypeNode` beyond a
+  // bare `Opt<number>`/`number`.
+
+  it('resolves an optional `Opt<number> | null` column as numeric (flip Subwo.actualLaborCost/actualLaborHours shape)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property({ columnType: 'float' })
+        actualLaborHours?: Opt<number> | null;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        'posts.$sum.actualLaborHours',
+        'posts.$avg.actualLaborHours',
+        'posts.$min.actualLaborHours',
+        'posts.$max.actualLaborHours',
+      ]),
+    );
+  });
+
+  it('resolves an intersection `number & Opt<number>` column as numeric (flip Subwo.id PK shape)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @PrimaryKey({ columnType: 'bigint' })
+        @Property()
+        id: number & Opt<number>;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toContain('posts.$sum.id');
+  });
+
+  it('resolves a plain `number | null` column as numeric alongside the Opt/intersection forms', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property()
+        amount: number | null;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toContain('posts.$sum.amount');
+  });
+
+  it('does NOT resolve a non-numeric `Opt<string> | null` column (stays excluded)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property()
+        views: number;
+
+        @Property()
+        status?: Opt<string> | null;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toContain('posts.$sum.views');
+    expect(fields.filter((f) => f.endsWith('.status'))).toEqual([]);
+  });
+
+  it('unions with the already-discovered scan without duplicating an entry found by both paths', () => {
+    // `views` is BOTH already present in filterFields (as `posts.views`,
+    // simulating upstream discovery having expanded it) AND declared with a
+    // `@Property` decorator on the child class (the fallback path would find
+    // it too) — the union must contribute it exactly once.
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property()
+        views: number;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields, 'posts.views'],
+        filterFieldTypes: [...unexpandedFieldTypes, { name: 'posts.views', kind: 'number' }],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields.filter((f) => f === 'posts.$sum.views')).toHaveLength(1);
+
+    const types = filterFieldTypesOf(routes[0]) ?? [];
+    expect(types.filter((t) => t.name === 'posts.$sum.views')).toHaveLength(1);
+  });
+
+  it('maxDepth: 0 still prunes fallback-discovered aggregate paths out', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property()
+        views: number;
+      `,
+    });
+    const ext = nestjsFilterCodegen({ maxDepth: 0 });
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toEqual(['id', 'name']);
+    expect(fields).not.toContain('posts.$sum.views');
+  });
+});
