@@ -551,13 +551,24 @@ function resolveToManyChildEntityName(prop: PropertyDeclaration): string | undef
 }
 
 /**
- * Conservatively classify a type node as `number`: a bare `number` keyword,
- * or a union whose only non-`null`/`undefined` member resolves to `number`
- * (covers `number | null`, `number | undefined`), or a single-argument
- * `Opt<...>` wrapper (MikroORM's "has a default" marker) whose inner type
- * resolves to `number`. Anything else — including intersections, other type
- * references, or a type we can't confidently unwrap — returns `false` rather
- * than guessing: under-typing here is safe, over-typing lets a client probe a
+ * Conservatively classify a type node as `number`, recursively unwrapping the
+ * shapes MikroORM's `Opt<...>` "has a default/generated value" marker
+ * actually appears in on real entities:
+ *   - a bare `number` keyword;
+ *   - a union whose only non-`null`/`undefined` member resolves to `number`
+ *     (covers `number | null`, `number | undefined`, and an optional `?:`
+ *     property's `Opt<number> | null` — MikroORM's usual defaulted-column
+ *     shape — since the `Opt<...>` member itself unwraps to `number` below);
+ *   - an intersection where ANY member resolves to `number` (covers
+ *     `number & Opt<number>` — MikroORM's usual shape for a PK/generated
+ *     column: the plain `number` member alone would already qualify, but the
+ *     check doesn't require it specifically, so `Opt<number> & SomeOtherTag`
+ *     still resolves via the `Opt<number>` member);
+ *   - a single-argument `Opt<...>` generic wrapper whose inner type
+ *     recursively resolves to `number`.
+ * Anything else — other type references, an intersection with no numeric
+ * member, or a type we can't confidently unwrap — returns `false` rather than
+ * guessing: under-typing here is safe, over-typing lets a client probe a
  * field the server would 400 on.
  */
 function isNumericTypeNode(typeNode: TypeNode): boolean {
@@ -572,6 +583,10 @@ function isNumericTypeNode(typeNode: TypeNode): boolean {
       .getTypeNodes()
       .filter((t) => t.getText() !== 'null' && t.getText() !== 'undefined');
     return nonNullish.length === 1 && isNumericTypeNode(nonNullish[0] as TypeNode);
+  }
+
+  if (Node.isIntersectionTypeNode(typeNode)) {
+    return typeNode.getTypeNodes().some((t) => isNumericTypeNode(t as TypeNode));
   }
 
   if (Node.isTypeReference(typeNode) && typeNode.getTypeName().getText() === 'Opt') {

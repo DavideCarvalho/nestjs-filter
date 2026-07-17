@@ -566,6 +566,112 @@ describe('nestjsFilterCodegen transformRoutes (to-many aggregate fields — chil
     expect(fields).toContain('posts.$sum.score');
   });
 
+  // The next three cases mirror flip's real Subwo entity columns verbatim —
+  // an optional `Opt<number> | null` defaulted column, an intersection
+  // `number & Opt<number>` PK column, and a plain `number | null` column —
+  // the exact shapes that motivated extending `isNumericTypeNode` beyond a
+  // bare `Opt<number>`/`number`.
+
+  it('resolves an optional `Opt<number> | null` column as numeric (flip Subwo.actualLaborCost/actualLaborHours shape)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property({ columnType: 'float' })
+        actualLaborHours?: Opt<number> | null;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        'posts.$sum.actualLaborHours',
+        'posts.$avg.actualLaborHours',
+        'posts.$min.actualLaborHours',
+        'posts.$max.actualLaborHours',
+      ]),
+    );
+  });
+
+  it('resolves an intersection `number & Opt<number>` column as numeric (flip Subwo.id PK shape)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @PrimaryKey({ columnType: 'bigint' })
+        @Property()
+        id: number & Opt<number>;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toContain('posts.$sum.id');
+  });
+
+  it('resolves a plain `number | null` column as numeric alongside the Opt/intersection forms', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property()
+        amount: number | null;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toContain('posts.$sum.amount');
+  });
+
+  it('does NOT resolve a non-numeric `Opt<string> | null` column (stays excluded)', () => {
+    const { project, controllerRef } = projectWithUnexpandedToManyRelation({
+      relationDecl: '@OneToMany(() => Post, (post) => post.message)',
+      postBody: `
+        @Property()
+        views: number;
+
+        @Property()
+        status?: Opt<string> | null;
+      `,
+    });
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture({
+        filterFields: [...unexpandedFields],
+        filterFieldTypes: [...unexpandedFieldTypes],
+        controllerRef,
+      }),
+    ];
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields).toContain('posts.$sum.views');
+    expect(fields.filter((f) => f.endsWith('.status'))).toEqual([]);
+  });
+
   it('unions with the already-discovered scan without duplicating an entry found by both paths', () => {
     // `views` is BOTH already present in filterFields (as `posts.views`,
     // simulating upstream discovery having expanded it) AND declared with a
