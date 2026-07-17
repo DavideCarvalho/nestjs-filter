@@ -1,4 +1,5 @@
 import {
+  type AggregatePath,
   type ColumnFilter,
   type ComputedSource,
   type EntityFieldInfo,
@@ -13,11 +14,19 @@ import type { Type } from '@nestjs/common';
 import {
   Brackets,
   type DataSource,
+  type EntityMetadata,
   In,
   type ObjectLiteral,
   type SelectQueryBuilder,
 } from 'typeorm';
 import { applyColumnFiltersTypeOrm, applyOperator } from './operator-resolver.js';
+
+/**
+ * `RelationMetadata` isn't re-exported from TypeORM's package root (only
+ * `EntityMetadata` is) — derived via indexed access instead of a deep
+ * subpath import, which TypeORM's `exports` map doesn't expose.
+ */
+type RelationMetadata = EntityMetadata['relations'][number];
 
 /**
  * Regex for safe SQL field names: starts with letter or underscore,
@@ -309,6 +318,248 @@ export class TypeOrmAdapter implements FilterAdapter {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const expression = this.resolveComputedExpression(source, queryBuilder.alias);
     queryBuilder.addOrderBy(expression, direction.toUpperCase() as 'ASC' | 'DESC');
+  }
+
+  /**
+   * Applies an ORDER BY on a to-many aggregate field (`posts.$count`,
+   * `posts.$sum.views`, …), compiling it to a correlated scalar subquery via
+   * {@link aggregateSubquery} and appending it exactly like
+   * {@link applyComputedSort} appends a dev-provided computed source — TypeORM
+   * resolves the outer alias eagerly, so the expression string is ready
+   * immediately, no deferred-callback machinery needed.
+   */
+  applyAggregateSort(qb: unknown, aggregate: AggregatePath, direction: 'asc' | 'desc'): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const expression = this.aggregateSubquery(queryBuilder, aggregate);
+    queryBuilder.addOrderBy(expression, direction.toUpperCase() as 'ASC' | 'DESC');
+  }
+
+  /**
+   * Applies a WHERE condition on a to-many aggregate field (`posts.$count`,
+   * `posts.$sum.views`, …), compiling it to a correlated scalar subquery via
+   * {@link aggregateSubquery} and binding the client-supplied comparison value
+   * through `applyOperator`'s `colOverride` — never inlined — exactly like
+   * {@link applyComputedField} binds a computed source's value.
+   *
+   * The runner calls this once PER OPERATOR for a multi-operator filter
+   * (`{ 'posts.$count': { gt: 1, lt: 9 } }` → two calls), so a fresh subquery
+   * expression is compiled on every call and ANDed onto the query builder.
+   * Unlike MikroORM's raw fragments, a TypeORM expression string has no
+   * single-use constraint, but compiling fresh per call keeps the two
+   * adapters' aggregate compilers structurally identical.
+   */
+  applyAggregateField(qb: unknown, aggregate: AggregatePath, filter: ColumnFilter): void {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const expression = this.aggregateSubquery(queryBuilder, aggregate);
+    // `filter.field` carries the raw aggregate path (`posts.$count`), which
+    // isn't a valid TypeORM parameter-name component (`.`/`$`) — `uniqueParam`
+    // uses it only to build a readable, unique bind-parameter name, so it's
+    // swapped for a safe token here. The comparison target is `expression`
+    // (the `colOverride`), never `filter.field`, so this has no effect on the
+    // actual SQL comparison.
+    applyOperator(
+      queryBuilder,
+      queryBuilder.alias,
+      { ...filter, field: 'aggregate' },
+      'andWhere',
+      expression,
+    );
+  }
+
+  /**
+   * Compiles a to-many `AggregatePath` (`{ relation, fn, column? }`) into a
+   * param-free, parenthesized correlated scalar subquery expression string,
+   * correlated against the outer query's real alias (inlined as raw text —
+   * TypeORM's `getQuery()`/string-expression forms don't carry a subquery's
+   * bound params to the outer query, so the correlation itself must stay
+   * param-free; only the client comparison value is bound, by the caller, via
+   * `applyOperator`'s normal parameterized-operator path).
+   *
+   * Dispatches on the relation's `relationType`:
+   * - `one-to-many` → {@link aggregateSubqueryOneToMany} (FK-on-child correlation).
+   * - `many-to-many` → {@link aggregateSubqueryManyToMany} (junction-table correlation).
+   *
+   * Both always compile a single correlated scalar subquery — never a JOIN +
+   * GROUP BY on the OUTER query, which would multiply root rows. The
+   * many-to-many case DOES join junction → child, but that join lives
+   * entirely inside the parenthesized scalar expression and can't multiply
+   * outer rows either way. All relation/column identifiers come from
+   * validated ORM metadata (`dataSource.getMetadata()` / the outer query's
+   * own `mainAlias.metadata`), never from client-supplied text.
+   */
+  private aggregateSubquery(
+    qb: SelectQueryBuilder<ObjectLiteral>,
+    aggregate: AggregatePath,
+  ): string {
+    const rootMeta = qb.expressionMap.mainAlias?.metadata;
+    if (!rootMeta) {
+      throw new Error(
+        `Cannot resolve root entity metadata for aggregate relation "${aggregate.relation}".`,
+      );
+    }
+    const relation = rootMeta.relations.find((rel) => rel.propertyName === aggregate.relation);
+    if (!relation) {
+      throw new Error(`Cannot resolve aggregate relation "${aggregate.relation}".`);
+    }
+    const alias = qb.alias;
+    if (relation.relationType === 'one-to-many') {
+      return this.aggregateSubqueryOneToMany(rootMeta, relation, aggregate, alias);
+    }
+    if (relation.relationType === 'many-to-many') {
+      return this.aggregateSubqueryManyToMany(rootMeta, relation, aggregate, alias);
+    }
+    throw new Error(
+      `Aggregate relation "${aggregate.relation}" (kind "${relation.relationType}") is not a to-many relation the TypeORM adapter can correlate — only one-to-many and many-to-many are supported.`,
+    );
+  }
+
+  /**
+   * ONE_TO_MANY correlation: a direct FK on the child row points back at the
+   * root's PK. The FK column lives on the child's inverse `many-to-one`
+   * relation (`relation.inverseRelation`), which TypeORM always populates
+   * with `joinColumns` since a `many-to-one` side always owns its join
+   * column.
+   *
+   *   (SELECT <agg> FROM "child" WHERE "child"."fk" = <outerAlias>."pk")
+   */
+  private aggregateSubqueryOneToMany(
+    rootMeta: EntityMetadata,
+    relation: RelationMetadata,
+    aggregate: AggregatePath,
+    alias: string,
+  ): string {
+    const childMeta = relation.inverseEntityMetadata;
+    const fkColumn = relation.inverseRelation?.joinColumns?.[0]?.databaseName;
+    if (!fkColumn) {
+      throw new Error(
+        `Cannot resolve the inverse FK column for aggregate relation "${aggregate.relation}".`,
+      );
+    }
+    const pkColumn = this.resolveRootPkColumn(rootMeta, aggregate.relation);
+    const aggExpr = this.buildAggregateExpr(aggregate, childMeta);
+    const childTable = this.quoteIdent(childMeta.tableName);
+    const fk = this.quoteIdent(fkColumn);
+    const pk = this.quoteIdent(pkColumn);
+    return `(SELECT ${aggExpr} FROM ${childTable} WHERE ${childTable}.${fk} = ${alias}.${pk})`;
+  }
+
+  /**
+   * MANY_TO_MANY correlation: no FK on the child itself — the relationship is
+   * mediated by a junction table. `$count` counts junction rows directly (no
+   * need to touch the child table); `$sum`/`$avg`/`$min`/`$max` join
+   * junction → child INSIDE the scalar subquery to reach the child column.
+   *
+   *   $count: (SELECT COUNT(*) FROM "junction"
+   *              WHERE "junction"."ownerFk" = <outerAlias>."ownerPk")
+   *
+   *   $sum/…: (SELECT <agg> FROM "child"
+   *              JOIN "junction" ON "child"."childPk" = "junction"."childFk"
+   *              WHERE "junction"."ownerFk" = <outerAlias>."ownerPk")
+   *
+   * Unlike MikroORM (which normalizes `joinColumns`/`inverseJoinColumns` per
+   * relation side regardless of ownership), TypeORM only populates them on
+   * the OWNING relation — "[f]rom non-owner side of the relation join
+   * columns will be empty" (`RelationMetadata` docs). So when the aggregated
+   * relation is the non-owning (`mappedBy`) side, this resolves the owning
+   * side via `relation.inverseRelation` and swaps which join-column set is
+   * "owner" vs. "child": on the owning relation, `joinColumns` point at
+   * whichever entity DECLARES the owning `@ManyToMany` (the owning
+   * relation's `entityMetadata`) and `inverseJoinColumns` point at its
+   * target — so from the (non-owning) root's perspective those are reversed.
+   */
+  private aggregateSubqueryManyToMany(
+    rootMeta: EntityMetadata,
+    relation: RelationMetadata,
+    aggregate: AggregatePath,
+    alias: string,
+  ): string {
+    const owning = relation.isOwning ? relation : relation.inverseRelation;
+    if (!owning) {
+      throw new Error(
+        `Cannot resolve the owning many-to-many relation for aggregate relation "${aggregate.relation}".`,
+      );
+    }
+    const pivotTable = owning.junctionEntityMetadata?.tableName;
+    const ownerFk = (relation.isOwning ? owning.joinColumns : owning.inverseJoinColumns)?.[0]
+      ?.databaseName;
+    const childFk = (relation.isOwning ? owning.inverseJoinColumns : owning.joinColumns)?.[0]
+      ?.databaseName;
+    if (!pivotTable || !ownerFk || !childFk) {
+      throw new Error(
+        `Cannot resolve junction-table metadata for aggregate relation "${aggregate.relation}".`,
+      );
+    }
+    const childMeta = relation.inverseEntityMetadata;
+    const ownerPkColumn = this.resolveRootPkColumn(rootMeta, aggregate.relation);
+    const pivot = this.quoteIdent(pivotTable);
+    const ownerFkQ = this.quoteIdent(ownerFk);
+    const ownerPk = this.quoteIdent(ownerPkColumn);
+
+    if (aggregate.fn === 'count') {
+      return `(SELECT COUNT(*) FROM ${pivot} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk})`;
+    }
+
+    const childPkColumn = childMeta.primaryColumns[0]?.databaseName;
+    if (!childPkColumn) {
+      throw new Error(
+        `Cannot resolve the primary key column of the child entity for aggregate relation "${aggregate.relation}".`,
+      );
+    }
+    const aggExpr = this.buildAggregateExpr(aggregate, childMeta);
+    const childTable = this.quoteIdent(childMeta.tableName);
+    const childPk = this.quoteIdent(childPkColumn);
+    const childFkQ = this.quoteIdent(childFk);
+    return `(SELECT ${aggExpr} FROM ${childTable} JOIN ${pivot} ON ${childTable}.${childPk} = ${pivot}.${childFkQ} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk})`;
+  }
+
+  /** Resolves the root entity's (single-column) primary key's DB column name. */
+  private resolveRootPkColumn(rootMeta: EntityMetadata, relationName: string): string {
+    const pkColumn = rootMeta.primaryColumns[0]?.databaseName;
+    if (!pkColumn) {
+      throw new Error(
+        `Cannot resolve the primary key column for aggregate relation "${relationName}"'s root entity.`,
+      );
+    }
+    return pkColumn;
+  }
+
+  /** Builds the `<agg>` expression inside `SELECT <agg> FROM …`, per `aggregate.fn`. */
+  private buildAggregateExpr(aggregate: AggregatePath, childMeta: EntityMetadata): string {
+    if (aggregate.fn === 'count') return 'COUNT(*)';
+    const columnMeta = aggregate.column
+      ? childMeta.columns.find((col) => col.propertyName === aggregate.column)
+      : undefined;
+    const column = columnMeta?.databaseName;
+    if (!column) {
+      throw new Error(
+        `Cannot resolve child column "${aggregate.column}" for aggregate function "${aggregate.fn}".`,
+      );
+    }
+    const col = `${this.quoteIdent(childMeta.tableName)}.${this.quoteIdent(column)}`;
+    switch (aggregate.fn) {
+      case 'sum':
+        return `COALESCE(SUM(${col}),0)`;
+      case 'avg':
+        return `AVG(${col})`;
+      case 'min':
+        return `MIN(${col})`;
+      case 'max':
+        return `MAX(${col})`;
+      default:
+        throw new Error(`Unsupported aggregate function "${aggregate.fn}".`);
+    }
+  }
+
+  /**
+   * Quotes a metadata-derived SQL identifier using the active driver's own
+   * escaping (backticks for MySQL/SQLite, double quotes for Postgres/MSSQL
+   * variants…) — the TypeORM counterpart of MikroORM adapter's hardcoded
+   * backtick `quoteIdent`, made dialect-portable via `driver.escape()`.
+   * Identifiers here always come from ORM metadata (table/column/FK names),
+   * never from client-supplied text.
+   */
+  private quoteIdent(name: string): string {
+    return this.dataSource.driver.escape(name);
   }
 
   applyOffsetPagination(qb: unknown, page: number, size: number): void {
