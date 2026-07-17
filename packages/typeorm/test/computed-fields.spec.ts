@@ -77,6 +77,17 @@ class PersonFilter extends TypeOrmFilter<Person> {}
 })
 class PersonFilterFn extends TypeOrmFilter<Person> {}
 
+// A bare-string computed source is emitted verbatim — no `{alias}` token
+// substitution. Used here as a SQL string literal to prove the token is
+// untouched (a correlated subquery needing the outer alias must use the
+// function form above instead).
+@Injectable()
+@Filterable({
+  entity: Person,
+  computed: { probe: "'{alias}'" },
+})
+class PersonFilterVerbatim extends TypeOrmFilter<Person> {}
+
 // A QB-callback computed field: the source function builds and returns a real
 // TypeORM SelectQueryBuilder for a correlated subquery (rather than a
 // hand-written SQL string). TypeORM resolves its alias eagerly, so `alias`
@@ -118,7 +129,7 @@ describe('TypeORM computed / virtual fields', () => {
         }),
         FilterModule.forRoot({ validation: 'off' }),
         TypeOrmFilterModule.forRoot(),
-        FilterModule.forFeature([PersonFilter, PersonFilterFn]),
+        FilterModule.forFeature([PersonFilter, PersonFilterFn, PersonFilterVerbatim]),
       ],
     }).compile();
     ds = mod.get(DataSource);
@@ -217,6 +228,17 @@ describe('TypeORM computed / virtual fields', () => {
     expect(params).toContain("x'; DROP TABLE people;--");
     const rows = await qb.getMany();
     expect(rows).toEqual([]);
+    await mod.close();
+  });
+
+  it('emits a bare string computed source verbatim (no {alias} substitution)', async () => {
+    const mod = await createModule();
+    await seed();
+    const repo = ds.getRepository(Person);
+    const qb = repo.createQueryBuilder('person');
+    await runner.apply(PersonFilterVerbatim, { filter: {}, sort: 'probe' }, qb);
+    const sql = qb.getSql();
+    expect(sql).toContain("'{alias}'"); // literal, NOT replaced with person/etc.
     await mod.close();
   });
 });

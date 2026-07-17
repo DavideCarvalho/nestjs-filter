@@ -263,16 +263,15 @@ export class TypeOrmAdapter implements FilterAdapter {
    * `raw((alias) => ...)` deferred-callback form — so a function source can be
    * invoked immediately with the real alias, no deferred resolution needed.
    *
-   * A string source substitutes `{alias}` for the query's alias (preserving
-   * prior behavior — most existing filters already write the alias literally
-   * and have no `{alias}` token to replace, so `replaceAll` is a no-op for
-   * them). A function source is called with `{ alias, em: dataSource }`; a
-   * string return is used directly, any other return (a TypeORM
-   * `SelectQueryBuilder` for a correlated subquery) is delegated to
-   * `computedReturnToSql`.
+   * A string source is emitted verbatim — no token substitution. A correlated
+   * subquery that needs the outer alias must use the function form instead
+   * (mirrors the MikroORM adapter's `resolveComputed`). A function source is
+   * called with `{ alias, em: dataSource }`; a string return is used
+   * directly, any other return (a TypeORM `SelectQueryBuilder` for a
+   * correlated subquery) is delegated to `computedReturnToSql`.
    */
   private resolveComputedExpression(source: ComputedSource, alias: string): string {
-    if (typeof source === 'string') return source.replaceAll('{alias}', alias);
+    if (typeof source === 'string') return source;
     const out = source({ alias, em: this.dataSource });
     if (typeof out === 'string') return out;
     return this.computedReturnToSql(out);
