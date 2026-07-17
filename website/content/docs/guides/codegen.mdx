@@ -76,8 +76,8 @@ The default is uncapped — relation-path expansion is bounded only by `nestjs-c
 Override the global `maxDepth` for a single filter with `@Filterable({ codegen: { maxDepth } })` — a per-filter override always takes precedence over the global option:
 
 ```ts
-@Filterable({ entity: WorkOrder, codegen: { maxDepth: 2 } })
-export class WorkOrderFilter extends MikroOrmFilter<WorkOrder> {}
+@Filterable({ entity: User, codegen: { maxDepth: 2 } })
+export class UserFilter extends MikroOrmFilter<User> {}
 ```
 
 `codegen` on `@Filterable` is metadata only — read statically (via ts-morph) by this extension. The core runtime ignores it entirely, so it has no effect outside of a codegen run. See [Filter Classes](/docs/guides/filter-classes) for the rest of the options this decorator accepts.
