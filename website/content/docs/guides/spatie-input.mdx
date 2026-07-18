@@ -1,0 +1,179 @@
+---
+title: Spatie / JSON:API Input
+description: Opt into spatie-laravel-query-builder / JSON:API query strings — filter[field][op]=, sort=-a,b, include=, fields[type]=, page[after]= — parsed into the native model.
+icon: FileJson
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+By default nestjs-filter reads its own [native structured
+input](/docs/guides/controllers) (`filter[...]`, `where[]`, `include`, `search`,
+`sort`, `paginate`). If your clients already speak the
+[spatie/laravel-query-builder](https://spatie.be/docs/laravel-query-builder) /
+JSON:API query-string dialect, opt into it with a single module option — no
+change to your filter classes.
+
+```ts
+FilterModule.forRoot({ inputFormat: 'spatie' });
+```
+
+<Callout type="info">
+  `parseSpatieInput` is a **pure reshape** into the native model — it enforces no
+  safety of its own. Its output flows through the exact same runner pipeline as
+  native input, so the `@Filterable` allowlist, per-field operator allowlist, and
+  `throwOnInvalid` policy all still apply.
+</Callout>
+
+---
+
+## The grammar
+
+The parser consumes the object Express + [`qs`](https://github.com/ljharb/qs)
+produces after decoding the query string (bracket notation expanded into nested
+objects). The mapping:
+
+| Query string | Decoded input | Mapped to |
+| ------------ | ------------- | --------- |
+| `filter[name]=Al` | `{ filter: { name: 'Al' } }` | `{ filter: { name: 'Al' } }` — equals |
+| `filter[id]=1,2,3` | `{ filter: { id: '1,2,3' } }` | `{ filter: { id: ['1','2','3'] } }` — `in` |
+| `filter[name][contains]=Al` | `{ filter: { name: { contains: 'Al' } } }` | operator object → existing operator path |
+| `sort=-createdAt,name` | `{ sort: '-createdAt,name' }` | `{ sort: '-createdAt,name' }` |
+| `include=posts,comments` | `{ include: 'posts,comments' }` | `{ include: 'posts,comments' }` |
+| `fields[users]=id,name` | `{ fields: { users: 'id,name' } }` | `{ select: ['id','name'] }` — sparse fieldset |
+| `page[number]=2&page[size]=10` | `{ page: { number: '2', size: '10' } }` | `{ paginate: { page: 2, size: 10 } }` |
+| `page[after]=cur&page[size]=10` | `{ page: { after: 'cur', size: '10' } }` | `{ paginate: { after: 'cur', first: 10 } }` — cursor |
+
+### Filters
+
+- A **bare scalar** (`filter[name]=Al`) is interpreted by the adapter as
+  `equals`.
+- A **comma-separated scalar** (`filter[id]=1,2,3`) follows spatie's multi-value
+  convention and is split into an array — interpreted as `in`. Values are
+  trimmed and empties dropped.
+- An **operator object** (`filter[name][contains]=Al` →
+  `{ name: { contains: 'Al' } }`) passes straight through to the library's
+  existing [operator mechanism](/docs/guides/operators) — the operator keys are
+  validated downstream, not here.
+
+### Sort
+
+`sort=-createdAt,name` keeps the JSON:API string form: a leading `-` means
+descending, no prefix means ascending, comma-separates multiple columns.
+`sort[]=a&sort[]=-b` (array form) is joined back into the same comma string.
+
+### Include
+
+`include=posts,comments` (or the array form `include[]=posts&include[]=comments`)
+maps to the native `include`. Relation allowlist and max-depth rules apply as
+usual.
+
+### Sparse fieldsets
+
+JSON:API keys sparse fieldsets by resource type (`fields[users]=id,name`), but
+the runner applies a single `SELECT` to the primary entity. So all per-resource
+lists are **flattened** into one order-preserving, de-duplicated `select` list
+and validated against the entity / allowlist downstream (unknown columns
+dropped, or rejected under `throwOnInvalid`).
+
+### Pagination
+
+`page` maps to whichever pagination the keys imply:
+
+- `page[number]` / `page[size]` → **offset** pagination
+  (`{ paginate: { page, size } }`).
+- `page[after]` / `page[before]` (with optional `page[size]`) → **cursor /
+  keyset** pagination (`{ paginate: { after, first } }` or
+  `{ before, last }`) — see [Cursor pagination](/docs/guides/cursor-pagination).
+
+---
+
+## End-to-end example
+
+```ts title="app.module.ts"
+import { Module } from '@nestjs/common';
+import { FilterModule } from '@dudousxd/nestjs-filter';
+
+@Module({
+  imports: [
+    FilterModule.forRoot({ inputFormat: 'spatie' }),
+    // ... your adapter module
+  ],
+})
+export class AppModule {}
+```
+
+Your controller and filter class are unchanged — the parser runs before
+dispatch, so everything downstream sees native input:
+
+```ts title="users.controller.ts"
+import { Controller, Get } from '@nestjs/common';
+import { ApplyFilter } from '@dudousxd/nestjs-filter';
+import type { SelectQueryBuilder } from 'typeorm';
+import { User } from './user.entity.js';
+import { UserFilter } from './user.filter.js';
+
+@Controller('users')
+export class UsersController {
+  @Get()
+  list(@ApplyFilter(UserFilter) qb: SelectQueryBuilder<User>) {
+    return qb.getMany();
+  }
+}
+```
+
+A request exercising the full grammar:
+
+```
+GET /users
+  ?filter[name][contains]=al
+  &filter[role]=admin,editor
+  &include=posts
+  &fields[users]=id,name
+  &sort=-createdAt,name
+  &page[number]=2&page[size]=25
+```
+
+is reshaped to:
+
+```jsonc
+{
+  "filter": {
+    "name": { "contains": "al" }, // operator object → contains
+    "role": ["admin", "editor"]   // comma → in
+  },
+  "include": "posts",
+  "select": ["id", "name"],       // fields[users] flattened
+  "sort": "-createdAt,name",
+  "paginate": { "page": 2, "size": 25 }
+}
+```
+
+and then runs through the normal pipeline (allowlist, operator allowlist,
+validation, `@FilterFor` dispatch).
+
+---
+
+## Using the parser directly
+
+`parseSpatieInput` is exported if you need to reshape input yourself (custom
+transport, tests) without flipping the module-wide `inputFormat`:
+
+```ts
+import { parseSpatieInput } from '@dudousxd/nestjs-filter';
+import type { StructuredInput } from '@dudousxd/nestjs-filter';
+
+const native: StructuredInput = parseSpatieInput({
+  filter: { id: '1,2,3' },
+  sort: '-createdAt',
+  page: { after: 'eyJ...', size: '20' },
+});
+// { filter: { id: ['1','2','3'] }, sort: '-createdAt',
+//   paginate: { after: 'eyJ...', first: 20 } }
+```
+
+<Callout type="warn">
+  `inputFormat: 'spatie'` only affects **external** request input. Internal
+  re-dispatch (relation constraints, `findAndCount`/`findPage` forwards) already
+  passes native structured input and bypasses re-parsing, so mixing the two is
+  safe.
+</Callout>

@@ -1,12 +1,18 @@
 {
   "title": "Guides",
+  "icon": "BookText",
   "pages": [
     "filter-classes",
     "computed",
     "controllers",
     "repositories",
+    "cursor-pagination",
     "relations",
+    "full-text-search",
+    "multi-tenancy",
     "validation",
+    "spatie-input",
+    "async-configuration",
     "testing",
     "operators",
     "codegen",

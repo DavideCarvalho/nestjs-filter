@@ -115,43 +115,82 @@ This pattern aligns with Spring Boot's Specification approach -- filters are app
 
 ---
 
-## FilterRegistry
+## Injecting a concrete filter class
 
-`FilterRegistry` is a global registry that maps entity classes to their filter classes. It is populated by `FilterModule.forFeature()` and can be used for auto-lookup:
+A filter class registered with `FilterModule.forFeature([...])` is a normal NestJS provider, so you can inject it wherever you need it. In practice you rarely need to — `FilterRunner.apply()` resolves the class from the DI container for you (see the service example above), so you only pass the class **reference**. Passing the class token is all `apply()` needs:
 
 ```ts
 import { Injectable } from '@nestjs/common';
-import { FilterRegistry, FilterRunner } from '@dudousxd/nestjs-filter';
+import { FilterRunner } from '@dudousxd/nestjs-filter';
 import type { SqlEntityManager } from '@mikro-orm/sql';
-import type { Type } from '@nestjs/common';
+import { User } from './user.entity.js';
+import { UserFilter } from './user.filter.js';
 
 @Injectable()
-export class GenericFilterService {
+export class UsersService {
   constructor(
-    private readonly registry: FilterRegistry,
     private readonly runner: FilterRunner,
     private readonly em: SqlEntityManager,
   ) {}
 
-  async filterEntity<E extends object>(
-    entity: Type<E>,
-    input: Record<string, unknown>,
-  ) {
-    const FilterClass = this.registry.getFilter(entity);
-    if (!FilterClass) throw new Error(`No filter registered for ${entity.name}`);
-
-    const qb = this.em.createQueryBuilder(entity as unknown as new () => E);
-    await this.runner.apply(FilterClass as Type<object>, input, qb);
-    return qb;
+  async search(input: Record<string, unknown>) {
+    const qb = this.em.createQueryBuilder(User);
+    // `UserFilter` is resolved from the container internally — you never
+    // `new` it or look it up yourself.
+    await this.runner.apply(UserFilter, input, qb);
+    return qb.getResultList();
   }
 }
 ```
 
-### FilterRegistry API
+---
 
-| Method | Description |
-|--------|-------------|
-| `register(entity, filterClass)` | Maps an entity to a filter class |
-| `getFilter(entity)` | Returns the filter class for an entity, or `undefined` |
-| `has(entity)` | Returns `true` if the entity has a registered filter |
-| `entries()` | Returns an immutable `ReadonlyMap` of all registered mappings |
+## Generic, table-driven filtering (no filter class)
+
+When you want to filter **any** entity without writing a bespoke filter class — an
+admin console over many tables, for example — use `FilterRunner.applyDynamic()`.
+It reads the entity's ORM metadata (via the adapter) to auto-derive filterable
+columns, includes, search columns, sort, and pagination. There are no
+`@FilterFor` methods, no `setup()` hook, and no whitelist/blacklist — only what
+the entity's own schema exposes.
+
+```ts
+import { Injectable } from '@nestjs/common';
+import type { Type } from '@nestjs/common';
+import { FilterRunner } from '@dudousxd/nestjs-filter';
+import type { SqlEntityManager } from '@mikro-orm/sql';
+
+@Injectable()
+export class AdminQueryService {
+  constructor(
+    private readonly runner: FilterRunner,
+    private readonly em: SqlEntityManager,
+  ) {}
+
+  // Filter any entity purely from its ORM metadata — no filter class needed.
+  async query<E extends object>(entity: Type<E>, input: Record<string, unknown>) {
+    const qb = this.em.createQueryBuilder(entity);
+    await this.runner.applyDynamic(entity, input, qb);
+    return qb.getResultList();
+  }
+}
+```
+
+For a paginated result plus a total count in one call, use `findAndCount()`,
+which owns query **execution** and loads relations pagination-safely (to-one on
+the join, to-many in a follow-up query so `limit`/`offset` stay correct):
+
+```ts
+async page<E extends object>(entity: Type<E>, input: Record<string, unknown>) {
+  const { rows, total } = await this.runner.findAndCount(entity, input);
+  return { data: rows, total };
+}
+```
+
+> Both `applyDynamic()` and `findAndCount()` validate every field against the
+> entity's real columns — unknown `where` columns, sorts, and select fields are
+> dropped (or rejected when `throwOnInvalid` is set), so a malformed client
+> query can never reach the ORM as an invalid column.
+
+For **keyset/cursor** pagination over the same dynamic path, see
+[Cursor pagination](/docs/guides/cursor-pagination) (`FilterRunner.findPage()`).

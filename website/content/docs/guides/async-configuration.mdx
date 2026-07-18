@@ -1,0 +1,147 @@
+---
+title: Async Configuration
+description: Configure FilterModule with FilterModule.forRootAsync — useFactory, useClass, and useExisting to derive options from ConfigService or other providers.
+icon: Cog
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+`FilterModule.forRoot(options)` takes a static options object. When your options
+depend on something resolved at runtime — a `ConfigService`, an environment
+value, another provider — use `FilterModule.forRootAsync(...)` instead. It
+registers the same global filter infrastructure, but builds
+[`FilterModuleOptions`](/docs/getting-started) from a factory or a factory
+class.
+
+All three NestJS async provider styles are supported: `useFactory`, `useClass`,
+and `useExisting`.
+
+---
+
+## `useFactory`
+
+The most common form. Provide a factory that returns
+`FilterModuleOptions` (sync or async), and list its dependencies in `inject`:
+
+```ts
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { FilterModule } from '@dudousxd/nestjs-filter';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot(),
+    FilterModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        inputFormat: config.get('FILTER_INPUT_FORMAT') ?? 'native',
+        throwOnInvalid: config.get('NODE_ENV') !== 'production',
+        maxPageSize: Number(config.get('FILTER_MAX_PAGE_SIZE') ?? 100),
+        defaultSort: '-createdAt',
+      }),
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+---
+
+## `useClass`
+
+Move the option-building logic into a dedicated class that implements
+`FilterModuleOptionsFactory`. `forRootAsync` instantiates the class through DI
+and calls its `createFilterOptions()`:
+
+```ts
+import { Injectable, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  FilterModule,
+  type FilterModuleOptions,
+  type FilterModuleOptionsFactory,
+} from '@dudousxd/nestjs-filter';
+
+@Injectable()
+export class FilterConfig implements FilterModuleOptionsFactory {
+  constructor(private readonly config: ConfigService) {}
+
+  createFilterOptions(): FilterModuleOptions {
+    return {
+      inputFormat: this.config.get('FILTER_INPUT_FORMAT') ?? 'native',
+      maxPageSize: Number(this.config.get('FILTER_MAX_PAGE_SIZE') ?? 100),
+    };
+  }
+}
+
+@Module({
+  imports: [
+    FilterModule.forRootAsync({ useClass: FilterConfig }),
+  ],
+})
+export class AppModule {}
+```
+
+---
+
+## `useExisting`
+
+When the options-factory provider is already registered elsewhere (e.g. a shared
+config module exports it), reuse that instance instead of creating a new one:
+
+```ts
+FilterModule.forRootAsync({
+  imports: [SharedConfigModule], // exports FilterConfig
+  useExisting: FilterConfig,
+});
+```
+
+---
+
+## API
+
+`forRootAsync` accepts `FilterModuleAsyncOptions`:
+
+```ts
+interface FilterModuleAsyncOptions {
+  imports?: unknown[];
+  useFactory?: (...args: unknown[]) =>
+    | Promise<FilterModuleOptions>
+    | FilterModuleOptions;
+  useClass?: Type<FilterModuleOptionsFactory>;
+  useExisting?: Type<FilterModuleOptionsFactory>;
+  inject?: unknown[];
+}
+
+interface FilterModuleOptionsFactory {
+  createFilterOptions():
+    | Promise<FilterModuleOptions>
+    | FilterModuleOptions;
+}
+```
+
+| Field | Used with | Description |
+| ----- | --------- | ----------- |
+| `useFactory` | factory style | Function returning `FilterModuleOptions` (sync or async). |
+| `inject` | `useFactory` | Providers to inject as the factory's arguments. |
+| `useClass` | class style | A `FilterModuleOptionsFactory` class; instantiated via DI. |
+| `useExisting` | class style | An already-registered `FilterModuleOptionsFactory` to reuse. |
+| `imports` | any | Modules whose exported providers the factory/class needs. |
+
+<Callout type="info">
+  Like `forRoot`, `forRootAsync` registers `FilterModule` **globally** and wires
+  the `ApplyFilterInterceptor`. It resolves the exact same
+  `FilterModuleOptions` — every option
+  (`inputNormalizer`, `inputFormat`, `throwOnInvalid`, `defaultSort`,
+  `maxPageSize`, …) is available. The only difference is *when* and *how* the
+  options object is produced.
+</Callout>
+
+<Callout type="warn">
+  `forRootAsync` configures the **core** module. Your ORM adapter module
+  (`TypeOrmFilterModule` / `MikroOrmFilterModule`) and per-feature filter
+  registration (`FilterModule.forFeature([...])`) are still registered
+  separately, exactly as with `forRoot`.
+</Callout>

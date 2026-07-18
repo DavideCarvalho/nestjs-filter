@@ -1,0 +1,248 @@
+---
+title: Cursor Pagination
+description: Stable keyset (seek) pagination with FilterRunner.findPage() — opaque before/after cursors, multi-column sort with a primary-key tiebreaker.
+icon: ListOrdered
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+Offset pagination (`page`/`size`) drifts under concurrent writes: insert a row
+near the top of the list and every subsequent page shifts by one, so a client
+paging forward can see a row twice or skip one entirely. It also gets slower the
+deeper you page — the database still scans and discards every skipped row.
+
+**Keyset (cursor) pagination** fixes both. Instead of an offset, each page
+carries an opaque cursor describing the *boundary row*, and the next page is
+fetched with a `WHERE (sort columns, pk) > (boundary values)` seek. It is O(1)
+per page regardless of depth, and stable under inserts and deletes.
+
+`FilterRunner.findPage()` implements this over the same metadata-driven dynamic
+path as [`findAndCount`](/docs/guides/repositories) — no filter class required.
+
+---
+
+## Quick start
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { FilterRunner } from '@dudousxd/nestjs-filter';
+import { Post } from './post.entity.js';
+
+@Injectable()
+export class PostsService {
+  constructor(private readonly runner: FilterRunner) {}
+
+  async feed(input: Record<string, unknown>) {
+    // findPage creates its own query builder from the adapter, applies
+    // filters/search/includes, seeks past the cursor, and executes.
+    const page = await this.runner.findPage(Post, input);
+    return page;
+    // {
+    //   items: Post[],          // this page's rows, in the requested order
+    //   nextCursor: string|null // opaque cursor for the next forward page
+    //   prevCursor: string|null // opaque cursor for the previous page
+    //   hasNext: boolean,
+    //   hasPrev: boolean,
+    // }
+  }
+}
+```
+
+A controller wiring it to query-string input:
+
+```ts
+import { Controller, Get, Query } from '@nestjs/common';
+
+@Controller('posts')
+export class PostsController {
+  constructor(private readonly posts: PostsService) {}
+
+  // GET /posts?sort=-createdAt&paginate[first]=25
+  // GET /posts?sort=-createdAt&paginate[after]=<cursor>&paginate[first]=25
+  @Get()
+  list(@Query() query: Record<string, unknown>) {
+    return this.posts.feed(query);
+  }
+}
+```
+
+---
+
+## The pagination input
+
+`findPage` reads the `paginate` section of [structured input](/docs/guides/controllers):
+
+| Field | Meaning |
+| ----- | ------- |
+| `first` | Page size when paging **forward**. Defaults to `25`, capped at `maxPageSize` (default `100`). |
+| `after` | Opaque cursor — return the page **immediately after** it (forward). |
+| `last` | Page size when paging **backward**. |
+| `before` | Opaque cursor — return the page **immediately before** it (backward). |
+
+`after` and `before` are mutually exclusive; if both are present, `after` wins
+and paging is forward. The very first page omits both cursors:
+
+```jsonc
+// First page
+{ "sort": "-createdAt", "paginate": { "first": 25 } }
+
+// Next page — feed back the previous response's nextCursor
+{ "sort": "-createdAt", "paginate": { "after": "eyJ...", "first": 25 } }
+
+// Previous page — feed back a prevCursor
+{ "sort": "-createdAt", "paginate": { "before": "eyJ...", "last": 25 } }
+```
+
+<Callout type="warn">
+  Keep the **same `sort`** across every page of a walk. The cursor encodes the
+  values of the sort columns for the boundary row; changing the sort between
+  requests makes the boundary meaningless and the seek incorrect.
+</Callout>
+
+---
+
+## How the keyset is built
+
+The keyset is the request's effective `sort` (or the configured
+[`defaultSort`](/docs/guides/controllers) when the client sends none), with the
+entity's **primary key appended as a tiebreaker** — inheriting the direction of
+the last sort column so the overall ordering stays strictly monotonic.
+
+That tiebreaker is what makes the seek correct when the sort columns are not
+unique. Sorting only by `createdAt`, two rows sharing a timestamp are ambiguous;
+`(createdAt, id)` is always a total order, so no row is ever skipped or repeated
+at a page boundary.
+
+```ts
+// Client sends: sort = "-createdAt,title"
+// Entity primary key: "id"
+//
+// Effective keyset (pk appended, inheriting the last column's direction):
+//   [ { field: 'createdAt', direction: 'desc' },
+//     { field: 'title',     direction: 'asc'  },
+//     { field: 'id',        direction: 'asc'  } ]  // tiebreaker
+```
+
+Each column's direction is honored independently: an `asc` column seeks forward
+with `>`, a `desc` column with `<`. For **backward** paging (`before`), the
+runner reverses every column's direction internally to walk the other way, then
+re-reverses the fetched rows so `items` always comes back in the *requested*
+order.
+
+Multi-column sort composes naturally — a mixed `-createdAt,title` keyset
+produces a correct lexicographic seek across all three columns.
+
+---
+
+## Cursors are opaque
+
+A cursor is a `base64url`-encoded JSON snapshot of the boundary row's keyset
+values. Treat it as opaque: only `findPage` produces and consumes it. You never
+build one by hand — echo the `nextCursor`/`prevCursor` from the previous
+response back into the next request.
+
+`Date` values round-trip correctly (they are tagged on encode so they decode
+back to `Date` instances, not strings — plain JSON would break date
+comparisons). A malformed or wrong-length cursor is **ignored**, not fatal:
+`findPage` simply returns the first page rather than throwing.
+
+If you need the primitives directly (custom transport, testing), they are
+exported:
+
+```ts
+import {
+  encodeCursor,
+  decodeCursor,
+  buildKeyset,
+  extractCursorValues,
+} from '@dudousxd/nestjs-filter';
+import type { CursorValues } from '@dudousxd/nestjs-filter';
+
+const keyset = buildKeyset(
+  [{ field: 'createdAt', direction: 'desc' }],
+  'id', // primary key tiebreaker
+);
+const values = extractCursorValues(row, keyset); // ordered keyset values
+const cursor = encodeCursor(values);             // opaque string
+const decoded: CursorValues | null = decodeCursor(cursor); // null if malformed
+```
+
+---
+
+## Adapter requirements
+
+`findPage` needs an adapter that implements `getResult`, `getPrimaryKey`,
+`applyKeysetPagination`, and `applyKeysetOrderAndLimit`. The official TypeORM
+and MikroORM adapters implement all four. If any is missing, `findPage` throws a
+clear error at call time rather than silently degrading:
+
+```
+findPage requires an adapter implementing getResult, getPrimaryKey,
+applyKeysetPagination and applyKeysetOrderAndLimit.
+```
+
+<Callout type="info">
+  `findPage` is additive — it does not change `apply`, `applyDynamic`, or
+  `findAndCount`. Use offset pagination (`findAndCount`) when you need a total
+  count and random page access; use `findPage` for infinite-scroll / "load more"
+  feeds where stability and depth-independent speed matter.
+</Callout>
+
+---
+
+## Full example: an infinite-scroll endpoint
+
+<Tabs items={['Service', 'Controller']}>
+  <Tab value="Service">
+```ts
+import { Injectable } from '@nestjs/common';
+import { FilterRunner } from '@dudousxd/nestjs-filter';
+import type { CursorPage } from '@dudousxd/nestjs-filter';
+import { Post } from './post.entity.js';
+
+@Injectable()
+export class FeedService {
+  constructor(private readonly runner: FilterRunner) {}
+
+  async page(query: Record<string, unknown>): Promise<CursorPage<Post>> {
+    // Client-driven filter + search + include still apply on the seek path;
+    // findPage owns ordering and slicing.
+    return this.runner.findPage(Post, {
+      filter: query.filter,
+      search: query.search,
+      include: 'author',
+      sort: query.sort ?? '-createdAt',
+      paginate: query.paginate,
+    });
+  }
+}
+```
+  </Tab>
+  <Tab value="Controller">
+```ts
+import { Controller, Get, Query } from '@nestjs/common';
+import { FeedService } from './feed.service.js';
+
+@Controller('feed')
+export class FeedController {
+  constructor(private readonly feed: FeedService) {}
+
+  // GET /feed?search=nestjs&paginate[after]=<cursor>&paginate[first]=20
+  @Get()
+  async list(@Query() query: Record<string, unknown>) {
+    const page = await this.feed.page(query);
+    return {
+      data: page.items,
+      pageInfo: {
+        endCursor: page.nextCursor,
+        startCursor: page.prevCursor,
+        hasNextPage: page.hasNext,
+        hasPreviousPage: page.hasPrev,
+      },
+    };
+  }
+}
+```
+  </Tab>
+</Tabs>

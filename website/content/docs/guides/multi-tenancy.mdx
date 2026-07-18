@@ -1,0 +1,178 @@
+---
+title: Multi-Tenancy
+description: Automatic tenant scoping with @TenantScoped(field) — WHERE tenantId = current-tenant, wired through the @dudousxd/nestjs-context accessor.
+icon: Building2
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+In a multi-tenant application every query must be constrained to the current
+tenant — forgetting that `WHERE tenant_id = ?` on a single endpoint is a data
+leak across customers. nestjs-filter can apply that constraint **automatically**
+for a filter class, so it is never left to each handler to remember.
+
+The mechanism is the `@TenantScoped(field)` decorator plus an optional context
+accessor from [`@dudousxd/nestjs-context`](/docs). When both are present, the
+runner adds `WHERE <field> = tenantId()` to every query built through that
+filter.
+
+---
+
+## `@TenantScoped(field)`
+
+Decorate the filter class with the entity column that holds the tenant id:
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { Filterable, FilterFor, TenantScoped } from '@dudousxd/nestjs-filter';
+import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
+import { Post } from './post.entity.js';
+
+@Injectable()
+@TenantScoped('tenantId') // ← WHERE tenantId = <current tenant> on every query
+@Filterable({ entity: Post })
+export class PostFilter extends MikroOrmFilter<Post> {
+  @FilterFor('title')
+  applyTitle(value: string) {
+    this.whereLike('title', value);
+  }
+}
+```
+
+That is the entire opt-in. Nothing else in the filter changes — client input,
+`@FilterFor` methods, sort, and pagination all behave exactly as before, but
+every resulting query is now additionally scoped to the current tenant.
+
+<Callout type="info">
+  `@TenantScoped` is **strictly opt-in and additive**. A filter class without
+  the decorator keeps its existing behavior. Even *with* the decorator, the
+  scope is a no-op unless a context accessor is bound **and** resolves a tenant
+  id — so it degrades safely in tests and non-tenant contexts.
+</Callout>
+
+The constraint is applied through the adapter's auto-field mechanism (the same
+path an ordinary equality filter takes), so it stays portable across ORMs. If
+the active adapter does not implement `applyAutoField`, the runner logs a
+warning and skips the scope rather than failing.
+
+---
+
+## Wiring the context accessor
+
+`tenantId()` is resolved from the current-request context owned by
+`@dudousxd/nestjs-context`. nestjs-filter never imports that package — it is an
+**optional peer**. Instead both libraries share a well-known injection token
+(`CONTEXT_ACCESSOR = Symbol.for('@dudousxd/nestjs-context:accessor')`) via the
+global symbol registry, so DI resolves the same provider when nestjs-context is
+installed, and nothing breaks when it is not.
+
+<Steps>
+
+<Step>
+
+### Install and register nestjs-context
+
+Register `ContextModule` (globally) with the middleware/interceptor that
+populates the per-request store, including the tenant id. See the nestjs-context
+docs for the exact setup — typically the tenant is derived from a subdomain, a
+header, or the authenticated user.
+
+```ts
+import { Module } from '@nestjs/common';
+import { ContextModule } from '@dudousxd/nestjs-context';
+import { FilterModule } from '@dudousxd/nestjs-filter';
+
+@Module({
+  imports: [
+    ContextModule.forRoot({ global: true }),
+    FilterModule.forRoot(),
+    // ... your adapter module (TypeORM / MikroORM)
+  ],
+})
+export class AppModule {}
+```
+
+</Step>
+
+<Step>
+
+### Populate the tenant per request
+
+Whatever mechanism nestjs-context uses to open the request scope must set the
+tenant id, so `accessor.tenantId()` returns it during filter execution. For
+example, in a guard or middleware that runs before the controller:
+
+```ts
+// Inside your tenant-resolution guard/middleware, using nestjs-context's API:
+store.set('tenantId', resolveTenantFromRequest(req));
+```
+
+</Step>
+
+<Step>
+
+### Add `@TenantScoped` to tenant-owned filters
+
+Every filter over a tenant-owned entity gets `@TenantScoped('<column>')`. Done —
+the runner soft-detects the accessor and applies the scope automatically.
+
+</Step>
+
+</Steps>
+
+<Callout type="warn">
+  Without nestjs-context (or with no tenant set for the request), `tenantId()`
+  returns `undefined` and `@TenantScoped` applies **no** constraint. Do not rely
+  on it as your only tenant guard in a context where the accessor might be
+  absent — it is a convenience layer over a properly populated request context,
+  not a substitute for one.
+</Callout>
+
+---
+
+## Reading context inside a filter method
+
+The auto-scope covers the common `WHERE tenantId = ...` case. When you need the
+tenant or the current user inside a `@FilterFor` method — for a conditional
+constraint, an ownership check, or a computed default — `BaseFilter` exposes two
+protected helpers that read the same accessor:
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { Filterable, FilterFor } from '@dudousxd/nestjs-filter';
+import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
+import { Document } from './document.entity.js';
+
+@Injectable()
+@Filterable({ entity: Document })
+export class DocumentFilter extends MikroOrmFilter<Document> {
+  // Only show the current user's own drafts; published docs are visible to all.
+  @FilterFor('scope')
+  applyScope(value: 'mine' | 'all') {
+    const tenant = this.tenantId();
+    if (tenant) this.$query.andWhere({ tenantId: tenant });
+
+    if (value === 'mine') {
+      const user = this.currentUserRef(); // { type, id } | undefined
+      if (user) this.$query.andWhere({ ownerId: user.id });
+    }
+  }
+}
+```
+
+| Helper | Returns | Source |
+| ------ | ------- | ------ |
+| `this.tenantId()` | `string \| undefined` | `accessor.tenantId()` |
+| `this.currentUserRef()` | `{ type: string; id: string \| number } \| undefined` | `accessor.userRef()` |
+
+Both return `undefined` when no accessor is bound or the value is not populated,
+so the same filter class works unchanged in a unit test where you never wire a
+context at all.
+
+<Callout type="info">
+  Prefer `@TenantScoped('tenantId')` for the plain "scope everything to the
+  tenant" case — it is declarative and impossible to forget on one method. Reach
+  for `this.tenantId()` / `this.currentUserRef()` only when the constraint is
+  conditional on client input or the authenticated user.
+</Callout>

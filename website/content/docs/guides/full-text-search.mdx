@@ -1,0 +1,162 @@
+---
+title: Full-Text Search
+description: Global search — ILIKE across string columns, or a Postgres tsvector column via websearch_to_tsquery with optional ts_rank relevance ordering.
+icon: ScanSearch
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+Every filter supports a single free-text `search` term applied across multiple
+columns at once. There are two backends:
+
+1. **ILIKE search** (default) — an `OR` of `col ILIKE '%term%'` across string
+   columns. Portable, zero setup, fine for small tables and prefix-ish matches.
+2. **Vector search** (Postgres) — a real full-text query against a `tsvector`
+   column using `websearch_to_tsquery`, with optional `ts_rank` relevance
+   ordering. The right choice for large tables and natural-language queries.
+
+The term arrives as the `search` key of [structured input](/docs/guides/controllers)
+(`GET /posts?search=hello%20world`) and is trimmed before use; an empty or
+whitespace-only term is ignored.
+
+---
+
+## ILIKE search
+
+With no configuration, `search` auto-detects the entity's string columns (from
+ORM metadata) and ORs an `ILIKE '%term%'` across them:
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { Filterable } from '@dudousxd/nestjs-filter';
+import { MikroOrmFilter } from '@dudousxd/nestjs-filter-mikro-orm';
+import { Post } from './post.entity.js';
+
+@Injectable()
+@Filterable({ entity: Post })
+export class PostFilter extends MikroOrmFilter<Post> {}
+// GET /posts?search=nest → title ILIKE '%nest%' OR body ILIKE '%nest%' OR ...
+```
+
+To restrict which columns are searched (recommended — searching every string
+column is slow and rarely what you want), declare a static `search` array:
+
+```ts
+@Injectable()
+@Filterable({ entity: Post })
+export class PostFilter extends MikroOrmFilter<Post> {
+  // Only these columns participate in the ILIKE search.
+  static search = ['title', 'body'];
+}
+```
+
+<Callout type="warn">
+  Auto-detected search across **more than 10 string columns** logs a slow-query
+  warning. Declare an explicit `static search = [...]` to silence it and keep
+  the query fast.
+</Callout>
+
+ILIKE search matches substrings literally (`%term%`) and does no stemming or
+ranking. For `"machine learning"` it looks for that exact substring — it will
+not match `"machines learn"`. When you need linguistic matching, use vector
+search.
+
+---
+
+## Vector search (Postgres tsvector)
+
+Point `search` at a `tsvector` column instead of a column list, and the adapter
+runs a proper full-text query:
+
+```ts
+@Injectable()
+@Filterable({ entity: Post })
+export class PostFilter extends MikroOrmFilter<Post> {
+  // Full-text search against a maintained tsvector column.
+  static search = { vector: 'search_vector', rank: true };
+}
+```
+
+| Field | Type | Meaning |
+| ----- | ---- | ------- |
+| `vector` | `string` | Name of the `tsvector` column to query. |
+| `rank` | `boolean` | When `true`, order matched rows by relevance (`ORDER BY ts_rank(...) DESC`). Off by default because it overrides the query's default ordering. |
+
+The adapter parses the term with **`websearch_to_tsquery`**, not the raw
+`to_tsquery`. This matters: `to_tsquery` throws a syntax error on ordinary
+multi-word input like `foo bar`, whereas `websearch_to_tsquery` accepts
+web-search-style input safely — quoted phrases, `or`, and `-negation` all work,
+and arbitrary user text never crashes the query.
+
+```
+GET /posts?search=postgres%20-mysql
+  → WHERE search_vector @@ websearch_to_tsquery('postgres -mysql')
+  → (with rank: true) ORDER BY ts_rank(search_vector, ...) DESC
+```
+
+<Callout type="info">
+  `rank: true` adds a relevance `ORDER BY`. If the client also sends an explicit
+  `sort`, that ordering is applied too — decide per endpoint whether you want
+  relevance ranking or client-controlled sort to dominate, since combining both
+  rarely does what a user expects.
+</Callout>
+
+### Maintaining the tsvector column
+
+Vector search assumes a `tsvector` column that is kept in sync with the source
+text. The usual approaches, in your migration:
+
+<Tabs items={['Generated column (Postgres 12+)', 'Trigger']}>
+  <Tab value="Generated column (Postgres 12+)">
+```sql
+ALTER TABLE post ADD COLUMN search_vector tsvector
+  GENERATED ALWAYS AS (
+    to_tsvector('english', coalesce(title, '') || ' ' || coalesce(body, ''))
+  ) STORED;
+
+CREATE INDEX post_search_idx ON post USING GIN (search_vector);
+```
+  </Tab>
+  <Tab value="Trigger">
+```sql
+ALTER TABLE post ADD COLUMN search_vector tsvector;
+
+CREATE INDEX post_search_idx ON post USING GIN (search_vector);
+
+CREATE TRIGGER post_search_update
+  BEFORE INSERT OR UPDATE ON post
+  FOR EACH ROW EXECUTE FUNCTION
+    tsvector_update_trigger(search_vector, 'pg_catalog.english', title, body);
+```
+  </Tab>
+</Tabs>
+
+The `GIN` index is what makes `@@` matches fast — without it, full-text search
+falls back to a sequential scan.
+
+---
+
+## Choosing between them
+
+| | ILIKE | Vector (tsvector) |
+| --- | --- | --- |
+| Setup | none | tsvector column + GIN index |
+| Matching | literal substring | stemmed, language-aware full-text |
+| Multi-word | literal `%foo bar%` | `websearch_to_tsquery` (phrases, `or`, `-neg`) |
+| Relevance ranking | no | `rank: true` → `ts_rank` |
+| Portability | any SQL backend | Postgres only |
+| Best for | small tables, simple contains | large tables, natural-language queries |
+
+<Callout type="info">
+  Vector search requires an adapter that implements `applyVectorSearch`. The
+  official TypeORM and MikroORM adapters do, for Postgres. If the adapter lacks
+  it, the vector `search` config is a no-op (no error) — the query runs without
+  the search constraint.
+</Callout>
+
+The dynamic, table-driven APIs
+([`applyDynamic`/`findAndCount`/`findPage`](/docs/guides/repositories)) also
+honor `search`, but with no filter class to declare a `static search` on they
+always auto-detect string columns (ILIKE). Use a filter class when you want
+vector search or an explicit column list.
