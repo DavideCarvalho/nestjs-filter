@@ -438,10 +438,25 @@ export class FilterRunner {
         const normalizedAllowed = normalizeAllowed(filterableMeta?.allowed);
         const throwOnInvalidPolicy = this.resolveThrowOnInvalid(FilterClass);
 
+        // Drop `where` clauses on blacklisted fields — both the static
+        // `@Filterable.blocked` config and any runtime `blacklistMethod` keys
+        // (`$blacklisted`, populated during the setup() run above). A
+        // blacklisted field cannot be filtered structurally, so it must not be
+        // filterable via `where` either. Runs before operator-allowlist and
+        // validation. See {@link pruneBlacklistedColumnFilters}.
+        const blacklistedFields = new Set<string>([
+          ...(filterableMeta?.blocked ?? []),
+          ...$blacklisted,
+        ]);
+        const scopedColumnFilters =
+          blacklistedFields.size > 0
+            ? this.pruneBlacklistedColumnFilters(columnFilters, blacklistedFields)
+            : columnFilters;
+
         // Apply column filters via adapter before @FilterFor dispatch
-        if (columnFilters.length > 0 && adapter?.applyColumnFilters) {
+        if (scopedColumnFilters.length > 0 && adapter?.applyColumnFilters) {
           const opAllowed = this.enforceOperatorAllowlist(
-            columnFilters,
+            scopedColumnFilters,
             normalizedAllowed,
             throwOnInvalidPolicy,
           );
@@ -449,7 +464,7 @@ export class FilterRunner {
             validateColumnFilters(opAllowed);
             adapter.applyColumnFilters(qb, opAllowed, filterableMeta?.entity);
           }
-        } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
+        } else if (scopedColumnFilters.length > 0 && !adapter?.applyColumnFilters) {
           this.warnUnsupported('Column filters (where) provided', 'applyColumnFilters');
         }
 
@@ -1551,6 +1566,60 @@ export class FilterRunner {
           ...(clause.OR && { OR: prune(clause.OR) }),
         }));
 
+    return prune(filters);
+  }
+
+  /**
+   * Drops `where` column-filter clauses whose resolved field is blacklisted —
+   * either statically (`@Filterable.blocked`) or at runtime (`blacklistMethod`,
+   * via the `$blacklisted` set). A blacklisted field is one a client may not
+   * filter on; letting it through `where` would leak the field's values via
+   * result counts even when the column is absent from the response — the exact
+   * information-disclosure the blacklist exists to prevent.
+   *
+   * Matching clauses are DROPPED (not rejected with a 400), mirroring the
+   * unknown-column handling in {@link pruneUnknownColumnFilters}, so a client
+   * whose stray filter was previously (wrongly) honored keeps working — but a
+   * distinct warning naming the field is emitted so the silent behavior change
+   * is observable. Recurses AND/OR; a group emptied by pruning collapses.
+   *
+   * Fields are compared AFTER alias remap ({@link remapColumnFilterAliases}),
+   * matching structured dispatch's own `$blacklisted.has(key)` gate — which
+   * runs on post-remap keys — so blacklisting a key blocks both the field and
+   * any alias pointing at it, consistently across both pipelines.
+   */
+  private pruneBlacklistedColumnFilters(
+    filters: ColumnFilter[],
+    blacklisted: ReadonlySet<string>,
+  ): ColumnFilter[] {
+    const warned = new Set<string>();
+    const prune = (clauses: ColumnFilter[]): ColumnFilter[] =>
+      clauses
+        .filter((clause) => {
+          if (clause.field && blacklisted.has(clause.field)) {
+            if (!warned.has(clause.field)) {
+              warned.add(clause.field);
+              this.logger.warn(
+                `Column filter (where) on blacklisted field "${clause.field}" ignored.`,
+              );
+            }
+            return false;
+          }
+          return true;
+        })
+        .map((clause) => ({
+          ...clause,
+          ...(clause.AND && { AND: prune(clause.AND) }),
+          ...(clause.OR && { OR: prune(clause.OR) }),
+        }))
+        // Collapse group nodes (no field of their own — `!field`, matching the
+        // group convention used across the where pipeline) emptied by pruning.
+        .filter(
+          (clause) =>
+            Boolean(clause.field) ||
+            Boolean(clause.AND && clause.AND.length > 0) ||
+            Boolean(clause.OR && clause.OR.length > 0),
+        );
     return prune(filters);
   }
 

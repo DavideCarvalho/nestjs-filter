@@ -65,6 +65,12 @@ export abstract class BaseFilter<TQuery = unknown> {
   /**
    * Dynamically whitelist a filter key at runtime (typically called in setup()).
    * Whitelisted keys bypass static allowed/blocked checks in the dispatcher.
+   *
+   * Whitelisting is additive (it grants structured @FilterFor dispatch access)
+   * and keyed by dispatch key, not by entity column, so it does NOT constrain
+   * `where` column filters: it neither restricts which columns a client may
+   * filter on nor re-enables a column that is otherwise blacklisted there. To
+   * bar a field from `where`, blacklist it ({@link blacklistMethod}).
    */
   protected whitelistMethod(key: string): void {
     const s = filterAls.getStore();
@@ -74,7 +80,13 @@ export abstract class BaseFilter<TQuery = unknown> {
 
   /**
    * Dynamically blacklist a filter key at runtime (typically called in setup()).
-   * Blacklisted keys are skipped during dispatch regardless of static configuration.
+   * Blacklisted keys are skipped during dispatch regardless of static
+   * configuration, AND their matching `where` column filters are dropped (a
+   * blacklisted field cannot be filtered on at all — structurally or via
+   * `where`). A dropped `where` clause is ignored with a warning naming the
+   * field, not rejected, so existing clients keep working; the field's key is
+   * compared after alias resolution, so an alias pointing at a blacklisted
+   * field is blocked too. Same effect as the static `@Filterable.blocked` list.
    */
   protected blacklistMethod(key: string): void {
     const s = filterAls.getStore();

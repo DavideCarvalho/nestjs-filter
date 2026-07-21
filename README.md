@@ -327,6 +327,7 @@ Response shape:
 | `undefined` value for a key | Key is skipped (not dispatched). |
 | `__proto__` / `constructor` / `prototype` keys | Silently dropped (prototype pollution guard). |
 | `allowed` + `blocked` both set | `allowed` whitelist is checked first, then `blocked` blacklist. |
+| `blocked` key (or runtime `blacklistMethod`) used in `where` | Matching `where` column-filter clauses are dropped (ignored with a warning, at any depth), not just skipped in structured dispatch — a blacklisted field cannot be filtered on at all. |
 | `setup()` throws | Wrapped in `FilterMethodException` with `key === 'setup'`. |
 | Filter method throws | Wrapped in `FilterMethodException` with the input key and value. |
 | No adapter registered | `@ApplyFilter` interceptor throws a descriptive error. |
