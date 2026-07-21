@@ -72,6 +72,14 @@ A disallowed operator is dropped (or raises `BadRequestException` under `throwOn
 Source: `packages/core/src/types.ts` (`AllowedFieldEntry`), `packages/core/src/runner.ts`
 (`enforceOperatorAllowlist`, `enforceAutoFieldOperators`)
 
+`blocked` (the static blacklist) and the runtime `blacklistMethod(key)` bar a key from
+filtering **entirely** — a blacklisted field is skipped in structured dispatch *and* its
+matching `where` column filters are dropped (ignored with a warning, at any depth in
+AND/OR groups), so it cannot be probed via `where` to leak values through result counts.
+The comparison runs after alias remap, so an alias pointing at a blacklisted field is
+blocked too. `whitelistMethod`/`allowed` are additive dispatch grants and do **not**
+constrain `where`. Source: `packages/core/src/runner.ts` (`pruneBlacklistedColumnFilters`).
+
 ### 2. `throwOnInvalid` and `onUnknownKey`: fail loud, not silent
 
 By default invalid sorts/distinct/unknown `where` columns are silently dropped and unknown

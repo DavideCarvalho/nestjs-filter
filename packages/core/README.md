@@ -59,7 +59,7 @@ class UsersController {
 
 ### Decorators
 
-- **`@Filterable({ entity, allowed?, blocked? })`** -- Class decorator. Associates a filter with an entity. `allowed` whitelists keys; `blocked` blacklists them.
+- **`@Filterable({ entity, allowed?, blocked? })`** -- Class decorator. Associates a filter with an entity. `allowed` whitelists keys; `blocked` blacklists them. A blacklisted key is barred from filtering entirely: it is skipped in structured dispatch **and** dropped from `where` column filters (matching clauses are ignored with a warning, at any depth, rather than rejected). The runtime `blacklistMethod(key)` behaves the same; `whitelistMethod`/`allowed` grant dispatch access and do **not** constrain `where`.
 - **`@FilterFor(inputKey?)`** -- Method decorator. Maps an input key to the method. Defaults to the method name if omitted.
 - **`@ApplyFilter(FilterClass, options?)`** -- Parameter decorator. Resolves input from the request, runs the filter, and injects the QueryBuilder. Options: `source` (`'auto'|'query'|'body'|Function`), `dto`, `resolve` (dynamic filter selection).
 
