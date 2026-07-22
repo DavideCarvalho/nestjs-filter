@@ -1,12 +1,127 @@
 ---
 title: Computed fields
-description: Virtual/derived columns backed by a SQL expression — correlated subqueries, the three source forms, @Computed, and codegen typing.
+description: Virtual/derived columns backed by a SQL expression — @Computed methods, correlated subqueries, SELECT projection with project true, and codegen typing.
 icon: Calculator
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-`computed` declares **virtual columns that don't exist in a table** — a value derived at query time from a SQL expression you provide at declaration time (e.g. concatenating two columns into a `fullName`). The client only ever references the alias — never the expression itself — so a computed field is filterable and sortable like a real column without exposing raw SQL to callers:
+Computed fields are **virtual columns that don't exist in a table** — a value derived at query time from a SQL expression you provide at declaration time (e.g. concatenating two columns into a `fullName`). The client only ever references the alias — never the expression itself — so a computed field is filterable and sortable like a real column without exposing raw SQL to callers.
+
+The canonical way to declare one is the `@Computed` method decorator — the alias defaults to the method name, and the method body returns the source:
+
+```ts
+import { Computed, Filterable } from '@dudousxd/nestjs-filter';
+
+@Filterable({ entity: User })
+export class UserFilter extends MikroOrmFilter<User> {
+  @Computed({ type: 'string' })
+  fullName() {
+    return "first_name || ' ' || last_name";
+  }
+}
+```
+
+```
+GET /users?fullName[contains]=Jane
+GET /users?sort=-fullName
+```
+
+<Callout type="warn">
+  The expression is developer-supplied and never derived from client input. Only declare computed expressions built from trusted, static strings.
+</Callout>
+
+<Callout type="info">
+  Looking to sort/filter by the **count (or sum/avg/min/max) of a to-many relation** — e.g. how many posts a user has? That's not a computed field — the runtime auto-discovers `<relation>.$count` / `<relation>.$sum.<column>` / … for every `@OneToMany`/`@ManyToMany` relation with no declaration needed. See [Aggregating a to-many relation](/docs/guides/relations#aggregating-a-to-many-relation).
+</Callout>
+
+A computed field is still the right tool for a **correlated subquery** the native aggregate feature doesn't cover — e.g. a count scoped by an extra condition, or an aggregate over something that isn't a mapped ORM relation. A `@Computed` method always receives `ctx.alias`, the query's real build-time alias, so the subquery can reference the outer row:
+
+```ts
+import { Computed, type ComputedContext } from '@dudousxd/nestjs-filter';
+
+export class AuthorFilter extends MikroOrmFilter<Author> {
+  @Computed({ type: 'number' })
+  highRatedBooksCount({ alias }: ComputedContext) {
+    return `SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id AND books.rating >= 4`;
+  }
+}
+```
+
+```
+GET /authors?sort=-highRatedBooksCount
+GET /authors?highRatedBooksCount[gt]=0
+```
+
+## The `@Computed` method decorator
+
+Call forms:
+
+- `@Computed()` — alias = method name, no options.
+- `@Computed({ type: 'number' })` — alias = method name, opts-first.
+- `@Computed('alias')` — explicit alias.
+- `@Computed('alias', { type: 'number' })` — explicit alias + options.
+
+Options: `type` (a codegen-only value-type hint, see [Codegen typing](#codegen-typing)) and `project` (opt-in SELECT projection, see [Projection](#projection-project-true)).
+
+```ts
+export class AuthorFilter extends MikroOrmFilter<Author> {
+  @Computed({ type: 'number' })
+  booksCount({ alias }: ComputedContext) {
+    return `SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id`;
+  }
+
+  @Computed('highRatedBooksCount', { type: 'number' })
+  highRatedCount({ alias }: ComputedContext) {
+    return `SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id AND books.rating >= 4`;
+  }
+}
+```
+
+A `@Computed` method is always wrapped as a **function** source (forms 2 and 3 below), so it always receives the full `ComputedContext` — `{ alias, em }`. If both the inline `computed` map (below) and a `@Computed` method declare the same alias, **the decorator wins** — it's the more specific, closer-to-usage declaration.
+
+## Source forms
+
+A computed source can take three forms, implemented identically in both the MikroORM and TypeORM adapters:
+
+1. **A SQL string**, emitted **verbatim** into the query — no token substitution. Use this for expressions that don't need to reference the query's own alias (e.g. `"first_name || ' ' || last_name"`). This is what a `@Computed` method returning a plain string with no `ctx` usage effectively gives you — the string just gets built at query time.
+2. **A function** `(ctx) => string`, where `ctx = { alias, em }` (the real build-time alias and the ORM's `EntityManager`/`DataSource`) — for expressions that need the query's alias or other runtime context, most commonly a correlated subquery. Every `@Computed` method is this form.
+3. **A function that returns an ORM query builder** — a correlated subquery built with the ORM's own query-builder API instead of hand-written SQL:
+
+   ```ts
+   export class AuthorFilter extends MikroOrmFilter<Author> {
+     @Computed({ type: 'number' })
+     booksCount({ em, alias }: ComputedContext) {
+       return em.createQueryBuilder(Book)
+         .where({ author: raw(`${alias}.id`) })
+         .count();
+     }
+   }
+   ```
+
+   <Callout type="info">
+     Adapter-specific mechanics for the QB form: MikroORM uses `raw((alias) => …)`, resolving the correlated alias via an internal sentinel that's substituted once the outer query compiles — you just use the callback's `alias` and it works. TypeORM resolves its alias eagerly, so the subquery is built directly against the outer alias, but it must be **param-free** — inline the correlating alias as a raw string (`.where("b.authorId = " + alias + ".id")`) rather than binding it via `:param`, since TypeORM's `getQuery()` does not carry a subquery's bound parameters to the outer query. See the [MikroORM](https://github.com/DavideCarvalho/nestjs-filter/blob/main/packages/mikro-orm/README.md) and [TypeORM](https://github.com/DavideCarvalho/nestjs-filter/blob/main/packages/typeorm/README.md) adapter READMEs for full detail.
+   </Callout>
+
+### Parentheses are normalized for you
+
+A subquery source may be written as a bare `SELECT …` — no wrapping parentheses required. The adapters detect a string source (or a function's string return) that starts with `SELECT` and wrap it in `(…)` before embedding it as a scalar expression, so both of these are equivalent:
+
+```ts
+@Computed({ type: 'number' })
+booksCount({ alias }: ComputedContext) {
+  return `SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id`;
+}
+
+// identical behavior, explicit parens:
+// return `(SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id)`;
+```
+
+Already-parenthesized sources and non-`SELECT` expressions (`first_name || ' ' || last_name`) pass through untouched.
+
+## Inline `computed` map (alternative)
+
+The same declarations can live inline on `@Filterable({ computed })` — a map of alias → source. Handy for one-liners that don't warrant a method:
 
 ```ts
 @Filterable({
@@ -18,113 +133,100 @@ import { Callout } from 'fumadocs-ui/components/callout';
 export class UserFilter extends MikroOrmFilter<User> {}
 ```
 
-```
-GET /users?fullName[contains]=Jane
-```
-
-<Callout type="warn">
-  The expression is developer-supplied and never derived from client input. Only declare `computed` expressions built from trusted, static strings.
-</Callout>
-
-<Callout type="info">
-  Looking to sort/filter by the **count (or sum/avg/min/max) of a to-many relation** — e.g. how many posts a user has? That's not a computed field — the runtime auto-discovers `<relation>.$count` / `<relation>.$sum.<column>` / … for every `@OneToMany`/`@ManyToMany` relation with no declaration needed. See [Aggregating a to-many relation](/docs/guides/relations#aggregating-a-to-many-relation).
-</Callout>
-
-A computed field is still the right tool for a **correlated subquery** the native aggregate feature doesn't cover — e.g. a count scoped by an extra condition, or an aggregate over something that isn't a mapped ORM relation. Use the **function** source form so the expression gets the query's real, build-time alias:
-
-```ts
-@Filterable({
-  entity: Author,
-  computed: {
-    highRatedBooksCount: ({ alias }) =>
-      `(SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id AND books.rating >= 4)`,
-  },
-})
-export class AuthorFilter extends MikroOrmFilter<Author> {}
-```
-
-```
-GET /authors?sort=-highRatedBooksCount
-GET /authors?highRatedBooksCount[gt]=0
-```
-
-## Three source forms
-
-A computed entry's source can take three forms, implemented identically in both the MikroORM and TypeORM adapters:
-
-1. **A SQL string**, emitted **verbatim** into the query — no token substitution. Use this for expressions that don't need to reference the query's own alias (e.g. `"first_name || ' ' || last_name"`).
-2. **A function** `(ctx) => string`, where `ctx = { alias, em }` (the real build-time alias and the ORM's `EntityManager`/`DataSource`) — for expressions that need the query's alias or other runtime context, most commonly a correlated subquery:
-
-   ```ts
-   @Filterable({
-     entity: Author,
-     computed: {
-       booksCount: ({ alias }) => `(SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id)`,
-     },
-   })
-   export class AuthorFilter extends MikroOrmFilter<Author> {}
-   ```
-
-3. **A function that returns an ORM query builder** — a correlated subquery built with the ORM's own query-builder API instead of hand-written SQL:
-
-   ```ts
-   @Filterable({
-     entity: Author,
-     computed: {
-       booksCount: ({ em, alias }) =>
-         em.createQueryBuilder(Book)
-           .where({ author: raw(`${alias}.id`) })
-           .count(),
-     },
-   })
-   export class AuthorFilterQb extends MikroOrmFilter<Author> {}
-   ```
-
-   <Callout type="info">
-     Adapter-specific mechanics for the QB form: MikroORM uses `raw((alias) => …)`, resolving the correlated alias via an internal sentinel that's substituted once the outer query compiles — you just use the callback's `alias` and it works. TypeORM resolves its alias eagerly, so the subquery is built directly against the outer alias, but it must be **param-free** — inline the correlating alias as a raw string (`.where("b.authorId = " + alias + ".id")`) rather than binding it via `:param`, since TypeORM's `getQuery()` does not carry a subquery's bound parameters to the outer query. See the [MikroORM](https://github.com/DavideCarvalho/nestjs-filter/blob/main/packages/mikro-orm/README.md) and [TypeORM](https://github.com/DavideCarvalho/nestjs-filter/blob/main/packages/typeorm/README.md) adapter READMEs for full detail.
-   </Callout>
-
-An inline map entry can also be `{ source, type }` instead of a bare source — `type` is a codegen-only hint (see below), the source itself works the same in either form:
+The function forms work here too (`fullName: ({ alias }) => …`). An entry can also be an object instead of a bare source — `{ source, type?, project? }` — to carry the same options `@Computed` takes. `type` is optional in the object form; `{ source, project: true }` alone is valid:
 
 ```ts
 @Filterable({
   entity: User,
   computed: {
-    fullName: { source: "first_name || ' ' || last_name", type: 'string' },
+    fullName: { source: "first_name || ' ' || last_name", type: 'string', project: true },
+    lastOrderAt: { source: ({ alias }) => `SELECT MAX(o.created_at) FROM orders o WHERE o.user_id = ${alias}.id`, project: true },
   },
 })
 ```
 
-## The `@Computed` method decorator
+## Projection (`project: true`)
 
-Besides the inline `computed` map, a method can be declared computed with `@Computed` — the alias defaults to the method name, and the method body is the source. A `@Computed` method is always wrapped as a **function** source (form 2 or 3 above), so it always receives `ctx.alias`, the query's real build-time alias:
+By default a computed field is **filter/sort-only** — the expression is emitted into `WHERE`/`ORDER BY` but never into the `SELECT` list, so returned rows don't carry the value. `project: true` opts a computed field into SELECT projection: the expression is selected under its alias and executed rows carry the computed value.
 
 ```ts
 export class AuthorFilter extends MikroOrmFilter<Author> {
-  @Computed({ type: 'number' })
+  @Computed({ type: 'number', project: true })
   booksCount({ alias }: ComputedContext) {
-    return `(SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id)`;
-  }
-
-  @Computed('highRatedBooksCount', { type: 'number' })
-  highRatedCount({ alias }: ComputedContext) {
-    return `(SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id AND books.rating >= 4)`;
+    return `SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id`;
   }
 }
 ```
 
-```
-GET /authors?sort=-highRatedBooksCount
-GET /authors?highRatedBooksCount[gt]=0
+<Callout type="warn">
+  Unlike `type` — a codegen-only hint — `project` **changes the emitted query**. It's the one computed option that isn't runtime-invisible.
+</Callout>
+
+### Executing through the adapter
+
+`FilterRunner.apply()` (what `@ApplyFilter` runs) builds the query but never executes it — and a projected computed value isn't a real entity column, so the ORM's own `qb.getResultAndCount()` would hydrate entities and drop it. The execution seam is the adapter's `getResultAndCount(qb)`: when the runner projected computed aliases onto a builder, the adapter remembers them for that exact builder instance and surfaces the values on the returned rows under their aliases. Inject the adapter via the `FILTER_ADAPTER` token and execute through it:
+
+```ts
+import { Controller, Get, Inject } from '@nestjs/common';
+import { ApplyFilter, FILTER_ADAPTER, type FilterAdapter } from '@dudousxd/nestjs-filter';
+import { AuthorFilter } from './author.filter.js';
+
+@Controller('authors')
+export class AuthorsController {
+  constructor(@Inject(FILTER_ADAPTER) private readonly adapter: FilterAdapter) {}
+
+  @Get()
+  async list(@ApplyFilter(AuthorFilter) qb: QueryBuilder<Author>) {
+    // Execute via the adapter — not qb.getResultAndCount() — so rows carry
+    // the projected computed aliases (e.g. row.booksCount).
+    const { rows, total } = await this.adapter.getResultAndCount!(qb);
+    return { rows, total };
+  }
+}
 ```
 
-Call forms: `@Computed()`, `@Computed({ type: 'number' })`, `@Computed('alias')`, `@Computed('alias', { type: 'number' })` — omitting an explicit alias defaults to the method name. If both the inline `computed` map and a `@Computed` method declare the same alias, **the decorator wins** — it's the more specific, closer-to-usage declaration.
+`project: true` is dispatched by the static pipeline (`FilterRunner.apply()`, i.e. `@ApplyFilter` with a filter class) — dynamic mode (`applyDynamic`/`findAndCount`, which take an entity instead of a filter class) has no `project` dispatch.
+
+If the active adapter doesn't implement `applyComputedSelect`, the runner logs a warning and skips the projection — rows simply lack the alias; nothing throws.
+
+### Interaction with `distinct`
+
+A `distinct` projection **replaces** entity-row output, so `project: true` is suppressed whenever a distinct projection was applied — a computed value participates in a distinct projection only by being **explicitly listed** in the `distinct` field list. Computed aliases in `distinct` are supported (with or without `project: true`):
+
+```
+GET /authors?distinct=booksCount
+GET /authors?distinct=country,booksCount
+```
+
+Plain columns in the list are applied first as one batched `SELECT DISTINCT`; each computed alias is then added to that distinct projection in request order. The distinct rows come back as plain objects, so the computed value appears under its alias naturally, and the distinct-tuple total counts the full projection including the computed expression.
+
+### `groupByCount` on a computed alias
+
+[`FilterRunner.groupByCount`](/docs/guides/group-by-count) also accepts a computed alias as its grouping field — the adapter groups by the evaluated expression instead of a column, still returning `{ value, count }` rows:
+
+```ts
+// static: registry from the filter class (inline computed map + @Computed methods)
+await runner.groupByCount(Author, input, { filterClass: AuthorFilter });
+
+// dynamic: registry from @Filterable metadata declared on the entity itself
+await runner.groupByCount(Author, input);
+```
+
+Computed grouping aliases are dev-declared, so they bypass column validation exactly like computed sort/distinct; the numeric `bucket` variant applies to the expression the same way it applies to a column.
+
+### The `where[]` path still doesn't dispatch computed
+
+<Callout type="warn">
+  The typed client builder's `.where()` (and any raw `where[]` column-filter input) routes through the adapter's `applyColumnFilters` — that path resolves **real columns only** and does not dispatch computed aliases, even though codegen's `filterQuery()` accepts the alias at compile time. To filter on a computed field over HTTP, use the structured form — a top-level `?booksCount[gt]=0` / `filter[booksCount][gt]=0` key (the client builder's `.set()` envelope) — which dispatches through `applyComputedField`. Sorting (`sort=-booksCount`) and `distinct`/`groupByCount` dispatch computed aliases correctly.
+</Callout>
 
 ## Codegen typing
 
-Both attachment styles surface the field as a NAME in the generated, typed `filterQuery()` — `sort()` and `where()` accept the alias either way, whether it came from the inline map or `@Computed`. To additionally type the `where()` *value*, declare a `type` hint:
+Both declaration styles surface the field as a NAME in the generated, typed `filterQuery()` — `sort()` and `where()` accept the alias whether it came from `@Computed` or the inline map. To additionally type the `where()` *value*, declare a `type` hint:
 
+- `@Computed`: `@Computed({ type: 'number' })` or `@Computed('alias', { type: 'number' })`.
 - Inline map: `{ source, type }` instead of a bare source.
-- `@Computed`: pass `{ type }` — `@Computed({ type: 'number' })` or `@Computed('alias', { type: 'number' })`.
 
-A bare inline entry (`computed: { booksCount: '...' }` with no `type`) types only the field name in `filterQuery()` — `where('booksCount', ...)` is accepted, but the value isn't narrowed to a specific type.
+A declaration with no `type` (a bare inline entry, or `@Computed()` / `@Computed({ project: true })` without one) types only the field name in `filterQuery()` — `where('booksCount', ...)` is accepted, but the value isn't narrowed to a specific type.
+
+`project: true` is also read statically by `@dudousxd/nestjs-filter-codegen`: projected aliases are exposed on the route contract as `projectedFields`, so downstream contract consumers (e.g. response typing in `@dudousxd/nestjs-codegen`) can know which extra keys appear on returned rows.

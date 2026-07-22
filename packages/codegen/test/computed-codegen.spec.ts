@@ -56,6 +56,11 @@ function filterFieldTypesOf(route: unknown): Array<{ name: string; kind: string 
   ).contract?.contractSource?.filterFieldTypes;
 }
 
+function projectedFieldsOf(route: unknown): string[] | undefined {
+  return (route as { contract?: { contractSource?: { projectedFields?: string[] } } }).contract
+    ?.contractSource?.projectedFields;
+}
+
 /**
  * In-memory controller + filter class pair exercising both computed-field
  * sources: the inline `@Filterable({ computed })` map (a bare source and a
@@ -108,6 +113,73 @@ function projectWithComputed() {
     project,
     controllerRef: {
       className: 'ComputedController',
+      methodName: 'list',
+      filePath: controllerPath,
+    },
+  };
+}
+
+/**
+ * In-memory controller + filter class pair exercising the `project: true`
+ * projection flag across every declaration shape: `@Computed({ type, project })`,
+ * `@Computed({ project })` alone (no type), an inline `{ source, project }`
+ * entry with no `type` (the object form's `type` is optional), an inline
+ * `{ source, type, project }` entry, and non-projected declarations of both
+ * styles that must NOT land in `projectedFields`.
+ */
+function projectWithProjectedComputed() {
+  const project = inMemoryProject();
+  const controllerPath = '/virtual/projected.controller.ts';
+  const filterPath = '/virtual/projected.filter.ts';
+
+  project.createSourceFile(
+    filterPath,
+    `
+    class Entity {}
+
+    @Filterable({
+      entity: Entity,
+      computed: {
+        bare: '(SELECT 1)',
+        projectedInline: { source: '(SELECT 2)', project: true },
+        typedProjected: { source: '(SELECT 3)', type: 'number', project: true },
+        notProjectedInline: { source: '(SELECT 4)', project: false },
+      },
+    })
+    export class ProjectedFilter {
+      @Computed({ type: 'Date', project: true })
+      lastSeenAt() {
+        return '(SELECT MAX(s.seen_at) FROM sessions s)';
+      }
+
+      @Computed({ project: true })
+      onlyProjected() {
+        return '(SELECT 5)';
+      }
+
+      @Computed({ type: 'number' })
+      notProjected() {
+        return '(SELECT 6)';
+      }
+    }
+    `,
+  );
+
+  project.createSourceFile(
+    controllerPath,
+    `
+    import { ProjectedFilter } from './projected.filter';
+
+    export class ProjectedController {
+      list(@ApplyFilter(ProjectedFilter) filter: ProjectedFilter) {}
+    }
+    `,
+  );
+
+  return {
+    project,
+    controllerRef: {
+      className: 'ProjectedController',
       methodName: 'list',
       filePath: controllerPath,
     },
@@ -280,5 +352,71 @@ describe('nestjsFilterCodegen transformRoutes (computed fields)', () => {
     // and the route is still skipped for pruning/emit purposes.
     expect(filterFieldsOf(routes[0]) ?? []).toEqual([]);
     expect(filterFieldTypesOf(routes[0]) ?? []).toEqual([]);
+  });
+});
+
+describe('nestjsFilterCodegen transformRoutes (computed projection, project: true)', () => {
+  it('collects project: true aliases from every declaration shape into projectedFields', () => {
+    const { project, controllerRef } = projectWithProjectedComputed();
+    const ext = nestjsFilterCodegen();
+    const routes = [routeFixture({ filterFields: ['id'], controllerRef })];
+
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const projected = projectedFieldsOf(routes[0]) ?? [];
+    expect(projected).toContain('lastSeenAt'); // @Computed({ type, project })
+    expect(projected).toContain('onlyProjected'); // @Computed({ project }) — no type
+    expect(projected).toContain('projectedInline'); // inline { source, project } — no type
+    expect(projected).toContain('typedProjected'); // inline { source, type, project }
+    // Non-projected declarations never land in projectedFields.
+    expect(projected).not.toContain('bare');
+    expect(projected).not.toContain('notProjectedInline'); // explicit project: false
+    expect(projected).not.toContain('notProjected');
+  });
+
+  it('projected aliases still surface in filterFields, with a type entry only when hinted', () => {
+    const { project, controllerRef } = projectWithProjectedComputed();
+    const ext = nestjsFilterCodegen();
+    const routes = [routeFixture({ filterFields: ['id'], controllerRef })];
+
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    for (const alias of ['lastSeenAt', 'onlyProjected', 'projectedInline', 'typedProjected']) {
+      expect(fields).toContain(alias);
+    }
+
+    const types = filterFieldTypesOf(routes[0]) ?? [];
+    expect(types).toContainEqual({ name: 'lastSeenAt', kind: 'date' });
+    expect(types).toContainEqual({ name: 'typedProjected', kind: 'number' });
+    // `type` is optional in both object forms — projection alone contributes
+    // no filterFieldTypes entry.
+    expect(types.some((t) => t.name === 'onlyProjected')).toBe(false);
+    expect(types.some((t) => t.name === 'projectedInline')).toBe(false);
+  });
+
+  it('leaves projectedFields absent when no computed declaration opts into projection', () => {
+    const { project, controllerRef } = projectWithComputed();
+    const ext = nestjsFilterCodegen();
+    const routes = [routeFixture({ filterFields: ['id'], controllerRef })];
+
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    expect(projectedFieldsOf(routes[0])).toBeUndefined();
+  });
+
+  it('records a projected alias even when its name collides with an already-discovered field', () => {
+    const { project, controllerRef } = projectWithProjectedComputed();
+    const ext = nestjsFilterCodegen();
+    // "projectedInline" already discovered upstream — the dedup skip must not
+    // re-add it to filterFields, but the runtime still projects the computed
+    // registry entry, so projectedFields must still advertise it.
+    const routes = [routeFixture({ filterFields: ['id', 'projectedInline'], controllerRef })];
+
+    ext.transformRoutes?.(routes, extensionCtx(routes, project));
+
+    const fields = filterFieldsOf(routes[0]) ?? [];
+    expect(fields.filter((f) => f === 'projectedInline')).toHaveLength(1);
+    expect(projectedFieldsOf(routes[0])).toContain('projectedInline');
   });
 });

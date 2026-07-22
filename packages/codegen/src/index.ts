@@ -28,6 +28,17 @@ interface FilterFieldType {
 interface FilterContract {
   filterFields?: string[];
   filterFieldTypes?: FilterFieldType[];
+  /**
+   * Computed-field aliases declared with `project: true` (via
+   * `@Computed({ project: true })` or an inline
+   * `@Filterable({ computed: { alias: { source, project: true } } })` entry).
+   * These aliases are SELECT-projected by the runtime, so executed rows carry
+   * them — contract consumers (e.g. response typing in
+   * `@dudousxd/nestjs-codegen`) can use this to know which extra keys appear
+   * on returned rows. Populated by `augmentContractWithComputed`; absent when
+   * no computed field opts into projection.
+   */
+  projectedFields?: string[];
 }
 
 function contractOf(leaf: LeafModel): FilterContract | undefined {
@@ -301,7 +312,9 @@ function readTypeHint(
 
 /** Read the `type` property off an options/entry object literal (e.g. `{ type: 'number' }`
  * from `@Computed({ type })` or the inline `computed` map's `{ source, type }` entry form),
- * and parse it via `readTypeHint`. */
+ * and parse it via `readTypeHint`. `type` is optional in both object forms
+ * (`{ project: true }` alone is valid) — an absent/unrecognized `type` simply
+ * yields `undefined` (no `filterFieldTypes` entry), never an error. */
 function readTypeProperty(
   node: Node | undefined,
 ): Pick<FilterFieldType, 'kind' | 'enumValues'> | undefined {
@@ -313,6 +326,21 @@ function readTypeProperty(
   return readTypeHint(typeProp.getInitializer());
 }
 
+/** Read the `project` flag off an options/entry object literal (`@Computed({ project: true })`
+ * or the inline `{ source, project: true }` entry form). Only a literal `true`
+ * counts — a dynamic expression can't be statically trusted, and under-reporting
+ * a projection is safe (the runtime still projects; the contract just doesn't
+ * advertise it), mirroring `readFilterableCodegenMaxDepth`'s literal-only rule. */
+function readProjectProperty(node: Node | undefined): boolean {
+  if (!node || !Node.isObjectLiteralExpression(node)) return false;
+
+  const projectProp = node.getProperty('project');
+  if (!projectProp || !Node.isPropertyAssignment(projectProp)) return false;
+
+  const init = projectProp.getInitializer();
+  return init !== undefined && Node.isTrueLiteral(init);
+}
+
 /**
  * Append computed-field aliases — from `@Computed` methods and the inline
  * `@Filterable({ computed })` map — to `filterFields`/`filterFieldTypes` so the
@@ -320,6 +348,13 @@ function readTypeProperty(
  * mirroring `pruneToDepth`. An alias already present in `filterFields` (from
  * entity/`@FilterFor` discovery, or an earlier computed source) is skipped
  * entirely — not re-added, no type contributed for it either.
+ *
+ * Aliases declared with `project: true` are additionally collected into
+ * `contract.projectedFields` — the contract's record of which computed values
+ * the runtime SELECT-projects onto returned rows. Projection recording is
+ * deliberately NOT gated by the `filterFields` dedup skip above: even when an
+ * alias collides with an already-discovered field name, the runtime's computed
+ * registry still projects it, so the contract must still advertise it.
  */
 function augmentContractWithComputed(
   filterClass: ClassDeclaration,
@@ -327,6 +362,7 @@ function augmentContractWithComputed(
 ): void {
   const fields = new Set(contract.filterFields ?? []);
   const types = contract.filterFieldTypes ? [...contract.filterFieldTypes] : [];
+  const projected = new Set(contract.projectedFields ?? []);
 
   // `@Computed` methods. Alias = first string-literal arg, else the method
   // name (covers the opts-first overload, e.g. `@Computed({ type: 'number' })`,
@@ -346,6 +382,8 @@ function augmentContractWithComputed(
       optsArg = firstArg;
     }
 
+    if (readProjectProperty(optsArg)) projected.add(alias);
+
     if (fields.has(alias)) continue;
     fields.add(alias);
 
@@ -353,7 +391,7 @@ function augmentContractWithComputed(
     if (hint) types.push({ name: alias, ...hint });
   }
 
-  // Inline `@Filterable({ computed: { alias: source | { source, type } } })` map.
+  // Inline `@Filterable({ computed: { alias: source | { source, type?, project? } } })` map.
   const filterableDecorator = filterClass.getDecorators().find((d) => d.getName() === 'Filterable');
   const [optionsArg] = filterableDecorator?.getArguments() ?? [];
   const computedProp =
@@ -370,6 +408,8 @@ function augmentContractWithComputed(
       if (!Node.isPropertyAssignment(prop)) continue;
       const alias = prop.getName();
 
+      if (readProjectProperty(prop.getInitializer())) projected.add(alias);
+
       if (fields.has(alias)) continue;
       fields.add(alias);
 
@@ -380,6 +420,9 @@ function augmentContractWithComputed(
 
   contract.filterFields = [...fields];
   contract.filterFieldTypes = types;
+  // Only materialize the key when something projects — a contract with no
+  // `project: true` declarations keeps its exact prior shape (no new key).
+  if (projected.size > 0) contract.projectedFields = [...projected];
 }
 
 // ---------------------------------------------------------------------------

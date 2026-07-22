@@ -7,7 +7,7 @@ import {
   type Type,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import type { FilterAdapter } from './adapter/adapter.js';
+import type { FilterAdapter, GroupByCountField } from './adapter/adapter.js';
 import { parseAggregatePath } from './aggregate/aggregate-path.js';
 import { runWithFilterState } from './als-store.js';
 import type { ContextAccessor } from './context-accessor.js';
@@ -17,7 +17,7 @@ import {
   allowedFieldNames,
   normalizeAllowed,
 } from './decorator/allowed.js';
-import { getComputedMap } from './decorator/computed.decorator.js';
+import { getComputedMap, getComputedOptsMap } from './decorator/computed.decorator.js';
 import { getFilterForMap } from './decorator/filter-for.decorator.js';
 import { getFilterableMetadata } from './decorator/filterable.decorator.js';
 import { type RelationConfig, resolveRelation } from './decorator/relations.decorator.js';
@@ -70,13 +70,30 @@ const MATCH_ALL_SET: AutoFieldSet = { has: () => true };
 const AGGREGATE_COLUMN_FNS = ['sum', 'avg', 'min', 'max'] as const;
 
 /**
- * Merges the inline `@Filterable.computed` map and `@Computed`-decorated
- * methods into a single alias → {@link ComputedSource} registry.
+ * One resolved entry of the computed-field registry: the dev-provided SQL
+ * `source` plus the runtime flags carried by the declaration (the inline
+ * `@Filterable.computed` object form, or `@Computed`'s options).
  *
- * - Inline map entries are unwrapped: `{ source, type }` → `.source` (the
- *   `type` is a codegen-only hint, never read at runtime).
+ * - `project` — when `true`, `FilterRunner.apply()` projects the computed
+ *   expression into the SELECT list under its alias via the adapter's
+ *   `applyComputedSelect` capability, so executed rows carry the value.
+ *   `false` (the default) keeps the historical filter/sort-only behavior.
+ */
+export interface ComputedRegistryEntry {
+  source: ComputedSource;
+  project: boolean;
+}
+
+/**
+ * Merges the inline `@Filterable.computed` map and `@Computed`-decorated
+ * methods into a single alias → {@link ComputedRegistryEntry} registry.
+ *
+ * - Inline map entries are unwrapped: `{ source, type, project }` →
+ *   `{ source, project }` (the `type` is a codegen-only hint, never read at
+ *   runtime; `project` defaults to `false`).
  * - `@Computed` methods are bound to `instance` and wrapped so they satisfy
- *   the `ComputedSource` function shape (`(ctx) => ComputedReturn`).
+ *   the `ComputedSource` function shape (`(ctx) => ComputedReturn`); their
+ *   `project` flag is read from the `@Computed` options map.
  * - On an alias clash between the inline map and a decorator method, the
  *   decorator wins — it is the more specific, closer-to-usage declaration.
  *
@@ -87,24 +104,30 @@ const AGGREGATE_COLUMN_FNS = ['sum', 'avg', 'min', 'max'] as const;
 export function buildComputedRegistry(
   FilterClass: Function,
   instance: object,
-): Map<string, ComputedSource> {
-  const registry = new Map<string, ComputedSource>();
+): Map<string, ComputedRegistryEntry> {
+  const registry = new Map<string, ComputedRegistryEntry>();
 
   const inline = (getFilterableMetadata(FilterClass as never)?.computed ?? {}) as Record<
     string,
     ComputedEntry
   >;
   for (const [alias, entry] of Object.entries(inline)) {
-    const source =
-      typeof entry === 'object' && entry !== null && 'source' in entry ? entry.source : entry;
-    registry.set(alias, source as ComputedSource);
+    if (typeof entry === 'object' && entry !== null && 'source' in entry) {
+      registry.set(alias, { source: entry.source, project: entry.project === true });
+    } else {
+      registry.set(alias, { source: entry as ComputedSource, project: false });
+    }
   }
 
+  const decoratorOpts = getComputedOptsMap(FilterClass);
   for (const [alias, methodName] of getComputedMap(FilterClass)) {
     const method = (instance as Record<string, unknown>)[methodName];
     if (typeof method === 'function') {
       const bound = method as (ctx: unknown) => unknown;
-      registry.set(alias, ((ctx) => bound.call(instance, ctx)) as ComputedSource);
+      registry.set(alias, {
+        source: ((ctx) => bound.call(instance, ctx)) as ComputedSource,
+        project: decoratorOpts.get(alias)?.project === true,
+      });
     }
   }
 
@@ -341,6 +364,20 @@ export class FilterRunner {
    * `unsupported` feature/method is logged — static mode warns, dynamic stays silent.
    * Mirrors the original guard: a call needs both a supporting adapter AND a
    * resolved entity, so a missing entity is a silent no-op (never a warning).
+   *
+   * When a `computed` registry is given (the static `distinct` call site),
+   * requested fields matching a registry alias bypass column validation —
+   * they are dev-declared, not real columns, mirroring how computed sorts
+   * bypass {@link validateSorts} — and are dispatched via `applyComputed`
+   * (warn-and-skip through `computedUnsupported` when the adapter lacks the
+   * capability). Plain columns are applied FIRST in one batched `apply` call
+   * (preserving the historical adapter contract), then each computed alias in
+   * request order.
+   *
+   * @returns `true` when any projection (plain or computed) was applied to the
+   *   builder — the static distinct call site uses this to suppress
+   *   `project: true` computed SELECT projection, which only augments
+   *   entity-row output.
    */
   private applyProjection<Q>(
     qb: Q,
@@ -358,22 +395,87 @@ export class FilterRunner {
        * before validation.
        */
       aliasMeta?: FilterMetadata | undefined;
+      /** Computed-field registry; fields matching an alias route to `applyComputed`. */
+      computed?: Map<string, ComputedRegistryEntry> | undefined;
+      /** Bound adapter capability for projecting one computed alias. */
+      applyComputed?: ((qb: unknown, alias: string, source: ComputedSource) => void) | undefined;
+      /** warn-and-skip descriptor when `applyComputed` is unavailable. */
+      computedUnsupported?: { feature: string; method: string };
     },
-  ): void {
+  ): boolean {
     const { entity, adapter, allowed, throwOnInvalid, apply, unsupported, aliasMeta } = opts;
+    const { computed, applyComputed, computedUnsupported } = opts;
     const fields = this.remapFieldAliases(this.parseDistinct(rawFields), aliasMeta);
-    if (fields.length === 0) return;
-    if (apply && adapter && entity) {
-      const valid = this.validateDistinct(
-        fields,
-        allowed as string[] | undefined,
-        adapter,
-        entity,
-        throwOnInvalid,
-      );
-      if (valid.length > 0) apply(qb as unknown, valid, entity);
-    } else if (apply === undefined && unsupported) {
-      this.warnUnsupported(unsupported.feature, unsupported.method);
+    if (fields.length === 0) return false;
+
+    // Split computed aliases (dev-declared, bypass column validation — same
+    // rationale as computed sorts) from plain column fields.
+    const computedAliases = computed ? fields.filter((f) => computed.has(f)) : [];
+    const plainFields =
+      computedAliases.length > 0 ? fields.filter((f) => !computed!.has(f)) : fields;
+
+    let applied = false;
+    if (plainFields.length > 0) {
+      if (apply && adapter && entity) {
+        const valid = this.validateDistinct(
+          plainFields,
+          allowed as string[] | undefined,
+          adapter,
+          entity,
+          throwOnInvalid,
+        );
+        if (valid.length > 0) {
+          apply(qb as unknown, valid, entity);
+          applied = true;
+        }
+      } else if (apply === undefined && unsupported) {
+        this.warnUnsupported(unsupported.feature, unsupported.method);
+      }
+    }
+
+    if (computedAliases.length > 0) {
+      if (applyComputed) {
+        for (const alias of computedAliases) {
+          applyComputed(qb as unknown, alias, computed!.get(alias)!.source);
+        }
+        applied = true;
+      } else if (computedUnsupported) {
+        this.warnUnsupported(computedUnsupported.feature, computedUnsupported.method);
+      }
+    }
+    return applied;
+  }
+
+  /**
+   * Projects every `project: true` computed-registry entry into the SELECT
+   * list via the adapter's `applyComputedSelect` capability — warn-and-skip
+   * (once, not per alias) when the adapter doesn't implement it.
+   *
+   * Ordering contract (also documented on the adapter capability): `apply()`
+   * dispatches this AFTER `applyDistinct`/`applySelect`, so with a sparse
+   * `select` in place the computed alias is ADDED to the narrowed projection
+   * (adapters implement the capability additively). `apply()` skips this
+   * entirely when a distinct projection was applied — distinct replaces
+   * entity-row output, and a computed value participates in a distinct
+   * projection only by being explicitly listed in `distinct`.
+   */
+  private applyProjectedComputed<Q>(
+    qb: Q,
+    registry: Map<string, ComputedRegistryEntry>,
+    adapter: FilterAdapter | null,
+  ): void {
+    let warned = false;
+    for (const [alias, entry] of registry) {
+      if (!entry.project) continue;
+      if (adapter?.applyComputedSelect) {
+        adapter.applyComputedSelect(qb as unknown, alias, entry.source);
+      } else if (!warned) {
+        warned = true;
+        this.warnUnsupported(
+          `Computed projection ("${alias}", project: true) declared`,
+          'applyComputedSelect',
+        );
+      }
     }
   }
 
@@ -509,8 +611,8 @@ export class FilterRunner {
           }
           // Check if this key is a computed/virtual field (dev-declared SQL or
           // an `@Computed` method), resolved via the merged registry.
-          const computedSource = computedRegistry.get(key);
-          if (computedSource !== undefined) {
+          const computedEntry = computedRegistry.get(key);
+          if (computedEntry !== undefined) {
             if (adapter?.applyComputedField) {
               const filtered = this.enforceAutoFieldOperators(
                 key,
@@ -519,7 +621,7 @@ export class FilterRunner {
                 throwOnInvalidPolicy,
               );
               if (filtered !== undefined) {
-                adapter.applyComputedField(qb as unknown, computedSource, filtered);
+                adapter.applyComputedField(qb as unknown, computedEntry.source, filtered);
               }
             } else {
               this.warnUnsupported(`Computed field "${key}" provided`, 'applyComputedField');
@@ -680,8 +782,11 @@ export class FilterRunner {
           });
         }
 
-        // Apply distinct projection (SELECT DISTINCT) — before sort/pagination
-        this.applyProjection(qb, rawDistinct, {
+        // Apply distinct projection (SELECT DISTINCT) — before sort/pagination.
+        // A computed alias in the distinct list routes to applyComputedDistinct
+        // (the computed registry bypasses column validation, like computed
+        // sorts do); plain columns still batch through applyDistinct first.
+        const distinctApplied = this.applyProjection(qb, rawDistinct, {
           entity: filterableMeta?.entity,
           adapter,
           allowed: (FilterClass as unknown as { distinct?: readonly string[] }).distinct,
@@ -689,10 +794,19 @@ export class FilterRunner {
           apply: adapter?.applyDistinct?.bind(adapter),
           unsupported: { feature: 'Distinct requested', method: 'applyDistinct' },
           aliasMeta: filterableMeta,
+          computed: computedRegistry,
+          applyComputed: adapter?.applyComputedDistinct?.bind(adapter),
+          computedUnsupported: {
+            feature: 'Distinct on a computed field requested',
+            method: 'applyComputedDistinct',
+          },
         });
 
         // Apply sparse fieldsets (SELECT narrowing) — validated against the
-        // allowlist / entity metadata, mirroring distinct/sort safety.
+        // allowlist / entity metadata, mirroring distinct/sort safety. A
+        // computed alias here is dropped like any unknown column: computed
+        // values enter entity-row projections via `project: true` (below),
+        // never via the client's `select` list.
         this.applyProjection(qb, rawSelect, {
           entity: filterableMeta?.entity,
           adapter,
@@ -702,6 +816,17 @@ export class FilterRunner {
           unsupported: { feature: 'Sparse fieldsets (select) requested', method: 'applySelect' },
           aliasMeta: filterableMeta,
         });
+
+        // Project `project: true` computed fields into the SELECT list —
+        // dispatched AFTER applyDistinct/applySelect by contract, so a sparse
+        // `select` projection is already in place and the computed alias is
+        // ADDED to it (adapters implement applyComputedSelect additively).
+        // Skipped when a distinct projection was applied: distinct replaces
+        // entity-row output, and a computed value participates in a distinct
+        // projection only by being listed in `distinct` explicitly.
+        if (!distinctApplied) {
+          this.applyProjectedComputed(qb, computedRegistry, adapter);
+        }
 
         // Apply sort — falling back to defaultSort when the client gave none.
         // Only the client-supplied sort is alias-remapped; defaultSort is
@@ -1396,13 +1521,25 @@ export class FilterRunner {
    * absent, a clear error is thrown (`groupByCount is not supported by the
    * active adapter`).
    *
+   * **Computed grouping fields**: when the (alias-remapped) grouping field is a
+   * computed/virtual alias, the runner passes the adapter the
+   * `{ alias, source }` shape of `GroupByCountField` instead of a validated
+   * column name — the adapter groups by the dev-provided computed expression.
+   * The computed registry is derived from `opts.filterClass` when given (the
+   * static variant: inline `@Filterable.computed` + `@Computed` methods of
+   * that filter class, DI-resolved so decorated methods bind correctly);
+   * otherwise from `@Filterable` metadata declared on the **entity itself**
+   * (the same entity-level-metadata pattern dynamic mode already uses for
+   * `aliases`). Computed aliases bypass column validation — they are
+   * dev-declared, never client input — exactly like computed sort/distinct.
+   *
    * @returns `{ value, count }[]` — or, when bucketed, `{ bucketStart, bucketEnd,
    *   count }[]` with `bucketEnd = bucketStart + bucket`.
    */
   async groupByCount<E>(
     entity: Type<E>,
     input: unknown,
-    opts: { qb?: unknown; context?: FilterContext } = {},
+    opts: { qb?: unknown; context?: FilterContext; filterClass?: Type<object> } = {},
   ): Promise<GroupByCountResult> {
     const adapter = this.resolveAdapter();
     const structured = this.extractStructuredInput(input);
@@ -1427,13 +1564,28 @@ export class FilterRunner {
     const filterableMeta = getFilterableMetadata(entity);
     const [remapped] = this.remapFieldAliases([spec.field], filterableMeta);
     const field = remapped ?? spec.field;
-    // Validate silently (drop-on-invalid) so we can surface a groupByCount-
-    // specific rejection: the grouping column is the whole query, so an unknown
-    // field is always rejected outright (never silently ignored, unlike a
-    // distinct field), regardless of the ambient throwOnInvalid policy.
-    const validated = this.validateDistinct([field], undefined, adapter, entity, false);
-    if (validated.length === 0 || !validated[0]) {
-      throw new BadRequestException(`Invalid groupByCount field: "${spec.field}".`);
+
+    // Computed grouping: resolve the computed registry (filter class when
+    // given, else entity-level `@Filterable` metadata) and let a matching
+    // alias bypass column validation — it is dev-declared, not a column.
+    const computedRegistry = opts.filterClass
+      ? buildComputedRegistry(opts.filterClass, await this.resolveFilter(opts.filterClass))
+      : buildComputedRegistry(entity, Object.create(entity.prototype) as object);
+    const computedEntry = computedRegistry.get(field);
+
+    let groupField: GroupByCountField;
+    if (computedEntry) {
+      groupField = { alias: field, source: computedEntry.source };
+    } else {
+      // Validate silently (drop-on-invalid) so we can surface a groupByCount-
+      // specific rejection: the grouping column is the whole query, so an unknown
+      // field is always rejected outright (never silently ignored, unlike a
+      // distinct field), regardless of the ambient throwOnInvalid policy.
+      const validated = this.validateDistinct([field], undefined, adapter, entity, false);
+      if (validated.length === 0 || !validated[0]) {
+        throw new BadRequestException(`Invalid groupByCount field: "${spec.field}".`);
+      }
+      groupField = validated[0];
     }
 
     const qb = opts.qb ?? adapter.createQueryBuilder(entity);
@@ -1452,7 +1604,7 @@ export class FilterRunner {
     const bucket = spec.bucket;
     const rows = await adapter.groupByCount(
       qb,
-      validated[0],
+      groupField,
       entity,
       bucket ? { bucket } : undefined,
     );
@@ -2034,7 +2186,7 @@ export class FilterRunner {
     adapter: FilterAdapter,
     entity: Type<unknown> | undefined,
     throwOnInvalid: boolean,
-    computed: Map<string, ComputedSource> | undefined,
+    computed: Map<string, ComputedRegistryEntry> | undefined,
     autoFieldSet: AutoFieldSet | null,
   ): void {
     const hasComputedSort = !!computed && sorts.some((s) => computed.has(s.field));
@@ -2060,7 +2212,11 @@ export class FilterRunner {
     for (const sort of sorts) {
       if (computed?.has(sort.field)) {
         if (adapter.applyComputedSort) {
-          adapter.applyComputedSort(qb as unknown, computed.get(sort.field)!, sort.direction);
+          adapter.applyComputedSort(
+            qb as unknown,
+            computed.get(sort.field)!.source,
+            sort.direction,
+          );
         } else {
           this.warnUnsupported(`Computed sort "${sort.field}" requested`, 'applyComputedSort');
         }

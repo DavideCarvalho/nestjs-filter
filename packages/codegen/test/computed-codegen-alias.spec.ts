@@ -24,7 +24,13 @@ import { nestjsFilterCodegen } from '../src/index.js';
 // `@Computed` alias lands in `filterFields`/`filterFieldTypes`.
 
 interface FixtureRoute {
-  contract: { contractSource: { filterFields?: string[]; filterFieldTypes?: unknown[] } };
+  contract: {
+    contractSource: {
+      filterFields?: string[];
+      filterFieldTypes?: unknown[];
+      projectedFields?: string[];
+    };
+  };
   controllerRef: { className: string; methodName: string; filePath: string };
 }
 
@@ -90,7 +96,7 @@ describe('nestjsFilterCodegen transformRoutes (tsconfig `paths` alias, real FS)'
 
       @Filterable({ entity: Wo, autoFields: true })
       export class WoFilter {
-        @Computed({ type: 'number' })
+        @Computed({ type: 'number', project: true })
         subwosCount() {
           return '(SELECT COUNT(*) FROM subwo WHERE subwo.wo_id = alias.id)';
         }
@@ -133,6 +139,10 @@ describe('nestjsFilterCodegen transformRoutes (tsconfig `paths` alias, real FS)'
       kind: string;
     }>;
     expect(types).toContainEqual({ name: 'subwosCount', kind: 'number' });
+
+    // The `project: true` flag rides the same real-FS resolution path into the
+    // contract's projectedFields.
+    expect(routes[0].contract.contractSource.projectedFields).toContain('subwosCount');
   });
 
   it('also resolves when the tsconfig path is given explicitly via config.app.tsconfig', () => {

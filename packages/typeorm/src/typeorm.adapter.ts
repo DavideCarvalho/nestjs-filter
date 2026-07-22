@@ -5,6 +5,7 @@ import {
   type EntityFieldInfo,
   type EntityRelationInfo,
   type FilterAdapter,
+  type GroupByCountField,
   type SortItem,
   type VectorSearchOptions,
   escapeLike,
@@ -55,6 +56,24 @@ export class TypeOrmAdapter implements FilterAdapter {
   // per entity class. `.has()` is used so null results are cached too.
   private fieldCache = new WeakMap<object, EntityFieldInfo[] | null>();
   private relationCache = new WeakMap<object, EntityRelationInfo[] | null>();
+
+  /**
+   * Computed aliases projected via {@link applyComputedSelect}, recorded per
+   * builder instance — the runner never re-passes them (the alias-bookkeeping
+   * contract on `FilterAdapter.applyComputedSelect`), so
+   * {@link getResultAndCount} reads them back here to surface computed values
+   * on the hydrated rows under the same aliases.
+   */
+  private projectedComputedAliases = new WeakMap<object, string[]>();
+
+  /**
+   * Computed aliases added to a DISTINCT projection via
+   * {@link applyComputedDistinct}, recorded per builder instance so
+   * {@link getDistinctResultAndCount} — whose `fields` parameter carries only
+   * the plain (column) distinct fields by contract — can key the raw rows'
+   * computed values back in.
+   */
+  private distinctComputedAliases = new WeakMap<object, string[]>();
 
   createQueryBuilder<E>(entity: Type<E>): unknown {
     const repo = this.dataSource.getRepository(entity as unknown as { new (): E & ObjectLiteral });
@@ -232,6 +251,81 @@ export class TypeOrmAdapter implements FilterAdapter {
     queryBuilder.distinct(true).select(columns);
   }
 
+  /**
+   * Terminal group-by-count aggregation over the ROOT entity:
+   *
+   *   SELECT <expr> AS value, COUNT(*) AS count FROM <t> WHERE … GROUP BY <expr>
+   *
+   * or, when `opts.bucket` is a positive width, the numeric-bucketed variant:
+   *
+   *   SELECT FLOOR(<expr> / :b) * :b AS value, COUNT(*) AS count
+   *   FROM <t> WHERE … GROUP BY FLOOR(<expr> / :b) * :b
+   *
+   * `<expr>` dispatches on the {@link GroupByCountField} shape: a plain string
+   * field (already validated by the runner) resolves to the qualified,
+   * driver-quoted DB column; the `{ alias, source }` computed shape resolves
+   * the dev-provided source via {@link resolveComputedExpression} (never
+   * client text) and groups by the evaluated expression. A root-level GROUP BY
+   * is safe here (unlike the to-many aggregate subqueries): this mode replaces
+   * entity rows rather than multiplying them. The bucket width rides as a
+   * bound `:groupByCountBucket` parameter — TypeORM substitutes a named param
+   * everywhere it appears, SELECT and GROUP BY alike — so the client-supplied
+   * number cannot reach the SQL as text. GROUP BY repeats the expression
+   * (portable across MySQL/Postgres/SQLite) rather than relying on the SELECT
+   * alias. WHERE/search clauses are applied upstream by the runner; the raw
+   * `value`/`count` aliases come back unprefixed (custom-aliased raw columns
+   * are keyed by exactly the alias).
+   */
+  async groupByCount(
+    qb: unknown,
+    field: GroupByCountField,
+    entity: Type<unknown>,
+    opts?: { bucket?: number },
+  ): Promise<Array<{ value: unknown; count: number }>> {
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const expression =
+      typeof field === 'string'
+        ? `${this.quoteIdent(queryBuilder.alias)}.${this.quoteIdent(this.resolveColumnName(entity, field))}`
+        : this.resolveComputedExpression(field.source, queryBuilder.alias);
+
+    const bucket = opts?.bucket;
+    if (bucket !== undefined && bucket > 0) {
+      const bucketed = `FLOOR((${expression}) / :groupByCountBucket) * :groupByCountBucket`;
+      queryBuilder
+        .select(bucketed, 'value')
+        .addSelect('COUNT(*)', 'count')
+        .groupBy(bucketed)
+        .setParameter('groupByCountBucket', bucket);
+    } else {
+      queryBuilder.select(expression, 'value').addSelect('COUNT(*)', 'count').groupBy(expression);
+    }
+
+    const rows = await queryBuilder.getRawMany<Record<string, unknown>>();
+    return rows.map((row) => ({ value: row.value, count: Number(row.count) }));
+  }
+
+  /**
+   * Resolves a scalar property's real DB column name via ORM metadata. `field`
+   * is already validated against the entity's filterable columns by the runner
+   * before it reaches here, so this only maps property → column (and quotes
+   * defensively at the call site). Throws when the property/column can't be
+   * resolved — a metadata inconsistency, never a normal client path.
+   */
+  private resolveColumnName(entity: Type<unknown>, field: string): string {
+    let column: string | undefined;
+    try {
+      column = this.dataSource
+        .getMetadata(entity)
+        .columns.find((col) => col.propertyName === field)?.databaseName;
+    } catch {
+      column = undefined;
+    }
+    if (!column) {
+      throw new Error(`Cannot resolve a DB column for groupByCount field "${field}".`);
+    }
+    return column;
+  }
+
   applySelect(qb: unknown, fields: string[], entity: Type<unknown>): void {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = queryBuilder.alias;
@@ -269,12 +363,30 @@ export class TypeOrmAdapter implements FilterAdapter {
    * called with `{ alias, em: dataSource }`; a string return is used
    * directly, any other return (a TypeORM `SelectQueryBuilder` for a
    * correlated subquery) is delegated to `computedReturnToSql`.
+   *
+   * Both string paths pass through {@link normalizeComputedSql}, which
+   * auto-parenthesizes a bare scalar-subquery (`SELECT ...`) source — the one
+   * normalization applied here, so every consumer (filter, sort, select,
+   * distinct, groupByCount) sees the same expression.
    */
   private resolveComputedExpression(source: ComputedSource, alias: string): string {
-    if (typeof source === 'string') return source;
+    if (typeof source === 'string') return this.normalizeComputedSql(source);
     const out = source({ alias, em: this.dataSource });
-    if (typeof out === 'string') return out;
+    if (typeof out === 'string') return this.normalizeComputedSql(out);
     return this.computedReturnToSql(out);
+  }
+
+  /**
+   * Auto-parenthesizes a bare scalar-subquery computed source: SQL that starts
+   * with `SELECT` (trimmed, case-insensitive) — and therefore has no outer
+   * parens, which would make the string start with `(` — is wrapped in
+   * `( ... )` so it can be inlined into a WHERE/ORDER BY/SELECT position
+   * without the dev hand-wrapping it (the QB-return path already wraps in
+   * `computedReturnToSql`). Any non-SELECT expression is returned untouched.
+   */
+  private normalizeComputedSql(sql: string): string {
+    const trimmed = sql.trim();
+    return /^select\b/i.test(trimmed) ? `(${trimmed})` : sql;
   }
 
   /**
@@ -317,6 +429,61 @@ export class TypeOrmAdapter implements FilterAdapter {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const expression = this.resolveComputedExpression(source, queryBuilder.alias);
     queryBuilder.addOrderBy(expression, direction.toUpperCase() as 'ASC' | 'DESC');
+  }
+
+  /**
+   * Projects a `project: true` computed field into the SELECT list under its
+   * alias — ADDITIVELY (`addSelect`, never a projection-replacing `select`),
+   * per the adapter contract: the runner dispatches this after
+   * `applyDistinct`/`applySelect`, so the projection already on the builder
+   * (full entity row, or a sparse `select` narrowing) is kept and the
+   * expression is appended as `<expr> AS "<alias>"`. The alias is recorded per
+   * builder so {@link getResultAndCount} can surface the computed value on the
+   * hydrated rows (TypeORM keys a custom-aliased raw column by exactly the
+   * alias — no `<rootAlias>_` prefix, unlike entity-property selections).
+   * Unsafe alias names are silently skipped, mirroring every other
+   * client-reachable identifier guard in this adapter (the alias is
+   * dev-declared, but cheap to validate all the same).
+   */
+  applyComputedSelect(qb: unknown, alias: string, source: ComputedSource): void {
+    if (!SAFE_FIELD.test(alias)) return; // silently skip unsafe alias names
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const expression = this.resolveComputedExpression(source, queryBuilder.alias);
+    queryBuilder.addSelect(expression, alias);
+    const recorded = this.projectedComputedAliases.get(queryBuilder);
+    if (recorded) recorded.push(alias);
+    else this.projectedComputedAliases.set(queryBuilder, [alias]);
+  }
+
+  /**
+   * Adds a computed field to a DISTINCT projection under its alias. Two cases,
+   * detected via the builder's own `expressionMap.selectDistinct` flag:
+   *
+   * - A distinct projection is already in place ({@link applyDistinct} ran
+   *   first for the request's plain columns, or a prior computed alias
+   *   started it) → the expression is APPENDED (`addSelect`).
+   * - This alias is the first distinct member (the `distinct` list named only
+   *   computed aliases, so `applyDistinct` never ran) → the projection is
+   *   REPLACED with the expression and `distinct(true)` is set, mirroring how
+   *   {@link applyDistinct} overrides the default full-entity projection.
+   *
+   * The alias is recorded per builder so {@link getDistinctResultAndCount}
+   * (whose `fields` parameter carries only plain columns by contract) can map
+   * the computed values from the raw rows — where they arrive keyed by exactly
+   * the alias, no `<rootAlias>_` prefix.
+   */
+  applyComputedDistinct(qb: unknown, alias: string, source: ComputedSource): void {
+    if (!SAFE_FIELD.test(alias)) return; // silently skip unsafe alias names
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const expression = this.resolveComputedExpression(source, queryBuilder.alias);
+    if (queryBuilder.expressionMap.selectDistinct) {
+      queryBuilder.addSelect(expression, alias);
+    } else {
+      queryBuilder.distinct(true).select(expression, alias);
+    }
+    const recorded = this.distinctComputedAliases.get(queryBuilder);
+    if (recorded) recorded.push(alias);
+    else this.distinctComputedAliases.set(queryBuilder, [alias]);
   }
 
   /**
@@ -566,10 +733,42 @@ export class TypeOrmAdapter implements FilterAdapter {
     queryBuilder.skip(page * size).take(size);
   }
 
+  /**
+   * With no computed aliases recorded for this builder (the historical path),
+   * a plain `getManyAndCount()`. When {@link applyComputedSelect} recorded
+   * projected aliases, `getRawAndEntities()` runs instead: it executes the ONE
+   * query TypeORM would run for `getMany()` and returns both the hydrated
+   * entities and the raw rows, paired by index (entities are built from the
+   * raw rows in order; nothing on this path multiplies rows — the runner
+   * defers to-many relation loading to `populate`, off the join). Each
+   * computed value is then attached to its entity under the alias, read from
+   * the raw row by exactly that alias (TypeORM does not `<rootAlias>_`-prefix
+   * a custom-aliased `addSelect`, unlike entity-property selections). The
+   * total comes from `getCount()`, which is byte-identical to
+   * `getManyAndCount()`'s count leg — both run `executeCountQuery` on an
+   * internal clone that resets order/limit/offset/skip/take and swaps the
+   * projection for a `COUNT(DISTINCT pk)`, so the computed select never
+   * reaches the count SQL and pagination is ignored, exactly like the plain
+   * path.
+   */
   async getResultAndCount(qb: unknown): Promise<{ rows: unknown[]; total: number }> {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
-    const [rows, total] = await queryBuilder.getManyAndCount();
-    return { rows, total };
+    const aliases = this.projectedComputedAliases.get(queryBuilder);
+    if (!aliases || aliases.length === 0) {
+      const [rows, total] = await queryBuilder.getManyAndCount();
+      return { rows, total };
+    }
+
+    const { entities, raw } = await queryBuilder.getRawAndEntities<Record<string, unknown>>();
+    entities.forEach((entity, index) => {
+      const rawRow = raw[index];
+      if (!rawRow) return;
+      for (const alias of aliases) {
+        (entity as Record<string, unknown>)[alias] = rawRow[alias];
+      }
+    });
+    const total = await queryBuilder.getCount();
+    return { rows: entities, total };
   }
 
   /**
@@ -585,6 +784,14 @@ export class TypeOrmAdapter implements FilterAdapter {
    * `COUNT(DISTINCT a, b)` (MySQL-only multi-column syntax) — the subquery
    * form runs identically on Postgres, MySQL and SQLite for both the
    * single- and multi-field case.
+   *
+   * Computed distinct members ({@link applyComputedDistinct}) ride along on
+   * both legs for free: `fields` carries only the plain columns by contract,
+   * so the recorded per-builder aliases fill in the computed values — keyed in
+   * the raw rows by exactly the alias, no `<alias>_` prefix — and the count
+   * subquery swallows the builder's FULL projection (the cloned inner SQL
+   * includes the computed expression), so the total counts distinct tuples
+   * over plain and computed members alike.
    */
   async getDistinctResultAndCount(
     qb: unknown,
@@ -592,14 +799,19 @@ export class TypeOrmAdapter implements FilterAdapter {
   ): Promise<{ rows: Record<string, unknown>[]; total: number }> {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const alias = queryBuilder.alias;
+    const computedAliases = this.distinctComputedAliases.get(queryBuilder) ?? [];
 
     const rawRows = await queryBuilder.getRawMany<Record<string, unknown>>();
     // TypeORM aliases raw selected columns as `<alias>_<field>`; strip the
-    // prefix so row keys match the requested (property) field names.
+    // prefix so row keys match the requested (property) field names. Computed
+    // aliases are custom select aliases — never prefixed — so they copy as-is.
     const rows = rawRows.map((row) => {
       const projected: Record<string, unknown> = {};
       for (const field of fields) {
         projected[field] = row[`${alias}_${field}`];
+      }
+      for (const computedAlias of computedAliases) {
+        projected[computedAlias] = row[computedAlias];
       }
       return projected;
     });
