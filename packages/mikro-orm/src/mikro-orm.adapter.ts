@@ -802,7 +802,9 @@ export class MikroOrmAdapter implements FilterAdapter {
   applyComputedDistinct(qb: unknown, alias: string, source: ComputedSource): void {
     this.assertSafeAlias(alias);
     const queryBuilder = qb as ProjectionQB;
-    const expr = raw(`${this.computedSql(source, queryBuilder.alias)} as ${this.quoteIdent(alias)}`);
+    const expr = raw(
+      `${this.computedSql(source, queryBuilder.alias)} as ${this.quoteIdent(alias)}`,
+    );
     if (queryBuilder.state.fields === undefined) {
       queryBuilder.select(expr, true);
     } else {
