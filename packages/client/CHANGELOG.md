@@ -1,5 +1,25 @@
 # @dudousxd/nestjs-filter-client
 
+## 1.17.0
+
+### Minor Changes
+
+- 903c637: Add `fromFilters` — a typed bulk constructor for pre-resolved `{ field, operator, value }` filter arrays.
+
+  `FilterQueryBuilder.fromFilters(filters, opts?)` replays an array of already-resolved filter triples onto the builder in one call — a thin batch wrapper over `whereDynamic`, so operator/value validation, unary-value stripping, and replace-per-field semantics stay centralized. Complementary to `applyTanstackTableState`/`tanstackTableToFilterQuery`, which take vanilla TanStack `{ id, value }` and _infer_ the operator; `fromFilters` is for when the operator is already known (a filter dropdown, a saved view, a persisted filter blob).
+
+  Items with a falsy `field` are skipped, and `opts.skip` drops the filter for a single column (the "apply every filter except the current column's" pattern). On the per-route `TypedFilterQueryBuilder`, `field` and `opts.skip` narrow to the route's fields. Also adds a one-shot `filterQueryFromFilters(filters, opts?)` mirroring `tanstackTableToFilterQuery`. Purely additive.
+
+- 903c637: Add `groupByCount` — a terminal group-by-count aggregation over a primary-entity column, with an optional parameterized numeric bucket.
+
+  Expresses the chart-feeding query shape the entity-row contract couldn't: `SELECT <col> AS value, COUNT(*) AS count ... GROUP BY <col>`, plus a bucketed histogram variant (`FLOOR(col / :bucket) * :bucket`). It's a terminal mode, mutually exclusive with entity-row output — which makes a root-level `GROUP BY` safe (aggregation replaces rows rather than multiplying them, so the "never GROUP BY on the outer query" invariant for entity-row queries is untouched).
+
+  - **Core**: optional `FilterAdapter.groupByCount` contract method (same optional-capability convention as `applyDistinct`), a `FilterRunner.groupByCount(entity, input, opts)` runner method (dynamic mode, mirroring `findAndCount`), and `GroupByCountSpec`/`GroupByCountItem`/`GroupByCountBucket`/`GroupByCountResult` types. The grouping field is validated against the entity's filterable columns with the same machinery `sort`/`distinct` use — an unknown identifier is rejected (`400`) and never reaches SQL; an adapter without support throws a clear error.
+  - **MikroORM**: `groupByCount` implementation. The column is resolved via ORM metadata (never client text) and defensively quoted; the bucket width binds as a `?` parameter, never string-interpolated. Emits a root `GROUP BY` only in this mode.
+  - **Client**: terminal `groupByCount(field, opts?)` builder method (and typed narrowing on `TypedFilterQueryBuilder`), a `groupByCount` block on `FilterQueryResult`/`TypedFilterQuery`, and the `{ value, count }[]` / bucketed `{ bucketStart, bucketEnd, count }[]` response shapes.
+
+  Scope: `COUNT(*)` only, a single grouping column, numeric bucket — no `HAVING`, multi-column grouping, or date truncation. Purely additive.
+
 ## 1.12.0
 
 ### Minor Changes

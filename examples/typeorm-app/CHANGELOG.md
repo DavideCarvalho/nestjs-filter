@@ -1,5 +1,13 @@
 # @example/typeorm-app
 
+## 0.0.25
+
+### Patch Changes
+
+- Updated dependencies [903c637]
+  - @dudousxd/nestjs-filter@1.17.0
+  - @dudousxd/nestjs-filter-typeorm@1.15.0
+
 ## 0.0.24
 
 ### Patch Changes

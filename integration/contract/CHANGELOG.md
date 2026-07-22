@@ -1,5 +1,14 @@
 # @integration/contract
 
+## 0.0.14
+
+### Patch Changes
+
+- Updated dependencies [903c637]
+  - @dudousxd/nestjs-filter@1.17.0
+  - @dudousxd/nestjs-filter-mikro-orm@1.17.0
+  - @dudousxd/nestjs-filter-typeorm@1.15.0
+
 ## 0.0.13
 
 ### Patch Changes
