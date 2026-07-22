@@ -79,9 +79,10 @@ export class Post {
 
 /**
  * The MikroORM mirror of the contract's `User` filter — identical allowlist,
- * defaultSort, throwOnInvalid, search and (declared) computed metadata. The
- * MikroORM adapter does not implement computed fields, so the runner skips
- * them; the shared spec gates those expectations on `capabilities.computedFields`.
+ * defaultSort, throwOnInvalid, search and computed metadata. The adapter
+ * implements computed fields since 1.15 (`applyComputedField`/`applyComputedSort`),
+ * so `capabilities.computedFields` is true and the shared spec exercises the
+ * supported branch of the computed expectations.
  */
 @Injectable()
 @Filterable({
@@ -154,7 +155,7 @@ export function createMikroOrmHarness(): ContractHarness<User, Post> {
     name: 'mikro-orm',
     User,
     Post,
-    capabilities: { computedFields: false, relationPathFilters: true },
+    capabilities: { computedFields: true, relationPathFilters: true },
     get runner() {
       return runnerRef;
     },
