@@ -24,6 +24,27 @@ export interface OffsetPagination {
 }
 
 /**
+ * A single already-resolved filter triple for {@link FilterQueryBuilder.fromFilters}.
+ * Unlike a vanilla TanStack `{ id, value }` (where the operator is inferred), the
+ * operator here was chosen by application code — a filter dropdown, a saved view,
+ * etc. — so it's carried directly.
+ */
+export interface FilterInput {
+  field: string;
+  operator: FilterOperator;
+  value: unknown;
+}
+
+/**
+ * Terminal group-by-count specification: the grouping column, plus an optional
+ * positive numeric bucket width for the histogram/distribution variant.
+ */
+export interface GroupByCountSpec {
+  field: string;
+  bucket?: number;
+}
+
+/**
  * Internal representation of a condition added via `where()`.
  */
 interface Condition {
@@ -54,6 +75,13 @@ export interface FilterQueryResult {
   search?: string;
   sort?: SortItem[];
   distinct?: string[];
+  /**
+   * Terminal group-by-count aggregation. When present, the server answers with
+   * the aggregation (`{ value, count }[]`, or bucketed `{ bucketStart,
+   * bucketEnd, count }[]`) instead of entity rows — mutually exclusive with the
+   * normal paginated entity-row output.
+   */
+  groupByCount?: GroupByCountSpec;
   paginate?: OffsetPagination;
   [key: string]: unknown;
 }
@@ -70,6 +98,7 @@ export class FilterQueryBuilder {
   private searchTerm: string | undefined;
   private sorts: SortItem[] = [];
   private distinctFields: string[] = [];
+  private groupByCountSpec: GroupByCountSpec | undefined;
   private pagination: OffsetPagination | undefined;
 
   // ─── Reactivity (framework-agnostic store contract) ──────────────────────
@@ -220,6 +249,35 @@ export class FilterQueryBuilder {
   }
 
   /**
+   * Bulk-applies an array of already-resolved `{ field, operator, value }`
+   * filters onto the builder — a thin, typed batch wrapper over
+   * {@link whereDynamic}. Complementary to
+   * `applyTanstackTableState`/`tanstackTableToFilterQuery` (which take vanilla
+   * TanStack `{ id, value }` and *infer* the operator): reach for `fromFilters`
+   * when the caller already holds the operator (a filter dropdown, a saved view,
+   * a persisted filter blob).
+   *
+   * Each item is funneled through {@link whereDynamic}, so operator/value
+   * validation, unary-value stripping, and replace-per-field semantics are all
+   * centralized there — never re-implemented at the call site. Items with a
+   * falsy `field` are skipped (the `if (field)` guard consumers repeat by hand),
+   * and `opts.skip` skips the filter for a single column — the "apply every
+   * filter except the current column's" pattern a self-excluding filter dropdown
+   * needs.
+   *
+   * @example
+   * builder.fromFilters(savedView.filters, { skip: currentColumnId })
+   */
+  fromFilters(filters: readonly FilterInput[], opts?: { skip?: string }): this {
+    for (const f of filters) {
+      if (!f.field) continue;
+      if (opts?.skip !== undefined && f.field === opts.skip) continue;
+      this.whereDynamic(f.field, f.operator, f.value);
+    }
+    return this;
+  }
+
+  /**
    * Adds a filter condition, **accumulating** with any existing filters for the
    * same field. Use for range queries where you need multiple operators on one field.
    *
@@ -273,6 +331,7 @@ export class FilterQueryBuilder {
     this.searchTerm = undefined;
     this.sorts = [];
     this.distinctFields = [];
+    this.groupByCountSpec = undefined;
     this.pagination = undefined;
     this.notify();
     return this;
@@ -486,6 +545,30 @@ export class FilterQueryBuilder {
     return this;
   }
 
+  /**
+   * Terminal **group-by-count** aggregation over a single column — the
+   * chart-feeding query shape the entity-row contract can't express. The active
+   * `where`/`search` still apply; sort/pagination/distinct do not (this mode
+   * replaces entity rows). Mutually exclusive with entity-row output.
+   *
+   * Without `bucket`, the server answers with `{ value, count }[]` (one row per
+   * distinct value). With a positive numeric `bucket`, it answers with the
+   * histogram variant `{ bucketStart, bucketEnd, count }[]`
+   * (`bucketStart = FLOOR(col / bucket) * bucket`).
+   *
+   * @example
+   * filterQuery().where('base.id', 'in', baseIds).groupByCount('workOrderStatusCode')
+   * filterQuery().where('base.id', 'in', baseIds).groupByCount('totalActualCost', { bucket: 1000 })
+   */
+  groupByCount(field: string, opts?: { bucket?: number }): this {
+    this.groupByCountSpec = {
+      field,
+      ...(opts?.bucket !== undefined && { bucket: opts.bucket }),
+    };
+    this.notify();
+    return this;
+  }
+
   // ─── Sort & Pagination ──────────────────────────────────────────────────
 
   /**
@@ -663,6 +746,9 @@ export class FilterQueryBuilder {
     if (this.distinctFields.length > 0) {
       result.distinct = [...this.distinctFields];
     }
+    if (this.groupByCountSpec !== undefined) {
+      result.groupByCount = { ...this.groupByCountSpec };
+    }
     if (this.pagination !== undefined) {
       result.paginate = { ...this.pagination };
     }
@@ -777,4 +863,20 @@ export class FilterQueryBuilder {
  */
 export function filterQuery(): FilterQueryBuilder {
   return new FilterQueryBuilder();
+}
+
+/**
+ * One-shot convenience mirroring `tanstackTableToFilterQuery`: builds a
+ * `FilterQueryResult` straight from an array of already-resolved
+ * `{ field, operator, value }` filters. Equivalent to
+ * `filterQuery().fromFilters(filters, opts).build()`.
+ *
+ * @example
+ * const body = filterQueryFromFilters(savedView.filters, { skip: currentColumnId });
+ */
+export function filterQueryFromFilters(
+  filters: readonly FilterInput[],
+  opts?: { skip?: string },
+): FilterQueryResult {
+  return new FilterQueryBuilder().fromFilters(filters, opts).build();
 }

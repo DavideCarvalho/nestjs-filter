@@ -83,6 +83,22 @@ export interface TypedFilterQueryBuilder<
    */
   whereDynamic(field: Fields | (string & {}), operator: FilterOperator, value?: unknown): this;
 
+  /**
+   * Bulk-applies an array of already-resolved `{ field, operator, value }`
+   * filters — the typed counterpart of `FilterQueryBuilder.fromFilters`. `field`
+   * (and `opts.skip`) narrow to this route's `Fields`, so a filter array whose
+   * field names were narrowed up to `Fields` (e.g. via an `isFilterField`
+   * guard) applies without an `as` cast. Complementary to
+   * `applyTanstackTableState` — use this when the operator is already known.
+   *
+   * @example
+   * builder.fromFilters(resolvedFilters, { skip: currentColumnId })
+   */
+  fromFilters(
+    filters: readonly { field: Fields; operator: FilterOperator; value: unknown }[],
+    opts?: { skip?: Fields },
+  ): this;
+
   // ─── Convenience methods ────────────────────────────────────────────────
 
   equals<K extends Fields>(field: K, value: EqValue<ValueAt<M, K>>): this;
@@ -149,6 +165,17 @@ export interface TypedFilterQueryBuilder<
   // ─── Distinct (typed) ───────────────────────────────────────────────────
 
   distinct(...fields: Fields[]): this;
+
+  // ─── Group-by-count aggregation (typed) ─────────────────────────────────
+
+  /**
+   * Terminal group-by-count aggregation. `field` is constrained to this route's
+   * `Fields`, so an unknown grouping column is a compile error — matching the
+   * server-side allowlist validation. The response type (`{ value, count }[]`,
+   * or bucketed `{ bucketStart, bucketEnd, count }[]`) flows through the
+   * generated client for the route.
+   */
+  groupByCount(field: Fields, opts?: { bucket?: number }): this;
 
   // ─── Non-field methods (passthrough) ────────────────────────────────────
 

@@ -261,6 +261,45 @@ export interface FilterAdapter {
   applyDistinct?(qb: unknown, fields: string[], entity: Type<unknown>): void;
 
   /**
+   * Terminal group-by-count aggregation mode. Emits
+   * `SELECT <col-or-bucket> AS value, COUNT(*) AS count ... GROUP BY <col-or-bucket>`
+   * over the **root** entity, returning one row per distinct value (or per
+   * numeric bucket when `opts.bucket` is given).
+   *
+   * Unlike the to-many aggregate seam ({@link applyAggregateField} /
+   * {@link applyAggregateSort}), a root-level `GROUP BY` is safe here: this mode
+   * is mutually exclusive with entity-row output, so aggregation output replaces
+   * rows rather than multiplying them — the "never GROUP BY on the OUTER query"
+   * invariant that guards entity-row queries does not apply.
+   *
+   * `field` must be an already-validated filterable/sortable column (the caller
+   * resolves it through the same allowlist/metadata path `sort`/`applyDistinct`
+   * use), so no client-supplied identifier reaches the emitted SQL. When
+   * `opts.bucket` is a positive number, the bucket width binds as a **parameter**
+   * (never string-interpolated) and `value` is the bucket's start
+   * (`FLOOR(col / bucket) * bucket`); the caller derives `bucketEnd` from it.
+   *
+   * Active WHERE / search clauses are applied upstream by the runner before this
+   * terminal call; sort/pagination/distinct/select are not.
+   *
+   * Optional — adapters without aggregation support don't implement it; the
+   * runner then rejects a `groupByCount` request with a clear error.
+   *
+   * @param qb - The query builder instance (WHERE/search already applied).
+   * @param field - The already-validated grouping column (property name).
+   * @param entity - The root entity class.
+   * @param opts - Optional numeric bucket width for the bucketed variant.
+   * @returns One `{ value, count }` per group (`value` is the bucket start when
+   *   bucketed); `count` is the `COUNT(*)` for that group.
+   */
+  groupByCount?(
+    qb: unknown,
+    field: string,
+    entity: Type<unknown>,
+    opts?: { bucket?: number },
+  ): Promise<Array<{ value: unknown; count: number }>>;
+
+  /**
    * Restricts the query's projection to the given field(s) — JSON:API "sparse
    * fieldsets". Unlike {@link applyDistinct}, this adds **no** `DISTINCT`
    * modifier; it only narrows the SELECT list (the primary key should remain

@@ -9,6 +9,7 @@
     "cursor-pagination",
     "relations",
     "full-text-search",
+    "group-by-count",
     "multi-tenancy",
     "validation",
     "spatie-input",

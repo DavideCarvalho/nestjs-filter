@@ -272,6 +272,44 @@ export interface CursorPage<E> {
 }
 
 /**
+ * Terminal `groupByCount` specification carried on structured input:
+ * `{ field, bucket? }`. `field` is the grouping column (validated against the
+ * entity's filterable columns before it reaches SQL); `bucket`, when a positive
+ * number, switches to the numeric-bucketed histogram variant.
+ */
+export interface GroupByCountSpec {
+  field: string;
+  bucket?: number;
+}
+
+/**
+ * One plain (non-bucketed) group of the {@link FilterRunner.groupByCount}
+ * aggregation: a distinct column `value` and its `COUNT(*)`.
+ */
+export interface GroupByCountItem {
+  value: unknown;
+  count: number;
+}
+
+/**
+ * One numeric bucket of the bucketed {@link FilterRunner.groupByCount}
+ * aggregation. `bucketStart` is `FLOOR(col / bucket) * bucket`; the runner
+ * derives `bucketEnd = bucketStart + bucket` (half-open `[start, end)`).
+ */
+export interface GroupByCountBucket {
+  bucketStart: number;
+  bucketEnd: number;
+  count: number;
+}
+
+/**
+ * Result of {@link FilterRunner.groupByCount}: a flat list of `{ value, count }`
+ * groups, or — when a numeric `bucket` was requested — `{ bucketStart,
+ * bucketEnd, count }` buckets.
+ */
+export type GroupByCountResult = GroupByCountItem[] | GroupByCountBucket[];
+
+/**
  * Structured input format for the filter pipeline.
  *
  * Query string: `GET /users?filter[name]=Al&include=role,posts&search=fleet`
@@ -298,6 +336,13 @@ export interface StructuredInput {
    * projection.
    */
   select?: string | string[];
+  /**
+   * Terminal group-by-count aggregation: `{ field, bucket? }`. Mutually
+   * exclusive with entity-row output — a request carrying this is answered by
+   * {@link FilterRunner.groupByCount} with `{ value, count }[]` (or bucketed
+   * `{ bucketStart, bucketEnd, count }[]`), never entity rows.
+   */
+  groupByCount?: GroupByCountSpec;
   paginate?: OffsetPagination | CursorPagination;
   [key: string]: unknown;
 }

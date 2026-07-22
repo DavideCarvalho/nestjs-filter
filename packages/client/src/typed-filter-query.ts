@@ -13,5 +13,7 @@ export type TypedFilterQuery<
   search?: string;
   sort?: Array<{ field: Fields; direction: 'asc' | 'desc' }>;
   distinct?: Fields[];
+  /** Terminal group-by-count aggregation; `field` narrowed to this route's `Fields`. */
+  groupByCount?: { field: Fields; bucket?: number };
   paginate?: { page: number; size: number };
 };

@@ -1,0 +1,105 @@
+---
+title: Group-by-count
+description: A terminal aggregation mode over a primary-entity column — SELECT col, COUNT(*) GROUP BY col, with an optional parameterized numeric bucket — the typed way to feed charts and histograms.
+icon: ChartColumn
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The filter contract is `where + search + sort + distinct + paginate`, and it always returns **entity rows**. `groupByCount` adds a terminal aggregation mode for the most common chart-feeding query shape — one the entity-row contract can't express:
+
+```sql
+SELECT <col> AS value, COUNT(*) AS count
+FROM <entity>
+WHERE <normal filter clauses>
+GROUP BY <col>
+```
+
+and its numeric-bucketed histogram variant, where the grouping is parameterized per request:
+
+```sql
+SELECT FLOOR(<col> / :bucket) * :bucket AS value, COUNT(*) AS count
+FROM <entity>
+WHERE <normal filter clauses>
+GROUP BY FLOOR(<col> / :bucket) * :bucket
+```
+
+It is **mutually exclusive with entity-row output** — a request carrying `groupByCount` is answered with the aggregation, never rows. This makes a root-level `GROUP BY` safe: aggregation output *replaces* rows rather than multiplying them, so the "never GROUP BY on the outer query" invariant that guards entity-row queries (and the to-many aggregate subqueries) doesn't apply here.
+
+<Callout type="info">
+  Scope: `COUNT(*)` only, a **single** grouping column, and a **numeric** `bucket`. `HAVING`, multi-column grouping, aggregates other than count, and date truncation are intentionally out of this first cut.
+</Callout>
+
+## Client
+
+The client builder (`@dudousxd/nestjs-filter-client`) gains a terminal `groupByCount(field, opts?)` method. The active `where`/`search` still apply; `sort`/`paginate`/`distinct` do not.
+
+```ts
+import { filterQueryTyped } from '@dudousxd/nestjs-filter-client';
+
+// Plain: one { value, count } per distinct value
+const byStatus = filterQueryTyped<WorkOrderFields>()
+  .where('base.id', 'in', baseIds)
+  .where('workOrderStatusCode', 'notEquals', 'V-Voided')
+  .groupByCount('workOrderStatusCode')
+  .build();
+
+// Bucketed: a histogram of { bucketStart, bucketEnd, count }
+const costHistogram = filterQueryTyped<WorkOrderFields>()
+  .where('base.id', 'in', baseIds)
+  .groupByCount('totalActualCost', { bucket: 1000 })
+  .build();
+```
+
+On the [codegen](/docs/guides/codegen) per-route typed builder, `field` is constrained to that route's filter fields, so grouping by an unknown column is a **compile error** — matching the server-side allowlist validation.
+
+The wire body extends the structured input shape:
+
+```jsonc
+{
+  "filter": { "where": [ /* ... */ ] },
+  "groupByCount": { "field": "totalActualCost", "bucket": 1000 }
+}
+```
+
+### Response shape
+
+```ts
+// Non-bucketed:
+Array<{ value: T; count: number }>
+
+// Bucketed (the server derives bucketEnd = bucketStart + bucket):
+Array<{ bucketStart: number; bucketEnd: number; count: number }>
+```
+
+## Server
+
+Run the aggregation through `FilterRunner.groupByCount` — dynamic mode, no filter class required, mirroring `findAndCount`:
+
+```ts
+@Post('cost-distribution/search')
+async costDistribution(@Body() body: unknown) {
+  return this.filterRunner.groupByCount(WorkOrder, body);
+}
+```
+
+The `groupByCount.field` is validated against the entity's filterable columns with the **same** allowlist/metadata machinery `sort` and `distinct` use. An unknown identifier is rejected with a `400` and never reaches SQL — so the SQL-injection-by-identifier risk that hand-rolled raw-SQL endpoints manage with maintained column allowlists is closed by construction. The bucket width binds as a query **parameter**, never string-interpolated.
+
+<Callout type="warn">
+  `groupByCount` is an **optional** adapter capability. The MikroORM adapter implements it; on an adapter that doesn't, the runner throws a clear `groupByCount is not supported by the active adapter` error rather than silently degrading.
+</Callout>
+
+## Adapter contract
+
+Adapters opt in by implementing the optional `groupByCount` method (following the same convention as `applyDistinct`):
+
+```ts
+groupByCount?(
+  qb: unknown,
+  field: string,          // already validated against entity metadata
+  entity: Type<unknown>,
+  opts?: { bucket?: number },
+): Promise<Array<{ value: unknown; count: number }>>;
+```
+
+Identifiers are resolved from ORM metadata (never client text) and the bucket width is bound as a parameter. The runner shapes the returned `{ value, count }` rows into the final response — deriving `bucketEnd` for the bucketed variant.

@@ -452,6 +452,72 @@ export class MikroOrmAdapter implements FilterAdapter {
     queryBuilder.select(fields, true);
   }
 
+  /**
+   * Terminal group-by-count aggregation over the ROOT entity:
+   *
+   *   SELECT <col> AS value, COUNT(*) AS count FROM <t> WHERE … GROUP BY <col>
+   *
+   * or, when `opts.bucket` is a positive width, the numeric-bucketed variant:
+   *
+   *   SELECT FLOOR(<col> / ?) * ? AS value, COUNT(*) AS count
+   *   FROM <t> WHERE … GROUP BY FLOOR(<col> / ?) * ?
+   *
+   * A root-level GROUP BY is safe here (unlike the to-many aggregate subqueries,
+   * which must never GROUP BY the outer query): this mode replaces entity rows
+   * rather than multiplying them. The column is resolved from ORM metadata (the
+   * runner has already validated `field` against the entity's filterable
+   * columns), and is defensively backtick-quoted — never client text. The bucket
+   * width binds as a `?` parameter, so the client-supplied number cannot reach
+   * the SQL as text. WHERE/search clauses are applied upstream by the runner.
+   */
+  async groupByCount(
+    qb: unknown,
+    field: string,
+    entity: Type<unknown>,
+    opts?: { bucket?: number },
+  ): Promise<Array<{ value: unknown; count: number }>> {
+    const col = this.quoteIdent(this.resolveColumnName(entity, field));
+    const queryBuilder = qb as {
+      select: (fields: unknown) => unknown;
+      groupBy: (fields: unknown) => unknown;
+      execute: (method: 'all') => Promise<Record<string, unknown>[]>;
+    };
+
+    const bucket = opts?.bucket;
+    if (bucket !== undefined && bucket > 0) {
+      // FLOOR(col / ?) * ? — the bucket width rides as a bound parameter (never
+      // string-interpolated). GROUP BY repeats the same expression (portable
+      // across MySQL/Postgres/SQLite) rather than relying on a SELECT alias.
+      queryBuilder.select([
+        raw(`floor(${col} / ?) * ? as value`, [bucket, bucket]),
+        raw('count(*) as count'),
+      ]);
+      queryBuilder.groupBy(raw(`floor(${col} / ?) * ?`, [bucket, bucket]));
+    } else {
+      queryBuilder.select([raw(`${col} as value`), raw('count(*) as count')]);
+      queryBuilder.groupBy(raw(col));
+    }
+
+    const rows = await queryBuilder.execute('all');
+    return rows.map((r) => ({ value: r.value, count: Number(r.count) }));
+  }
+
+  /**
+   * Resolves a scalar property's real DB column name via ORM metadata. `field`
+   * is already validated against the entity's filterable columns by the runner
+   * before it reaches here, so this only maps property → column (and quotes
+   * defensively at the call site). Throws when the property/column can't be
+   * resolved — a metadata inconsistency, never a normal client path.
+   */
+  private resolveColumnName(entity: Type<unknown>, field: string): string {
+    const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+    const column = meta?.properties?.[field]?.fieldNames?.[0];
+    if (!column) {
+      throw new Error(`Cannot resolve a DB column for groupByCount field "${field}".`);
+    }
+    return column;
+  }
+
   applySelect(qb: unknown, fields: string[], entity: Type<unknown>): void {
     if (fields.length === 0) return;
     // Keep the primary key selected so rows stay addressable (hydration,

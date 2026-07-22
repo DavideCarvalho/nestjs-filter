@@ -49,6 +49,10 @@ import type {
   FilterContext,
   FilterMetadata,
   FilterModuleOptions,
+  GroupByCountBucket,
+  GroupByCountItem,
+  GroupByCountResult,
+  GroupByCountSpec,
   RelationMeta,
   SortItem,
 } from './types.js';
@@ -810,6 +814,7 @@ export class FilterRunner {
     sort: unknown;
     distinct: unknown;
     select: unknown;
+    groupByCount: unknown;
     paginate: unknown;
   } {
     // Opt-in spatie / JSON:API input format. Internal re-dispatch calls
@@ -825,6 +830,7 @@ export class FilterRunner {
         sort: undefined,
         distinct: undefined,
         select: undefined,
+        groupByCount: undefined,
         paginate: undefined,
       };
     }
@@ -841,6 +847,7 @@ export class FilterRunner {
       'sort',
       'distinct',
       'select',
+      'groupByCount',
       'paginate',
     ];
     if (STRUCTURED_KEYS.some((k) => k in inputObj)) {
@@ -851,6 +858,7 @@ export class FilterRunner {
         sort: inputObj.sort ?? undefined,
         distinct: inputObj.distinct ?? undefined,
         select: inputObj.select ?? undefined,
+        groupByCount: inputObj.groupByCount ?? undefined,
         paginate: inputObj.paginate ?? undefined,
       };
     }
@@ -862,6 +870,7 @@ export class FilterRunner {
       sort: undefined,
       distinct: undefined,
       select: undefined,
+      groupByCount: undefined,
       paginate: undefined,
     };
   }
@@ -1364,6 +1373,115 @@ export class FilterRunner {
     );
     if (fields.length === 0 || !adapter) return [];
     return this.validateDistinct(fields, undefined, adapter, entity, this.resolveThrowOnInvalid());
+  }
+
+  /**
+   * Terminal **group-by-count** aggregation over a single primary-entity column
+   * (dynamic mode — no filter class required, mirroring {@link findAndCount}).
+   * Answers the chart-feeding query shape the entity-row contract can't express:
+   *
+   *   SELECT <col> AS value, COUNT(*) AS count
+   *   FROM <entity> WHERE <normal filter clauses> GROUP BY <col>
+   *
+   * and its numeric-bucketed histogram variant when `groupByCount.bucket` is a
+   * positive number (`FLOOR(col / bucket) * bucket`).
+   *
+   * The `groupByCount.field` is validated against the entity's filterable columns
+   * with the **same** allowlist/metadata machinery `sort`/`distinct` use — an
+   * unknown identifier is rejected (`BadRequestException`) and never reaches SQL.
+   * The active `where`/`search` clauses still apply (built via `applyDynamic`);
+   * sort/pagination/distinct/select do not — this mode replaces entity rows.
+   *
+   * Requires an adapter implementing the optional `groupByCount` method; when
+   * absent, a clear error is thrown (`groupByCount is not supported by the
+   * active adapter`).
+   *
+   * @returns `{ value, count }[]` — or, when bucketed, `{ bucketStart, bucketEnd,
+   *   count }[]` with `bucketEnd = bucketStart + bucket`.
+   */
+  async groupByCount<E>(
+    entity: Type<E>,
+    input: unknown,
+    opts: { qb?: unknown; context?: FilterContext } = {},
+  ): Promise<GroupByCountResult> {
+    const adapter = this.resolveAdapter();
+    const structured = this.extractStructuredInput(input);
+
+    const spec = this.parseGroupByCount(structured.groupByCount);
+    if (!spec) {
+      throw new BadRequestException(
+        'groupByCount requires a `{ field }` specification (with an optional positive numeric `bucket`).',
+      );
+    }
+    if (!adapter?.groupByCount) {
+      throw new Error(
+        'groupByCount is not supported by the active adapter (it does not implement groupByCount()).',
+      );
+    }
+
+    // Validate the grouping field the SAME way distinct/sort validate a column —
+    // alias-remap, then allowlist/entity-metadata check — so an unvalidated
+    // identifier can never reach the emitted SQL. Unlike distinct (which
+    // silently drops invalid fields), the grouping column is the whole query, so
+    // an unknown field is rejected outright.
+    const filterableMeta = getFilterableMetadata(entity);
+    const [remapped] = this.remapFieldAliases([spec.field], filterableMeta);
+    const field = remapped ?? spec.field;
+    // Validate silently (drop-on-invalid) so we can surface a groupByCount-
+    // specific rejection: the grouping column is the whole query, so an unknown
+    // field is always rejected outright (never silently ignored, unlike a
+    // distinct field), regardless of the ambient throwOnInvalid policy.
+    const validated = this.validateDistinct([field], undefined, adapter, entity, false);
+    if (validated.length === 0 || !validated[0]) {
+      throw new BadRequestException(`Invalid groupByCount field: "${spec.field}".`);
+    }
+
+    const qb = opts.qb ?? adapter.createQueryBuilder(entity);
+
+    // Apply WHERE + search only (no sort/pagination/distinct/select — this mode
+    // replaces entity rows). `skipSortAndPagination` also keeps applyDynamic
+    // from ordering/slicing the pre-aggregation query.
+    await this.applyDynamic(
+      entity,
+      { filter: structured.filter, search: structured.search },
+      qb,
+      opts.context,
+      { skipSortAndPagination: true, native: true },
+    );
+
+    const bucket = spec.bucket;
+    const rows = await adapter.groupByCount(
+      qb,
+      validated[0],
+      entity,
+      bucket ? { bucket } : undefined,
+    );
+
+    if (bucket) {
+      return rows.map((r): GroupByCountBucket => {
+        const bucketStart = Number(r.value);
+        return { bucketStart, bucketEnd: bucketStart + bucket, count: Number(r.count) };
+      });
+    }
+    return rows.map((r): GroupByCountItem => ({ value: r.value, count: Number(r.count) }));
+  }
+
+  /**
+   * Parses and validates the raw `groupByCount` structured-input block into a
+   * canonical `{ field, bucket? }`. Returns `null` when no usable `field` is
+   * present. `bucket` is kept only when it is a finite positive number — a
+   * zero/negative/NaN/non-number bucket degrades to the plain (non-bucketed)
+   * group-by-count rather than emitting a divide-by-zero or nonsensical width.
+   */
+  private parseGroupByCount(raw: unknown): GroupByCountSpec | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.field !== 'string' || obj.field.length === 0) return null;
+    const bucket =
+      typeof obj.bucket === 'number' && Number.isFinite(obj.bucket) && obj.bucket > 0
+        ? obj.bucket
+        : undefined;
+    return { field: obj.field, ...(bucket !== undefined && { bucket }) };
   }
 
   /**
