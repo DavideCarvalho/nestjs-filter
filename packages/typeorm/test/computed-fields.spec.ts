@@ -13,8 +13,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Column, DataSource, Entity, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 import { TypeOrmFilterModule } from '../src/module.js';
-import { TypeOrmAdapter } from '../src/typeorm.adapter.js';
 import { TypeOrmFilter } from '../src/typeorm-filter.js';
+import { TypeOrmAdapter } from '../src/typeorm.adapter.js';
 
 @Entity('people')
 class Person {

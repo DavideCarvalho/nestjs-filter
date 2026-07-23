@@ -23,8 +23,8 @@ import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
-import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
 import { MikroOrmFilter } from '../src/mikro-orm-filter.js';
+import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
 import { MikroOrmFilterModule } from '../src/module.js';
 
 // ─── Entities ───────────────────────────────────────────────────────────────────
@@ -189,9 +189,7 @@ describe('MikroORM computed projection / distinct / groupByCount', () => {
 
     // Supplying `T` surfaces the projected computed field on the row type
     // without the historical `rows as Array<...>` cast.
-    const { rows, total } = await concrete.getResultAndCount<
-      Author & { booksCount: number }
-    >(qb);
+    const { rows, total } = await concrete.getResultAndCount<Author & { booksCount: number }>(qb);
     expectTypeOf(rows).toEqualTypeOf<Array<Author & { booksCount: number }>>();
     expectTypeOf(total).toEqualTypeOf<number>();
 
