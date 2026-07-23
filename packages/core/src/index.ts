@@ -5,6 +5,7 @@ export type {
   FilterAdapter,
   EntityFieldInfo,
   EntityRelationInfo,
+  GroupByCountField,
   VectorSearchOptions,
 } from './adapter/adapter.js';
 export { Filterable, getFilterableMetadata } from './decorator/filterable.decorator.js';
@@ -39,7 +40,8 @@ export {
 export type { ContextAccessor, ContextStore, UserRef } from './context-accessor.js';
 export { ApplyFilterInterceptor } from './interceptor/apply-filter.interceptor.js';
 export { FilterExceptionFilter } from './filter/filter-exception.filter.js';
-export { FilterRunner } from './runner.js';
+export { FilterRunner, buildComputedRegistry } from './runner.js';
+export type { ComputedRegistryEntry } from './runner.js';
 export { FilterModule } from './module.js';
 export {
   FilterException,

@@ -7,6 +7,17 @@ export interface ComputedOptions {
   /** Codegen-only value-type hint for filtering the computed field. No runtime
    * effect. Same shape as `@FilterFor`'s `type`. */
   type?: FilterFieldTypeHint;
+  /**
+   * Opt-in SELECT projection. When true, `FilterRunner.apply()` projects the
+   * computed expression into the SELECT list under the field's alias (via the
+   * adapter's `applyComputedSelect` capability — warn-and-skip when the
+   * adapter doesn't implement it), so executed rows carry the computed value.
+   *
+   * NOTE: unlike `type` (and every prior `@Computed` option), this is NOT a
+   * runtime-invisible codegen hint — it changes the emitted query. Defaults
+   * to `false` (filter/sort-only, the historical behavior).
+   */
+  project?: boolean;
 }
 
 /** Declares a computed/virtual field whose SQL source is the decorated method's

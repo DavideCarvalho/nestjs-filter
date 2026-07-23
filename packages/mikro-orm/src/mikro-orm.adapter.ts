@@ -5,6 +5,7 @@ import {
   type EntityFieldInfo,
   type EntityRelationInfo,
   type FilterAdapter,
+  type GroupByCountField,
   type SortItem,
   escapeLike,
   hasArrayPathSegment,
@@ -62,6 +63,20 @@ interface AggregateEntityProp {
   inverseJoinColumns?: string[];
 }
 
+/**
+ * The slice of MikroORM's `QueryBuilder` the computed-projection call sites
+ * touch: the resolved main alias (needed to evaluate function sources against
+ * a CONCRETE alias — see {@link MikroOrmAdapter.computedSql}), the internal
+ * `state.fields` (to detect the implicit full-row projection), and the
+ * `select`/`addSelect` projection mutators.
+ */
+interface ProjectionQB {
+  alias: string;
+  state: { fields?: unknown[] };
+  select: (fields: unknown, distinct?: boolean) => unknown;
+  addSelect: (fields: unknown) => unknown;
+}
+
 export class MikroOrmAdapter implements FilterAdapter {
   constructor(private readonly em: SqlEntityManager) {}
 
@@ -70,6 +85,32 @@ export class MikroOrmAdapter implements FilterAdapter {
   private fieldCache = new WeakMap<object, EntityFieldInfo[] | null>();
   private relationCache = new WeakMap<object, EntityRelationInfo[] | null>();
   private fieldPathCache = new WeakMap<object, Map<string, 'field' | 'relation' | 'json' | null>>();
+
+  /**
+   * Computed aliases projected into a builder's SELECT list via
+   * {@link applyComputedSelect}, tracked PER builder instance. This is the
+   * adapter-side half of the execution seam documented on the core
+   * `FilterAdapter.getResultAndCount` contract: static mode
+   * (`FilterRunner.apply()`) never executes the query itself and never
+   * re-passes the aliases, so the adapter must remember which aliases it
+   * projected onto which builder in order to surface the computed values on
+   * the rows {@link getResultAndCount} returns. A `WeakMap` keyed on the
+   * builder keeps the bookkeeping invisible to callers and lets entries die
+   * with their builder — no explicit cleanup, no cross-request leakage.
+   */
+  private projectedAliases = new WeakMap<object, string[]>();
+
+  /**
+   * Builders whose DISTINCT projection contains at least one computed
+   * expression (added via {@link applyComputedDistinct}). The `fields`
+   * parameter of {@link getDistinctResultAndCount} only carries the PLAIN
+   * distinct columns (per the core contract), so without this marker the
+   * total would be computed with `getCount(fields, true)` over the plain
+   * columns alone — undercounting tuples that differ only in a computed
+   * member. Marked builders instead count via a `count(*)` wrapper over the
+   * builder's own full DISTINCT projection.
+   */
+  private computedDistinctBuilders = new WeakSet<object>();
 
   createQueryBuilder<E>(entity: Type<E>): unknown {
     return this.em.createQueryBuilder(entity as unknown as new () => E);
@@ -464,38 +505,49 @@ export class MikroOrmAdapter implements FilterAdapter {
    *
    * A root-level GROUP BY is safe here (unlike the to-many aggregate subqueries,
    * which must never GROUP BY the outer query): this mode replaces entity rows
-   * rather than multiplying them. The column is resolved from ORM metadata (the
-   * runner has already validated `field` against the entity's filterable
-   * columns), and is defensively backtick-quoted — never client text. The bucket
-   * width binds as a `?` parameter, so the client-supplied number cannot reach
-   * the SQL as text. WHERE/search clauses are applied upstream by the runner.
+   * rather than multiplying them. A plain (string) field is resolved from ORM
+   * metadata (the runner has already validated it against the entity's
+   * filterable columns) and defensively backtick-quoted — never client text.
+   * A computed field arrives as the `{ alias, source }` shape of
+   * {@link GroupByCountField}; the grouping expression is then the dev-provided
+   * computed source, resolved against the builder's concrete main alias via
+   * {@link computedSql} (grouping by a parenthesized scalar subquery is valid
+   * in MySQL and SQLite — the same GROUP-BY-repeats-the-expression pattern the
+   * bucketed variant already uses). The bucket width binds as a `?` parameter
+   * either way, so the client-supplied number cannot reach the SQL as text.
+   * WHERE/search clauses are applied upstream by the runner.
    */
   async groupByCount(
     qb: unknown,
-    field: string,
+    field: GroupByCountField,
     entity: Type<unknown>,
     opts?: { bucket?: number },
   ): Promise<Array<{ value: unknown; count: number }>> {
-    const col = this.quoteIdent(this.resolveColumnName(entity, field));
     const queryBuilder = qb as {
+      alias: string;
       select: (fields: unknown) => unknown;
       groupBy: (fields: unknown) => unknown;
       execute: (method: 'all') => Promise<Record<string, unknown>[]>;
     };
+    const expr =
+      typeof field === 'string'
+        ? this.quoteIdent(this.resolveColumnName(entity, field))
+        : this.computedSql(field.source, queryBuilder.alias);
 
     const bucket = opts?.bucket;
     if (bucket !== undefined && bucket > 0) {
-      // FLOOR(col / ?) * ? — the bucket width rides as a bound parameter (never
-      // string-interpolated). GROUP BY repeats the same expression (portable
-      // across MySQL/Postgres/SQLite) rather than relying on a SELECT alias.
+      // FLOOR(expr / ?) * ? — the bucket width rides as a bound parameter
+      // (never string-interpolated). GROUP BY repeats the same expression
+      // (portable across MySQL/Postgres/SQLite) rather than relying on a
+      // SELECT alias.
       queryBuilder.select([
-        raw(`floor(${col} / ?) * ? as value`, [bucket, bucket]),
+        raw(`floor(${expr} / ?) * ? as value`, [bucket, bucket]),
         raw('count(*) as count'),
       ]);
-      queryBuilder.groupBy(raw(`floor(${col} / ?) * ?`, [bucket, bucket]));
+      queryBuilder.groupBy(raw(`floor(${expr} / ?) * ?`, [bucket, bucket]));
     } else {
-      queryBuilder.select([raw(`${col} as value`), raw('count(*) as count')]);
-      queryBuilder.groupBy(raw(col));
+      queryBuilder.select([raw(`${expr} as value`), raw('count(*) as count')]);
+      queryBuilder.groupBy(raw(expr));
     }
 
     const rows = await queryBuilder.execute('all');
@@ -575,18 +627,57 @@ export class MikroOrmAdapter implements FilterAdapter {
    */
   private resolveComputed(source: ComputedSource) {
     if (typeof source === 'string') {
-      // Emitted verbatim — no token substitution. A correlated subquery that
-      // needs the outer alias must use the function form `({ alias }) => …`.
-      return raw(source);
+      // Emitted verbatim (modulo auto-parens) — no token substitution. A
+      // correlated subquery that needs the outer alias must use the function
+      // form `({ alias }) => …`.
+      return raw(this.autoParen(source));
     }
-    // Function source: run at build time with the real alias.
-    return raw((alias) => {
-      const out = source({ alias, em: this.em });
-      if (typeof out === 'string') return out;
-      // Adapter-specific return (a raw fragment `{ sql }` or a MikroORM
-      // QueryBuilder) → its SQL, via `computedReturnToSql`.
-      return this.computedReturnToSql(out, alias);
-    });
+    // Function source: run at build time with the real alias (a sentinel that
+    // MikroORM substitutes when compiling WHERE/ORDER BY fragments).
+    return raw((alias) => this.computedSql(source, alias));
+  }
+
+  /**
+   * Resolves a computed source to a plain SQL string against a **concrete**
+   * alias — the projection-context counterpart of {@link resolveComputed}.
+   *
+   * Why a separate path: `raw((alias) => …)` resolves its callback eagerly
+   * with the `[::alias::]` sentinel, and MikroORM's substitution pass replaces
+   * that sentinel **only** in WHERE / ORDER BY fragments — a raw fragment used
+   * as a SELECT or GROUP BY field keeps the literal sentinel text and breaks
+   * at the database ("no such column: ::alias::.…"; confirmed empirically).
+   * Projection call sites ({@link applyComputedSelect},
+   * {@link applyComputedDistinct}, computed {@link groupByCount}) therefore
+   * evaluate the function source directly with the builder's real main alias
+   * (`qb.alias` — fixed at builder creation), needing no substitution pass.
+   *
+   * String sources stay verbatim (no token substitution), matching
+   * {@link resolveComputed}; both source shapes get {@link autoParen} applied,
+   * so a bare `SELECT …` subquery works identically in every clause.
+   */
+  private computedSql(source: ComputedSource, alias: string): string {
+    if (typeof source === 'string') return this.autoParen(source);
+    const out = source({ alias, em: this.em });
+    if (typeof out === 'string') return this.autoParen(out);
+    // Adapter-specific return (a raw fragment `{ sql }` or a MikroORM
+    // QueryBuilder) → its SQL, via `computedReturnToSql`.
+    return this.computedReturnToSql(out, alias);
+  }
+
+  /**
+   * Auto-parenthesizes a resolved computed SQL string that is a bare scalar
+   * subquery: a source starting with `SELECT` (case-insensitive, after
+   * trimming) is wrapped in `( … )` so it composes as an expression in every
+   * clause it can land in — WHERE, ORDER BY, SELECT, DISTINCT and GROUP BY
+   * alike. Applied at the single resolution seam ({@link resolveComputed} /
+   * {@link computedSql} / `{ sql }` returns in {@link computedReturnToSql}),
+   * so every call site benefits uniformly. Anything not starting with
+   * `SELECT` is left untouched (an already-parenthesized subquery starts with
+   * `(`, so it never matches — no double wrapping).
+   */
+  private autoParen(sql: string): string {
+    const trimmed = sql.trim();
+    return /^select\b/i.test(trimmed) ? `(${trimmed})` : sql;
   }
 
   /**
@@ -632,7 +723,7 @@ export class MikroOrmAdapter implements FilterAdapter {
       return `(${sql})`;
     }
     const sql = (out as { sql?: string }).sql;
-    if (typeof sql === 'string') return sql;
+    if (typeof sql === 'string') return this.autoParen(sql);
     throw new Error('Unsupported computed return type for MikroORM adapter');
   }
 
@@ -652,6 +743,74 @@ export class MikroOrmAdapter implements FilterAdapter {
     if (conditions.length === 0) return;
     const condition = conditions.length === 1 ? conditions[0]! : { $and: conditions };
     (qb as { andWhere: (c: unknown) => void }).andWhere(condition);
+  }
+
+  /**
+   * Projects a computed field into the SELECT list under its alias
+   * (`project: true`), ADDITIVELY — the projection already on the builder
+   * (implicit full row, or a sparse `applySelect` narrowing) is preserved and
+   * the aliased expression appended to it.
+   *
+   * Two MikroORM-specific wrinkles:
+   * - **Implicit-full-row seeding.** `addSelect()` spreads `state.fields ?? []`
+   *   into a fresh `select()`, so on a pristine builder (fields still
+   *   `undefined` = implicit full row) it would REPLACE the entity projection
+   *   with just the computed expression. An explicit `select('*')` first pins
+   *   the full row (`` `a0`.* ``) so the addSelect genuinely adds.
+   * - **Concrete alias.** The expression is resolved via {@link computedSql}
+   *   with the builder's real main alias — SELECT fields never go through the
+   *   `[::alias::]` sentinel substitution that WHERE/ORDER BY fragments get.
+   *
+   * The alias is recorded in {@link projectedAliases} so
+   * {@link getResultAndCount} can route this builder through its
+   * projection-aware path and surface the value on the returned rows.
+   */
+  applyComputedSelect(qb: unknown, alias: string, source: ComputedSource): void {
+    this.assertSafeAlias(alias);
+    const queryBuilder = qb as ProjectionQB;
+    const expr = this.computedSql(source, queryBuilder.alias);
+    if (queryBuilder.state.fields === undefined) queryBuilder.select('*');
+    queryBuilder.addSelect(raw(`${expr} as ${this.quoteIdent(alias)}`));
+    const aliases = this.projectedAliases.get(qb as object);
+    if (aliases) {
+      aliases.push(alias);
+    } else {
+      this.projectedAliases.set(qb as object, [alias]);
+    }
+  }
+
+  /**
+   * Adds a computed expression, under its alias, as a member of a **DISTINCT**
+   * projection. Two cases, keyed off the builder's projection state:
+   *
+   * - `applyDistinct` (or a previous computed alias) already established the
+   *   distinct projection → `addSelect` appends the aliased expression.
+   *   `addSelect` re-issues `select(fields)` with `distinct = false`, which
+   *   only ever ADDS the DISTINCT flag and never clears it, so the projection
+   *   stays distinct (confirmed against MikroORM 7's `select()` source).
+   * - The distinct list named ONLY computed aliases, so no plain-column
+   *   `applyDistinct` ran and the builder still has its implicit full-row
+   *   projection (`state.fields === undefined`) → `select(expr, true)`
+   *   establishes the distinct projection with the expression itself.
+   *
+   * The expression resolves against the concrete main alias (same sentinel
+   * caveat as {@link applyComputedSelect}). The builder is marked in
+   * {@link computedDistinctBuilders} so {@link getDistinctResultAndCount}
+   * counts distinct tuples over the FULL projection, computed members
+   * included.
+   */
+  applyComputedDistinct(qb: unknown, alias: string, source: ComputedSource): void {
+    this.assertSafeAlias(alias);
+    const queryBuilder = qb as ProjectionQB;
+    const expr = raw(
+      `${this.computedSql(source, queryBuilder.alias)} as ${this.quoteIdent(alias)}`,
+    );
+    if (queryBuilder.state.fields === undefined) {
+      queryBuilder.select(expr, true);
+    } else {
+      queryBuilder.addSelect(expr);
+    }
+    this.computedDistinctBuilders.add(qb as object);
   }
 
   /**
@@ -877,15 +1036,86 @@ export class MikroOrmAdapter implements FilterAdapter {
     return `\`${name.replace(/`/g, '``')}\``;
   }
 
+  /**
+   * Asserts a computed field's alias is a plain SQL identifier
+   * (`[A-Za-z_][A-Za-z0-9_]*`). Aliases are dev-declared (the keys of the
+   * `@Filterable.computed` map / `@Computed` method names), never client
+   * input, so a violation is a programming error — but since the alias is
+   * embedded into a raw `… as \`alias\`` fragment (and must round-trip
+   * verbatim as a result-row key), it gets the same defensive rigor
+   * {@link quoteIdent} applies to metadata-derived identifiers, plus this
+   * hard shape check.
+   */
+  private assertSafeAlias(alias: string): void {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) {
+      throw new Error(
+        `Computed alias "${alias}" is not a safe SQL identifier (expected [A-Za-z_][A-Za-z0-9_]*).`,
+      );
+    }
+  }
+
   applyOffsetPagination(qb: unknown, page: number, size: number): void {
     const queryBuilder = qb as { limit: (n: number) => unknown; offset: (n: number) => unknown };
     queryBuilder.limit(size);
     queryBuilder.offset(page * size);
   }
 
+  /**
+   * Executes the page + total. Two paths, keyed off {@link projectedAliases}:
+   *
+   * **No computed projection** (the historical path): MikroORM's own
+   * `getResultAndCount()` — hydrated entities + a count that ignores
+   * limit/offset.
+   *
+   * **Computed projection** ({@link applyComputedSelect} recorded aliases for
+   * this builder): MikroORM's entity hydration discards any selected column
+   * that isn't in the entity metadata, so the computed values would silently
+   * vanish from `getResultList()` rows. Instead:
+   *
+   * - the page executes RAW (`qb.clone().execute('all')` — the same
+   *   no-identity-map execution {@link getDistinctResultAndCount} uses), so
+   *   each row keeps the computed alias key; `execute` also maps DB columns
+   *   back to property names via the naming strategy, so entity columns come
+   *   back property-keyed and unknown (computed) keys pass through untouched;
+   * - each raw row is hydrated into a real entity via `em.map(entity, row)`
+   *   (the builder's own `em` when available, so a forked context keeps its
+   *   identity map; the adapter's `em` otherwise) — callers still receive
+   *   entity instances, exactly like the historical path;
+   * - each recorded computed alias is then re-attached onto the hydrated
+   *   entity (`entity[alias] = row[alias]`) — the piece hydration dropped;
+   * - the total runs as a separate `qb.clone().getCount()`: `count()` REPLACES
+   *   the projection with `count(*)` (the computed expression never affects
+   *   how many rows match on a non-distinct query, so evaluating it inside the
+   *   count would be pure waste) and resets limit/offset/order internally —
+   *   the same reset contract the historical `getResultAndCount()` total has.
+   */
   async getResultAndCount(qb: unknown): Promise<{ rows: unknown[]; total: number }> {
-    const queryBuilder = qb as { getResultAndCount: () => Promise<[unknown[], number]> };
-    const [rows, total] = await queryBuilder.getResultAndCount();
+    const aliases = this.projectedAliases.get(qb as object);
+    if (!aliases || aliases.length === 0) {
+      const queryBuilder = qb as { getResultAndCount: () => Promise<[unknown[], number]> };
+      const [rows, total] = await queryBuilder.getResultAndCount();
+      return { rows, total };
+    }
+
+    const queryBuilder = qb as {
+      clone: () => {
+        execute: (method: 'all') => Promise<Record<string, unknown>[]>;
+        getCount: () => Promise<number>;
+      };
+      mainAlias: { meta: { class: new () => object } };
+      em?: SqlEntityManager;
+    };
+    const entity = queryBuilder.mainAlias.meta.class;
+    const em = queryBuilder.em ?? this.em;
+    const rawRows = await queryBuilder.clone().execute('all');
+    const rows = rawRows.map((row) => {
+      const hydrated = em.map(entity, row as never) as unknown as Record<string, unknown>;
+      for (const alias of aliases) {
+        hydrated[alias] = row[alias];
+      }
+      return hydrated;
+    });
+    const total = await queryBuilder.clone().getCount();
     return { rows, total };
   }
 
@@ -897,12 +1127,23 @@ export class MikroOrmAdapter implements FilterAdapter {
    * to property names (via the driver's naming strategy) WITHOUT identity-map
    * hydration, so it works on a projection with no PK selected.
    *
-   * The total uses MikroORM's own `getCount(fields, true)`, which is already
-   * dialect-aware for multi-column DISTINCT: it emits `count(distinct a, b)`
-   * on platforms that support multi-column `COUNT(DISTINCT ...)` (e.g. MySQL)
-   * and falls back to a `count(*) from (select distinct a, b ...)` subquery
-   * wrapper everywhere else (e.g. Postgres, SQLite) — see
+   * The plain-columns total uses MikroORM's own `getCount(fields, true)`,
+   * which is already dialect-aware for multi-column DISTINCT: it emits
+   * `count(distinct a, b)` on platforms that support multi-column
+   * `COUNT(DISTINCT ...)` (e.g. MySQL) and falls back to a
+   * `count(*) from (select distinct a, b ...)` subquery wrapper everywhere
+   * else (e.g. Postgres, SQLite) — see
    * `platform.supportsMultiColumnCountDistinct()`.
+   *
+   * When the distinct projection carries computed members (builder marked in
+   * {@link computedDistinctBuilders}), `getCount(fields, true)` would count
+   * only the plain columns — `fields` never carries the computed aliases (core
+   * contract) and `getCount` can't take a raw expression. The total instead
+   * wraps the builder's own full DISTINCT projection in a dialect-neutral
+   * `SELECT COUNT(*) FROM (<select distinct …>) AS distinct_count` subquery
+   * (the same pattern the TypeORM adapter uses for every distinct total),
+   * with limit/offset/order reset on the inner clone and the WHERE parameters
+   * still bound (`getQuery()` + `getParams()` — never inlined).
    */
   async getDistinctResultAndCount(
     qb: unknown,
@@ -912,12 +1153,37 @@ export class MikroOrmAdapter implements FilterAdapter {
       clone: () => {
         execute: (method: 'all') => Promise<Record<string, unknown>[]>;
         getCount: (field: string[], distinct: boolean) => Promise<number>;
+        limit: (n?: number) => unknown;
+        offset: (n?: number) => unknown;
+        orderBy: (order: unknown[]) => unknown;
+        getQuery: () => string;
+        getParams: () => readonly unknown[];
       };
+      em?: SqlEntityManager;
     };
     const rows = await queryBuilder.clone().execute('all');
-    // Total ignores limit/offset/order (getCount resets them internally),
-    // mirroring how getResultAndCount's own total is computed.
-    const total = await queryBuilder.clone().getCount(fields, true);
+
+    if (!this.computedDistinctBuilders.has(qb as object)) {
+      // Total ignores limit/offset/order (getCount resets them internally),
+      // mirroring how getResultAndCount's own total is computed.
+      const total = await queryBuilder.clone().getCount(fields, true);
+      return { rows, total };
+    }
+
+    // Computed member(s) in the distinct projection → count the FULL tuple.
+    const inner = queryBuilder.clone();
+    inner.limit(undefined);
+    inner.offset(undefined);
+    inner.orderBy([]);
+    const em = queryBuilder.em ?? this.em;
+    const result = await em
+      .getConnection()
+      .execute<Array<{ count: unknown }>>(
+        `select count(*) as count from (${inner.getQuery()}) as distinct_count`,
+        [...inner.getParams()],
+        'all',
+      );
+    const total = Number(result[0]?.count ?? 0);
     return { rows, total };
   }
 

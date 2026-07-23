@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import {
   type ComputedContext,
+  FILTER_ADAPTER,
+  type FilterAdapter,
   FilterModule,
   FilterRunner,
   Filterable,
@@ -88,6 +90,21 @@ class PersonFilterFn extends TypeOrmFilter<Person> {}
 })
 class PersonFilterVerbatim extends TypeOrmFilter<Person> {}
 
+// Projection-era filter: `fullName` opts into SELECT projection
+// (`project: true`) and `answer` doubles as the auto-parentheses probe — a
+// bare `SELECT ...` string source that `resolveComputedExpression` must wrap
+// in parens before inlining it into the SELECT list.
+@Injectable()
+@Filterable({
+  entity: Person,
+  autoFields: true,
+  computed: {
+    fullName: { source: "person.first || ' ' || person.last", project: true },
+    answer: { source: 'SELECT 42', project: true },
+  },
+})
+class PersonFilterProjected extends TypeOrmFilter<Person> {}
+
 // A QB-callback computed field: the source function builds and returns a real
 // TypeORM SelectQueryBuilder for a correlated subquery (rather than a
 // hand-written SQL string). TypeORM resolves its alias eagerly, so `alias`
@@ -113,6 +130,20 @@ class PersonFilterVerbatim extends TypeOrmFilter<Person> {}
   },
 })
 class AuthorFilterQb extends TypeOrmFilter<Author> {}
+
+// Function-source mirror of `AuthorFilterQb` returning a BARE `SELECT ...`
+// string (no hand-written parens): the adapter's auto-parentheses
+// normalization must wrap it before inlining into ORDER BY/WHERE — without
+// the wrap, `ORDER BY SELECT COUNT(*) ...` is a SQL syntax error.
+@Injectable()
+@Filterable({
+  entity: Author,
+  computed: {
+    booksCountBare: ({ alias }: ComputedContext) =>
+      `SELECT COUNT(*) FROM books WHERE books.authorId = ${alias}.id`,
+  },
+})
+class AuthorFilterBareSelect extends TypeOrmFilter<Author> {}
 
 describe('TypeORM computed / virtual fields', () => {
   let ds: DataSource;
@@ -258,7 +289,7 @@ describe('TypeORM computed field — QB-callback source', () => {
         }),
         FilterModule.forRoot({ validation: 'off' }),
         TypeOrmFilterModule.forRoot(),
-        FilterModule.forFeature([AuthorFilterQb]),
+        FilterModule.forFeature([AuthorFilterQb, AuthorFilterBareSelect]),
       ],
     }).compile();
     ds = mod.get(DataSource);
@@ -340,6 +371,267 @@ describe('TypeORM computed field — QB-callback source', () => {
     expect(params).toContain("0'; DROP TABLE books;--");
     const rows = await qb.getMany();
     expect(rows).toEqual([]);
+    await mod.close();
+  });
+
+  it('auto-parenthesizes a bare SELECT string source for sorting (and leaves parenthesized SQL alone)', async () => {
+    const mod = await createModule();
+    await seed();
+    const repo = ds.getRepository(Author);
+    const qb = repo.createQueryBuilder('author');
+    await runner.apply(AuthorFilterBareSelect, { filter: {}, sort: '-booksCountBare' }, qb);
+    const sql = qb.getSql();
+    // The bare `SELECT COUNT(*) ...` source arrives wrapped: `(SELECT COUNT(*) ...`.
+    expect(sql).toContain('(SELECT COUNT(*)');
+    const rows = await qb.getMany();
+    // 3, 1, 0 → Ada, Alan, Grace — a syntax error here means the wrap was dropped.
+    expect(rows.map((r) => r.name)).toEqual(['Ada', 'Alan', 'Grace']);
+    await mod.close();
+  });
+
+  it('auto-parenthesizes a bare SELECT string source for filtering', async () => {
+    const mod = await createModule();
+    await seed();
+    const repo = ds.getRepository(Author);
+    const qb = repo.createQueryBuilder('author');
+    await runner.apply(AuthorFilterBareSelect, { filter: { booksCountBare: { gt: 1 } } }, qb);
+    const rows = await qb.getMany();
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+    await mod.close();
+  });
+});
+
+// ─── Projection (`project: true`), computed distinct, computed groupByCount ───
+//
+// Seed (4 rows, ids 1-4): Ada Lovelace ×2 (a genuine duplicate for the
+// distinct/group tests), Ada Byron, Alan Turing.
+describe('TypeORM computed projection / distinct / groupByCount', () => {
+  let ds: DataSource;
+  let runner: FilterRunner;
+  let adapter: FilterAdapter;
+
+  type ProjectedRow = Person & { fullName?: string; answer?: number };
+
+  async function createModule() {
+    const mod = await Test.createTestingModule({
+      imports: [
+        TypeOrmModule.forRoot({
+          type: 'better-sqlite3',
+          database: ':memory:',
+          entities: [Person],
+          synchronize: true,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        TypeOrmFilterModule.forRoot(),
+        FilterModule.forFeature([PersonFilter, PersonFilterProjected]),
+      ],
+    }).compile();
+    ds = mod.get(DataSource);
+    runner = mod.get(FilterRunner);
+    adapter = mod.get<FilterAdapter>(FILTER_ADAPTER);
+    return mod;
+  }
+
+  async function seed() {
+    await ds.getRepository(Person).save([
+      { first: 'Ada', last: 'Lovelace' },
+      { first: 'Ada', last: 'Lovelace' },
+      { first: 'Ada', last: 'Byron' },
+      { first: 'Alan', last: 'Turing' },
+    ]);
+  }
+
+  afterEach(async () => {
+    if (ds?.isInitialized) await ds.destroy();
+  });
+
+  it('project:true surfaces the computed VALUE on rows via adapter.getResultAndCount', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = ds.getRepository(Person).createQueryBuilder('person');
+    await runner.apply(PersonFilterProjected, { filter: {} }, qb);
+
+    const { rows, total } = await adapter.getResultAndCount!(qb);
+    const typed = rows as ProjectedRow[];
+    expect(total).toBe(4);
+    expect(typed.map((r) => r.fullName)).toEqual([
+      'Ada Lovelace',
+      'Ada Lovelace',
+      'Ada Byron',
+      'Alan Turing',
+    ]);
+    // Entities stay hydrated alongside the computed alias.
+    expect(typed[0]!.first).toBe('Ada');
+    expect(typed[0]!.id).toBe(1);
+    await mod.close();
+  });
+
+  it('auto-parenthesizes a bare SELECT source in the projection (answer: "SELECT 42")', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = ds.getRepository(Person).createQueryBuilder('person');
+    await runner.apply(PersonFilterProjected, { filter: {} }, qb);
+
+    expect(qb.getSql()).toContain('(SELECT 42)');
+    const { rows } = await adapter.getResultAndCount!(qb);
+    expect((rows as ProjectedRow[]).map((r) => r.answer)).toEqual([42, 42, 42, 42]);
+    await mod.close();
+  });
+
+  it('project:true composes with a filter on the same computed field', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = ds.getRepository(Person).createQueryBuilder('person');
+    await runner.apply(PersonFilterProjected, { filter: { fullName: 'Alan Turing' } }, qb);
+
+    const { rows, total } = await adapter.getResultAndCount!(qb);
+    expect(total).toBe(1);
+    expect((rows as ProjectedRow[]).map((r) => r.fullName)).toEqual(['Alan Turing']);
+    await mod.close();
+  });
+
+  it('without project, getResultAndCount keeps the current path — plain entity rows, no alias key', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = ds.getRepository(Person).createQueryBuilder('person');
+    // PersonFilter declares `fullName` WITHOUT project — filter/sort-only.
+    await runner.apply(PersonFilter, { filter: {} }, qb);
+
+    const { rows, total } = await adapter.getResultAndCount!(qb);
+    expect(total).toBe(4);
+    expect(rows).toHaveLength(4);
+    expect(Object.keys(rows[0] as object)).not.toContain('fullName');
+    await mod.close();
+  });
+
+  it('sparse select + project: the computed alias ADDs to the narrowed projection', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = ds.getRepository(Person).createQueryBuilder('person');
+    await runner.apply(PersonFilterProjected, { filter: {}, select: 'first' }, qb);
+
+    const { rows } = await adapter.getResultAndCount!(qb);
+    const typed = rows as ProjectedRow[];
+    // Sparse projection kept: `first` (+ PK) hydrated, `last` never selected …
+    expect(typed[0]!.first).toBe('Ada');
+    expect(typed[0]!.id).toBe(1);
+    expect(typed[0]!.last).toBeUndefined();
+    // … and the computed alias was ADDED to it, full value intact.
+    expect(typed.map((r) => r.fullName)).toEqual([
+      'Ada Lovelace',
+      'Ada Lovelace',
+      'Ada Byron',
+      'Alan Turing',
+    ]);
+    await mod.close();
+  });
+
+  it('projection-aware total mirrors getManyAndCount: pagination-independent', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = ds.getRepository(Person).createQueryBuilder('person');
+    await runner.apply(PersonFilterProjected, { filter: {}, paginate: { page: 0, size: 2 } }, qb);
+
+    const { rows, total } = await adapter.getResultAndCount!(qb);
+    expect(rows).toHaveLength(2);
+    expect(total).toBe(4);
+    expect((rows as ProjectedRow[]).map((r) => r.fullName)).toEqual([
+      'Ada Lovelace',
+      'Ada Lovelace',
+    ]);
+    await mod.close();
+  });
+
+  it('distinct on only a computed alias: values under the alias + distinct-tuple total', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = ds.getRepository(Person).createQueryBuilder('person');
+    await runner.apply(PersonFilterProjected, { filter: {}, distinct: 'fullName' }, qb);
+
+    // `fields` carries only the plain distinct columns — none here.
+    const { rows, total } = await adapter.getDistinctResultAndCount!(qb, [], Person);
+    expect(total).toBe(3); // Ada Lovelace collapsed
+    expect(rows.map((r) => r.fullName).sort()).toEqual([
+      'Ada Byron',
+      'Ada Lovelace',
+      'Alan Turing',
+    ]);
+    // Distinct rows are plain projections — exactly the distinct members.
+    expect(Object.keys(rows[0]!)).toEqual(['fullName']);
+    await mod.close();
+  });
+
+  it('distinct mixing plain columns and a computed alias (values + total over the full tuple)', async () => {
+    const mod = await createModule();
+    await seed();
+    const qb = ds.getRepository(Person).createQueryBuilder('person');
+    await runner.apply(PersonFilterProjected, { filter: {}, distinct: 'first,fullName' }, qb);
+
+    const { rows, total } = await adapter.getDistinctResultAndCount!(qb, ['first'], Person);
+    expect(total).toBe(3); // 3 distinct (first, fullName) tuples
+    const sorted = [...rows].sort((a, b) => String(a.fullName).localeCompare(String(b.fullName)));
+    expect(sorted).toEqual([
+      { first: 'Ada', fullName: 'Ada Byron' },
+      { first: 'Ada', fullName: 'Ada Lovelace' },
+      { first: 'Alan', fullName: 'Alan Turing' },
+    ]);
+    await mod.close();
+  });
+
+  it('groupByCount by a computed alias (filterClass registry → { alias, source })', async () => {
+    const mod = await createModule();
+    await seed();
+
+    const result = await runner.groupByCount(
+      Person,
+      { groupByCount: { field: 'fullName' } },
+      { filterClass: PersonFilterProjected },
+    );
+
+    const sorted = [...(result as Array<{ value: unknown; count: number }>)].sort((a, b) =>
+      String(a.value).localeCompare(String(b.value)),
+    );
+    expect(sorted).toEqual([
+      { value: 'Ada Byron', count: 1 },
+      { value: 'Ada Lovelace', count: 2 },
+      { value: 'Alan Turing', count: 1 },
+    ]);
+    await mod.close();
+  });
+
+  it('groupByCount by a plain column (string field shape) still works', async () => {
+    const mod = await createModule();
+    await seed();
+
+    const result = await runner.groupByCount(Person, { groupByCount: { field: 'first' } });
+
+    const sorted = [...(result as Array<{ value: unknown; count: number }>)].sort((a, b) =>
+      String(a.value).localeCompare(String(b.value)),
+    );
+    expect(sorted).toEqual([
+      { value: 'Ada', count: 3 },
+      { value: 'Alan', count: 1 },
+    ]);
+    await mod.close();
+  });
+
+  it('groupByCount honors the numeric bucket (bound, not inlined as client text)', async () => {
+    const mod = await createModule();
+    await seed();
+
+    const result = await runner.groupByCount(Person, {
+      groupByCount: { field: 'id', bucket: 2 },
+    });
+
+    // ids 1-4, width 2 → FLOOR(id/2)*2: 0:{1}, 2:{2,3}, 4:{4}.
+    const sorted = [...(result as Array<{ bucketStart: unknown; count: number }>)].sort(
+      (a, b) => Number(a.bucketStart) - Number(b.bucketStart),
+    );
+    expect(sorted.map((r) => [r.bucketStart, r.count])).toEqual([
+      [0, 1],
+      [2, 2],
+      [4, 1],
+    ]);
     await mod.close();
   });
 });

@@ -41,9 +41,17 @@ export type ComputedReturn = string | object;
  * function evaluated at query-build time. */
 export type ComputedSource = string | ((ctx: ComputedContext) => ComputedReturn);
 
-/** A computed map value: the bare source, or `{ source, type }` where `type` is
- * a codegen-only value-type hint. */
-export type ComputedEntry = ComputedSource | { source: ComputedSource; type: FilterFieldTypeHint };
+/** A computed map value: the bare source, or an options object:
+ * - `source` — the SQL source (required).
+ * - `type` — codegen-only value-type hint; runtime-invisible.
+ * - `project` — opt-in SELECT projection: when true, `FilterRunner.apply()`
+ *   projects the computed expression into the SELECT list under its alias
+ *   (via the adapter's `applyComputedSelect`), so executed rows carry the
+ *   computed value. Unlike `type`, this DOES affect the emitted query.
+ *   Defaults to `false` (filter/sort-only, the historical behavior). */
+export type ComputedEntry =
+  | ComputedSource
+  | { source: ComputedSource; type?: FilterFieldTypeHint; project?: boolean };
 
 export type ComputedMap = Record<string, ComputedEntry>;
 

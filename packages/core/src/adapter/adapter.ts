@@ -32,6 +32,19 @@ export interface EntityRelationInfo {
 }
 
 /**
+ * The grouping target of {@link FilterAdapter.groupByCount}: a plain
+ * (already-validated) column property name, or — when the requested field
+ * resolves to a computed/virtual alias — an `{ alias, source }` pair carrying
+ * the dev-provided computed expression to group by. Adapters implementing
+ * `groupByCount` must handle both shapes: for the computed shape, group by the
+ * evaluated `source` expression (aliasing the group key as `value`, exactly as
+ * for a plain column) instead of resolving a column. The `source` is
+ * dev-provided (never client input); an optional numeric bucket applies to the
+ * expression the same way it applies to a column.
+ */
+export type GroupByCountField = string | { alias: string; source: ComputedSource };
+
+/**
  * Behavior flags for full-text vector search ({@link FilterAdapter.applyVectorSearch}).
  */
 export interface VectorSearchOptions {
@@ -279,6 +292,13 @@ export interface FilterAdapter {
    * (never string-interpolated) and `value` is the bucket's start
    * (`FLOOR(col / bucket) * bucket`); the caller derives `bucketEnd` from it.
    *
+   * When the requested grouping field resolves to a **computed/virtual alias**
+   * (declared via `@Filterable.computed` / `@Computed`), the runner passes the
+   * `{ alias, source }` shape of {@link GroupByCountField} instead of a column
+   * name — the adapter then groups by the evaluated computed expression
+   * (dev-provided, never client input), still aliasing the group key as
+   * `value`, with `opts.bucket` applying to the expression the same way.
+   *
    * Active WHERE / search clauses are applied upstream by the runner before this
    * terminal call; sort/pagination/distinct/select are not.
    *
@@ -286,7 +306,8 @@ export interface FilterAdapter {
    * runner then rejects a `groupByCount` request with a clear error.
    *
    * @param qb - The query builder instance (WHERE/search already applied).
-   * @param field - The already-validated grouping column (property name).
+   * @param field - The already-validated grouping column (property name), or
+   *   the `{ alias, source }` pair of a computed/virtual grouping field.
    * @param entity - The root entity class.
    * @param opts - Optional numeric bucket width for the bucketed variant.
    * @returns One `{ value, count }` per group (`value` is the bucket start when
@@ -294,7 +315,7 @@ export interface FilterAdapter {
    */
   groupByCount?(
     qb: unknown,
-    field: string,
+    field: GroupByCountField,
     entity: Type<unknown>,
     opts?: { bucket?: number },
   ): Promise<Array<{ value: unknown; count: number }>>;
@@ -353,6 +374,65 @@ export interface FilterAdapter {
   applyComputedSort?(qb: unknown, source: ComputedSource, direction: 'asc' | 'desc'): void;
 
   /**
+   * Projects a computed field into the SELECT list under its alias, and records
+   * the alias so a later `getResultAndCount(qb)` can return the value on rows.
+   *
+   * Dispatched by `FilterRunner.apply()` for every computed declaration that
+   * opts in via `project: true` (inline `{ source, project: true }` or
+   * `@Computed({ project: true })`). Two contract points:
+   *
+   * - **Additive projection.** The runner dispatches this AFTER
+   *   {@link applyDistinct}/{@link applySelect}, so whatever projection is
+   *   already on the builder (the full entity row, or a sparse `select`
+   *   narrowing) must be KEPT and the computed expression ADDED to it under
+   *   `alias` (e.g. an `addSelect`, never a projection-replacing `select`).
+   * - **Alias bookkeeping.** The adapter must record the alias for this exact
+   *   builder instance (e.g. in a `WeakMap<qb, string[]>` — the runner never
+   *   re-passes the aliases) so its {@link getResultAndCount} can surface the
+   *   computed value on the returned rows under the same alias. See the
+   *   projection-aware contract on {@link getResultAndCount}.
+   *
+   * The `source` is dev-provided (never client input) — the same safety
+   * contract as {@link applyComputedField}.
+   *
+   * Optional — when absent and a filter declares `project: true`, the runner
+   * warns and skips the projection (rows simply lack the alias).
+   *
+   * @param qb - The query builder instance.
+   * @param alias - The computed field's declared alias (a safe identifier).
+   * @param source - The computed source (string | function).
+   */
+  applyComputedSelect?(qb: unknown, alias: string, source: ComputedSource): void;
+
+  /**
+   * Projects a computed field as a member of a **DISTINCT** projection under
+   * its alias. Dispatched by the runner when a request's `distinct` list names
+   * a computed/virtual alias (dev-declared via `@Filterable.computed` /
+   * `@Computed`): plain columns in the same `distinct` list still go through
+   * {@link applyDistinct} (one batched call, dispatched first); each computed
+   * alias is then added to that distinct projection via this method, in
+   * request order.
+   *
+   * Execution contract: a distinct projection is executed through
+   * {@link getDistinctResultAndCount}, whose rows are already plain
+   * `Record<string, unknown>` objects (no entity hydration) — the computed
+   * value therefore comes back naturally under `alias` with no extra
+   * bookkeeping; the distinct-tuple `total` must count the full projected
+   * tuple including the computed expression.
+   *
+   * The `source` is dev-provided (never client input) — the same safety
+   * contract as {@link applyComputedField}.
+   *
+   * Optional — when absent and a request lists a computed alias in `distinct`,
+   * the runner warns and skips that alias (plain distinct columns still apply).
+   *
+   * @param qb - The query builder instance.
+   * @param alias - The computed field's declared alias (a safe identifier).
+   * @param source - The computed source (string | function).
+   */
+  applyComputedDistinct?(qb: unknown, alias: string, source: ComputedSource): void;
+
+  /**
    * Applies an ORDER BY on a **to-many aggregate field** — a virtual sub-path
    * like `posts.$count` or `posts.$sum.views`, parsed via `parseAggregatePath`.
    * Implementations compile the aggregate into a correlated scalar subquery
@@ -405,7 +485,19 @@ export interface FilterAdapter {
    * Executes the query builder and returns the page of entities plus the total
    * count (ignoring limit/offset). Used by `FilterRunner.findAndCount`.
    *
-   * Optional — required only if you call `findAndCount`.
+   * **Projection-aware contract (computed `project: true`):** when
+   * {@link applyComputedSelect} has recorded computed aliases for this exact
+   * `qb` (the adapter is expected to track them per builder — e.g. a
+   * `WeakMap<qb, string[]>` — the runner/caller never re-passes them), the
+   * returned rows must carry each computed value under its alias alongside the
+   * entity's own fields. This is the execution seam for projected computed
+   * fields: static mode (`FilterRunner.apply()`) never executes the query
+   * itself — the consumer builds via `apply()` and then fetches through this
+   * method, so alias bookkeeping lives entirely in the adapter. With no
+   * recorded aliases, behavior is unchanged (plain entity rows).
+   *
+   * Optional — required only if you call `findAndCount` (or execute an
+   * `apply()`-built query through the adapter).
    *
    * @param qb - The query builder instance.
    * @returns The fetched rows and the total matching count.
@@ -424,6 +516,14 @@ export interface FilterAdapter {
    * MikroORM's "cannot merge entity without identifier". This method executes
    * the raw projection instead, mapping DB columns back to the requested
    * property names.
+   *
+   * Interaction with computed distinct ({@link applyComputedDistinct}): since
+   * the rows here are already raw `Record<string, unknown>` objects, a
+   * computed alias projected into the distinct list simply comes back as one
+   * more key on each row — no per-builder alias bookkeeping is needed (unlike
+   * {@link getResultAndCount}'s hydrated path). `fields` carries only the
+   * plain (column) distinct fields; the total must nonetheless count distinct
+   * tuples over the FULL projection, computed aliases included.
    *
    * Optional — required only when `FilterRunner.findAndCount` is called with a
    * `distinct` projection; `findAndCount` throws if the adapter doesn't
