@@ -751,12 +751,12 @@ export class TypeOrmAdapter implements FilterAdapter {
    * reaches the count SQL and pagination is ignored, exactly like the plain
    * path.
    */
-  async getResultAndCount(qb: unknown): Promise<{ rows: unknown[]; total: number }> {
+  async getResultAndCount<T = unknown>(qb: unknown): Promise<{ rows: T[]; total: number }> {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const aliases = this.projectedComputedAliases.get(queryBuilder);
     if (!aliases || aliases.length === 0) {
       const [rows, total] = await queryBuilder.getManyAndCount();
-      return { rows, total };
+      return { rows: rows as T[], total };
     }
 
     const { entities, raw } = await queryBuilder.getRawAndEntities<Record<string, unknown>>();
@@ -768,7 +768,7 @@ export class TypeOrmAdapter implements FilterAdapter {
       }
     });
     const total = await queryBuilder.getCount();
-    return { rows: entities, total };
+    return { rows: entities as T[], total };
   }
 
   /**

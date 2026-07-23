@@ -499,6 +499,12 @@ export interface FilterAdapter {
    * Optional — required only if you call `findAndCount` (or execute an
    * `apply()`-built query through the adapter).
    *
+   * The interface keeps the row shape opaque (`unknown`) so any adapter
+   * satisfies it. The concrete adapters (`MikroOrmAdapter`, `TypeOrmAdapter`)
+   * expose a generic `getResultAndCount<T>(qb)` so callers holding the concrete
+   * type can type the rows — including projected computed fields — at the call
+   * site instead of casting the result.
+   *
    * @param qb - The query builder instance.
    * @returns The fetched rows and the total matching count.
    */

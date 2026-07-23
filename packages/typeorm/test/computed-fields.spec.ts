@@ -11,9 +11,10 @@ import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Column, DataSource, Entity, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 import { TypeOrmFilterModule } from '../src/module.js';
 import { TypeOrmFilter } from '../src/typeorm-filter.js';
+import { TypeOrmAdapter } from '../src/typeorm.adapter.js';
 
 @Entity('people')
 class Person {
@@ -463,6 +464,33 @@ describe('TypeORM computed projection / distinct / groupByCount', () => {
     // Entities stay hydrated alongside the computed alias.
     expect(typed[0]!.first).toBe('Ada');
     expect(typed[0]!.id).toBe(1);
+    await mod.close();
+  });
+
+  it('getResultAndCount<T> types the rows at the call site — no cast needed', async () => {
+    const mod = await createModule();
+    await seed();
+    // The concrete adapter type carries the generic; the FilterAdapter
+    // interface member stays `unknown`-typed for implementor compatibility.
+    const concrete = mod.get<TypeOrmAdapter>(FILTER_ADAPTER);
+    const qb = ds.getRepository(Person).createQueryBuilder('person');
+    await runner.apply(PersonFilterProjected, { filter: {} }, qb);
+
+    // Supplying `T` surfaces the projected computed field on the row type
+    // without the historical `rows as ProjectedRow[]` cast.
+    const { rows, total } = await concrete.getResultAndCount<ProjectedRow>(qb);
+    expectTypeOf(rows).toEqualTypeOf<ProjectedRow[]>();
+    expectTypeOf(total).toEqualTypeOf<number>();
+    expect(rows.map((r) => r.fullName)).toEqual([
+      'Ada Lovelace',
+      'Ada Lovelace',
+      'Ada Byron',
+      'Alan Turing',
+    ]);
+
+    // Default (no type argument) stays opaque: rows are `unknown[]`.
+    const untyped = await concrete.getResultAndCount(qb);
+    expectTypeOf(untyped.rows).toEqualTypeOf<unknown[]>();
     await mod.close();
   });
 

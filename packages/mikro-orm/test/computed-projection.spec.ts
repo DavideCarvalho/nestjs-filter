@@ -22,8 +22,9 @@ import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 import { MikroOrmFilter } from '../src/mikro-orm-filter.js';
+import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
 import { MikroOrmFilterModule } from '../src/module.js';
 
 // ─── Entities ───────────────────────────────────────────────────────────────────
@@ -174,6 +175,38 @@ describe('MikroORM computed projection / distinct / groupByCount', () => {
       ['Grace', 0],
     ]);
     expect(total).toBe(4);
+    await mod.close();
+  });
+
+  it('getResultAndCount<T> types the rows at the call site — no cast needed', async () => {
+    const mod = await createModule();
+    await seed();
+    // The CONCRETE adapter type carries the generic (the FilterAdapter
+    // interface member stays `unknown`-typed for implementor compatibility).
+    const concrete = mod.get<MikroOrmAdapter>(FILTER_ADAPTER);
+    const qb = orm.em.fork().createQueryBuilder(Author);
+    await runner.apply(AuthorFilterProjected, { filter: {}, sort: 'name,-booksCount' }, qb);
+
+    // Supplying `T` surfaces the projected computed field on the row type
+    // without the historical `rows as Array<...>` cast.
+    const { rows, total } = await concrete.getResultAndCount<Author & { booksCount: number }>(qb);
+    expectTypeOf(rows).toEqualTypeOf<Array<Author & { booksCount: number }>>();
+    expectTypeOf(total).toEqualTypeOf<number>();
+
+    // `.name`/`.booksCount` read straight off the typed row — and the value is
+    // really there at runtime.
+    expect(rows.map((r) => [r.name, r.booksCount])).toEqual([
+      ['Ada', 3],
+      ['Alan', 1],
+      ['Alan', 0],
+      ['Grace', 0],
+    ]);
+
+    // Default (no type argument) stays opaque: rows are `unknown[]`, so the
+    // interface contract is unchanged for callers that don't opt in.
+    const untyped = await concrete.getResultAndCount(qb);
+    expectTypeOf(untyped.rows).toEqualTypeOf<unknown[]>();
+
     await mod.close();
   });
 

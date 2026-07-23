@@ -1089,12 +1089,12 @@ export class MikroOrmAdapter implements FilterAdapter {
    *   count would be pure waste) and resets limit/offset/order internally —
    *   the same reset contract the historical `getResultAndCount()` total has.
    */
-  async getResultAndCount(qb: unknown): Promise<{ rows: unknown[]; total: number }> {
+  async getResultAndCount<T = unknown>(qb: unknown): Promise<{ rows: T[]; total: number }> {
     const aliases = this.projectedAliases.get(qb as object);
     if (!aliases || aliases.length === 0) {
       const queryBuilder = qb as { getResultAndCount: () => Promise<[unknown[], number]> };
       const [rows, total] = await queryBuilder.getResultAndCount();
-      return { rows, total };
+      return { rows: rows as T[], total };
     }
 
     const queryBuilder = qb as {
@@ -1116,7 +1116,7 @@ export class MikroOrmAdapter implements FilterAdapter {
       return hydrated;
     });
     const total = await queryBuilder.clone().getCount();
-    return { rows, total };
+    return { rows: rows as T[], total };
   }
 
   /**
