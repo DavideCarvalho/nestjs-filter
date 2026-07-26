@@ -36,10 +36,22 @@ export function ApplyFilter(
   };
 }
 
+/**
+ * Read the `@ApplyFilter` entries for a controller route.
+ *
+ * Uses `Reflect.getMetadata`, NOT `getOwnMetadata`: the decorator stamps its
+ * entries on the class it ran on, which for an inherited route is the BASE
+ * class, while `ApplyFilterInterceptor` looks them up by `ctx.getClass()` — the
+ * DERIVED class. An own-metadata read finds nothing there, so the interceptor
+ * short-circuits and the query-builder parameter arrives `undefined` (a 500 at
+ * the first `.getResultAndCount()`). Walking the prototype chain matches how
+ * NestJS itself reads route-arg metadata, which is why every other inherited
+ * piece — routes, `@Body`, guards, constructor DI — already worked.
+ */
 export function getApplyFilterMetadata(
   controllerCtor: Function,
   methodName: string | symbol,
 ): ApplyFilterMetadataEntry[] {
-  return (Reflect.getOwnMetadata(APPLY_FILTER_METADATA, controllerCtor, methodName as string) ??
+  return (Reflect.getMetadata(APPLY_FILTER_METADATA, controllerCtor, methodName as string) ??
     []) as ApplyFilterMetadataEntry[];
 }
