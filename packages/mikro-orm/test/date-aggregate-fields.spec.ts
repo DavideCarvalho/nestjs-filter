@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { FilterModule, FilterRunner, Filterable } from '@dudousxd/nestjs-filter';
-import { Collection, MikroORM } from '@mikro-orm/core';
+import { Collection, DateType, MikroORM } from '@mikro-orm/core';
 import {
   Entity,
   ManyToOne,
@@ -42,6 +42,16 @@ class Visit {
   /** The date child column this suite is about. */
   @Property({ type: 'Date' })
   servicedAt!: Date;
+
+  /**
+   * A DATE column declared the way a date-only column usually is: MikroORM's
+   * `DateType` maps it to a `'YYYY-MM-DD'` **string**, so its `runtimeType` is
+   * `string`, not `Date` (only `DateTimeType` reflects as `Date`). Classifying
+   * off the runtime type alone made this a `'string'` column and silently
+   * excluded it from the date aggregates.
+   */
+  @Property({ type: DateType, columnType: 'date', nullable: true })
+  inspectedOn?: string | null;
 
   /** A numeric child column — the type that always qualified. */
   @Property()
@@ -119,18 +129,21 @@ describe('MikroORM to-many aggregates over DATE child columns', () => {
     em.persist([truck, van, trailer]);
     em.create(Visit, {
       servicedAt: new Date('2019-03-01'),
+      inspectedOn: '2019-03-01',
       cost: 100,
       note: 'a',
       vehicle: truck,
     });
     em.create(Visit, {
       servicedAt: new Date('2021-06-30'),
+      inspectedOn: '2021-06-30',
       cost: 200,
       note: 'b',
       vehicle: truck,
     });
     em.create(Visit, {
       servicedAt: new Date('2022-12-25'),
+      inspectedOn: '2022-12-25',
       cost: 500,
       note: 'c',
       vehicle: van,
@@ -211,6 +224,31 @@ describe('MikroORM to-many aggregates over DATE child columns', () => {
     expect(await namesFor({ filter: { 'visits.$avg.cost': { gte: 250 } } })).toEqual(['Van']);
     expect(await namesFor({ filter: { 'visits.$min.cost': { lte: 100 } } })).toEqual(['Truck']);
     expect(await namesFor({ filter: { 'visits.$max.cost': { gte: 500 } } })).toEqual(['Van']);
+
+    await mod.close();
+  });
+
+  it('treats a DateType (string runtime) column as a date, not a string', async () => {
+    const mod = await createModule();
+    await seed();
+
+    // The regression that made this fix land short in practice: `DateType`
+    // maps a DATE column to a 'YYYY-MM-DD' string, so classifying off the
+    // reflected runtime type alone called it `'string'` and no aggregate was
+    // synthesized. The DB column type is authoritative.
+    expect(
+      await namesFor({ filter: { 'visits.$max.inspectedOn': { gte: '2022-01-01' } } }),
+    ).toEqual(['Van']);
+    expect(await namesFor({ filter: { 'visits.$min.inspectedOn': { lt: '2020-01-01' } } })).toEqual(
+      ['Truck'],
+    );
+
+    // Still no arithmetic over it, same as any other date column.
+    expect(await namesFor({ filter: { 'visits.$sum.inspectedOn': { gte: 1 } } })).toEqual([
+      'Trailer',
+      'Truck',
+      'Van',
+    ]);
 
     await mod.close();
   });
