@@ -11,6 +11,7 @@ import {
   escapeLike,
   valueToColumnFilters,
 } from '@dudousxd/nestjs-filter';
+import { aggregateDistinctAlias } from '@dudousxd/nestjs-filter/aggregate';
 import type { Type } from '@nestjs/common';
 import {
   Brackets,
@@ -476,6 +477,33 @@ export class TypeOrmAdapter implements FilterAdapter {
     if (!SAFE_FIELD.test(alias)) return; // silently skip unsafe alias names
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const expression = this.resolveComputedExpression(source, queryBuilder.alias);
+    if (queryBuilder.expressionMap.selectDistinct) {
+      queryBuilder.addSelect(expression, alias);
+    } else {
+      queryBuilder.distinct(true).select(expression, alias);
+    }
+    const recorded = this.distinctComputedAliases.get(queryBuilder);
+    if (recorded) recorded.push(alias);
+    else this.distinctComputedAliases.set(queryBuilder, [alias]);
+  }
+
+  /**
+   * Adds a to-many aggregate to the DISTINCT projection, compiling it via
+   * {@link aggregateSubquery} and recording it exactly like
+   * {@link applyComputedDistinct} records a computed alias — the recording is
+   * what lets {@link getDistinctResultAndCount}, whose `fields` parameter
+   * carries only plain columns by contract, key the aggregate's values back
+   * onto the rows and count the tuples correctly.
+   *
+   * The path is not a legal SQL identifier (`.` and `$`), so it is flattened
+   * into one by `aggregateDistinctAlias` — shared with the MikroORM adapter so
+   * the same request yields the same key whichever ORM answers it.
+   */
+  applyAggregateDistinct(qb: unknown, aggregate: AggregatePath): void {
+    const alias = aggregateDistinctAlias(aggregate);
+    if (!SAFE_FIELD.test(alias)) return;
+    const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
+    const expression = this.aggregateSubquery(queryBuilder, aggregate);
     if (queryBuilder.expressionMap.selectDistinct) {
       queryBuilder.addSelect(expression, alias);
     } else {

@@ -78,6 +78,25 @@ export function isDateColumnType(columnType: string | undefined): boolean {
 }
 
 /**
+ * A legal SQL identifier for an aggregate path, for the one place an aggregate
+ * needs a NAME rather than an expression: the DISTINCT projection, where it is
+ * emitted as `<subquery> as <alias>`.
+ *
+ * `posts.$max.views` → `posts_max_views`. The path's own `.` and `$` are not
+ * identifier characters, so it cannot be used verbatim. Shared by the adapters
+ * so a value keyed by this alias means the same thing whichever one produced it.
+ */
+export function aggregateDistinctAlias(aggregate: {
+  relation: string;
+  fn: string;
+  column?: string;
+}): string {
+  return [aggregate.relation, aggregate.fn, aggregate.column]
+    .filter((part): part is string => Boolean(part))
+    .join('_');
+}
+
+/**
  * Column-type classes (MikroORM/TypeORM) that mark a date column. Needed by the
  * static AST pass, which sees `type: DateType` as an identifier and has no
  * column-type string to test.

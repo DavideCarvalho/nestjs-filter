@@ -433,6 +433,29 @@ export interface FilterAdapter {
   applyComputedDistinct?(qb: unknown, alias: string, source: ComputedSource): void;
 
   /**
+   * Adds a to-many aggregate (`posts.$count`, `posts.$max.publishedAt`, …) to
+   * the DISTINCT projection, compiling it to the same correlated scalar
+   * subquery the WHERE/ORDER BY aggregate paths use.
+   *
+   * Aggregate paths reach `distinct` the same way they reach `where`/`sort`:
+   * the generated `filterFields` union carries them, and the typed client's
+   * `distinct(...fields)` is typed off that union — so without this capability
+   * a request that typechecks would be silently dropped as an unknown column,
+   * returning rows that ignore the DISTINCT that was asked for.
+   *
+   * Implementations must apply the same non-column bookkeeping
+   * `applyComputedDistinct` does, so `getDistinctResultAndCount` doesn't
+   * undercount tuples differing only in an aggregate member.
+   *
+   * Optional — when absent and a request lists an aggregate path in `distinct`,
+   * the runner warns and skips it (plain distinct columns still apply).
+   *
+   * @param qb - The query builder instance.
+   * @param aggregate - The parsed aggregate path.
+   */
+  applyAggregateDistinct?(qb: unknown, aggregate: AggregatePath): void;
+
+  /**
    * Applies an ORDER BY on a **to-many aggregate field** — a virtual sub-path
    * like `posts.$count` or `posts.$sum.views`, parsed via `parseAggregatePath`.
    * Implementations compile the aggregate into a correlated scalar subquery

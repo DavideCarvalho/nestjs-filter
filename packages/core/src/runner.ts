@@ -399,6 +399,8 @@ export class FilterRunner {
       applyComputed?: ((qb: unknown, alias: string, source: ComputedSource) => void) | undefined;
       /** warn-and-skip descriptor when `applyComputed` is unavailable. */
       computedUnsupported?: { feature: string; method: string };
+      /** Allowlist gating aggregate paths, mirroring the where[]/structured paths. */
+      autoFieldSet?: AutoFieldSet | null | undefined;
     },
   ): boolean {
     const { entity, adapter, allowed, throwOnInvalid, apply, unsupported, aliasMeta } = opts;
@@ -406,11 +408,20 @@ export class FilterRunner {
     const fields = this.remapFieldAliases(this.parseDistinct(rawFields), aliasMeta);
     if (fields.length === 0) return false;
 
-    // Split computed aliases (dev-declared, bypass column validation — same
-    // rationale as computed sorts) from plain column fields.
+    // Split computed aliases and aggregate paths (both dev-declared or
+    // synthesized, neither a real column — same rationale as computed sorts)
+    // from plain column fields. Without the aggregate split, a path the
+    // generated union advertises — and `distinct(...)` accepts, being typed
+    // off that union — would fail column validation and be dropped SILENTLY,
+    // returning rows that ignore the DISTINCT that was requested.
     const computedAliases = computed ? fields.filter((f) => computed.has(f)) : [];
+    const aggregateFields = fields.filter(
+      (f) => !computed?.has(f) && parseAggregatePath(f) !== null,
+    );
     const plainFields =
-      computedAliases.length > 0 ? fields.filter((f) => !computed!.has(f)) : fields;
+      computedAliases.length > 0 || aggregateFields.length > 0
+        ? fields.filter((f) => !computed?.has(f) && parseAggregatePath(f) === null)
+        : fields;
 
     let applied = false;
     if (plainFields.length > 0) {
@@ -439,6 +450,27 @@ export class FilterRunner {
         applied = true;
       } else if (computedUnsupported) {
         this.warnUnsupported(computedUnsupported.feature, computedUnsupported.method);
+      }
+    }
+
+    if (aggregateFields.length > 0) {
+      if (adapter?.applyAggregateDistinct) {
+        for (const field of aggregateFields) {
+          // Gated against the auto-field set for the same reason the where[]
+          // and structured paths gate it: that set is the allowlist, so
+          // skipping it would let `distinct` reach child columns the other
+          // paths refuse.
+          if (opts.autoFieldSet && !opts.autoFieldSet.has(field)) {
+            this.handleUnknownKey(field);
+            continue;
+          }
+          const aggregatePath = parseAggregatePath(field);
+          if (!aggregatePath) continue;
+          adapter.applyAggregateDistinct(qb as unknown, aggregatePath);
+          applied = true;
+        }
+      } else {
+        this.warnUnsupported('Distinct on an aggregate field requested', 'applyAggregateDistinct');
       }
     }
     return applied;
@@ -880,6 +912,7 @@ export class FilterRunner {
             feature: 'Distinct on a computed field requested',
             method: 'applyComputedDistinct',
           },
+          autoFieldSet,
         });
 
         // Apply sparse fieldsets (SELECT narrowing) — validated against the
