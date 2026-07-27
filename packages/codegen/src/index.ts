@@ -4,6 +4,12 @@ import type {
   LeafModel,
 } from '@dudousxd/nestjs-codegen/extension';
 import {
+  AGGREGATE_COLUMN_FNS,
+  DATE_COLUMN_TYPE_CLASSES,
+  ORDERED_AGGREGATE_COLUMN_FNS,
+  isDateColumnType,
+} from '@dudousxd/nestjs-filter/aggregate';
+import {
   type ClassDeclaration,
   type Decorator,
   type MethodDeclaration,
@@ -454,25 +460,13 @@ function augmentContractWithComputed(
 // entity: () => Child, ... })`) and reads its own scalar numeric columns from
 // source, unioned with whatever the existing-column scan already found.
 
-/** Numeric-column aggregate functions synthesized per to-many relation. Mirrors
- * `AGGREGATE_COLUMN_FNS` in `packages/core/src/runner.ts`; `$count` needs no
- * child column so it's handled separately. */
-const AGGREGATE_COLUMN_FNS = ['sum', 'avg', 'min', 'max'] as const;
-
-/** Aggregate functions synthesized for an ordered-but-not-arithmetic child
- * column (currently `date`). Mirrors `ORDERED_AGGREGATE_COLUMN_FNS` in
- * `packages/core/src/runner.ts` — the two must agree, or the emitted union
- * would advertise paths the runtime rejects, or hide paths it accepts. */
-const ORDERED_AGGREGATE_COLUMN_FNS = ['min', 'max'] as const;
-
-/** DB column types that make a property a date column, however its TS type
- * reads. Mirrors `isDateColumn` in the MikroORM adapter. */
-const DATE_COLUMN_TYPE_PATTERN = /^(date|datetime|timestamp)/i;
-
-/** MikroORM/TypeORM column-type classes that mark a date column. `DateType`
- * maps a DATE column to a `'YYYY-MM-DD'` **string**, so a property using it
- * has a string TS type — the decorator argument is the only static signal. */
-const DATE_COLUMN_TYPE_CLASSES = new Set(['DateType', 'DateTimeType', 'TimestampType']);
+// The aggregate rule — which fns a child column of a given type may be
+// aggregated by, and what counts as a date column — is imported from core
+// rather than restated here. This pass and the runtime's must agree exactly:
+// when they drifted, the server accepted date `$min`/`$max` while the emitted
+// union omitted them, so the paths typechecked nowhere. See
+// `@dudousxd/nestjs-filter/aggregate`. That subpath is dependency-free, so
+// importing it doesn't pull a Nest runtime into the build.
 
 /** Decorator names that mark a to-many relation property, shared by TypeORM and
  * MikroORM entity decorators (both use these exact names). A `many-to-one` /
@@ -706,11 +700,7 @@ function isDateColumnDecorator(decorator: Decorator): boolean {
   const columnType = arg.getProperty('columnType');
   if (columnType && Node.isPropertyAssignment(columnType)) {
     const init = columnType.getInitializer();
-    if (
-      init &&
-      Node.isStringLiteral(init) &&
-      DATE_COLUMN_TYPE_PATTERN.test(init.getLiteralValue())
-    ) {
+    if (init && Node.isStringLiteral(init) && isDateColumnType(init.getLiteralValue())) {
       return true;
     }
   }
@@ -721,7 +711,7 @@ function isDateColumnDecorator(decorator: Decorator): boolean {
     if (!init) return false;
     // `type: DateType` (identifier) or `type: 'Date'` / `type: 'date'` (string).
     if (Node.isIdentifier(init) && DATE_COLUMN_TYPE_CLASSES.has(init.getText())) return true;
-    if (Node.isStringLiteral(init) && DATE_COLUMN_TYPE_PATTERN.test(init.getLiteralValue())) {
+    if (Node.isStringLiteral(init) && isDateColumnType(init.getLiteralValue())) {
       return true;
     }
   }

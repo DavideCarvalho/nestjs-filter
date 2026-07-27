@@ -1,7 +1,7 @@
 {
   "name": "@dudousxd/nestjs-filter-codegen",
   "version": "0.6.1",
-  "description": "nestjs-codegen extension for @dudousxd/nestjs-filter — emits a typed filterQuery() helper on filtered routes.",
+  "description": "nestjs-codegen extension for @dudousxd/nestjs-filter \u2014 emits a typed filterQuery() helper on filtered routes.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -19,7 +19,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist/"],
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
@@ -27,7 +29,8 @@
   },
   "peerDependencies": {
     "@dudousxd/nestjs-codegen": ">=0.1.0",
-    "@dudousxd/nestjs-filter-client": ">=1.0.0"
+    "@dudousxd/nestjs-filter-client": ">=1.0.0",
+    "@dudousxd/nestjs-filter": ">=1.19.0"
   },
   "dependencies": {
     "ts-morph": "28.0.0"
@@ -35,10 +38,16 @@
   "devDependencies": {
     "@dudousxd/nestjs-codegen": "0.2.1",
     "typescript": "^5.4.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "@dudousxd/nestjs-filter": "workspace:*"
   },
   "engines": {
     "node": ">=20"
   },
-  "keywords": ["nestjs", "filter", "codegen", "extension"]
+  "keywords": [
+    "nestjs",
+    "filter",
+    "codegen",
+    "extension"
+  ]
 }

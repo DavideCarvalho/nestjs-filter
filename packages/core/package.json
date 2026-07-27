@@ -1,7 +1,7 @@
 {
   "name": "@dudousxd/nestjs-filter",
   "version": "1.19.0",
-  "description": "NestJS filter library — core abstractions, runner, decorators.",
+  "description": "NestJS filter library \u2014 core abstractions, runner, decorators.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -22,12 +22,22 @@
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js",
       "default": "./dist/testing/index.js"
+    },
+    "./aggregate": {
+      "types": "./dist/aggregate/aggregate-rules.d.ts",
+      "import": "./dist/aggregate/aggregate-rules.js",
+      "default": "./dist/aggregate/aggregate-rules.js"
     }
   },
   "bin": {
     "nestjs-filter": "./dist/cli/generate.js"
   },
-  "files": ["dist/", "README.md", "CHANGELOG.md", "skills"],
+  "files": [
+    "dist/",
+    "README.md",
+    "CHANGELOG.md",
+    "skills"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
@@ -75,5 +85,12 @@
   "engines": {
     "node": ">=20"
   },
-  "keywords": ["nestjs", "filter", "query", "mikro-orm", "typeorm", "tanstack-intent"]
+  "keywords": [
+    "nestjs",
+    "filter",
+    "query",
+    "mikro-orm",
+    "typeorm",
+    "tanstack-intent"
+  ]
 }
