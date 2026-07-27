@@ -1,7 +1,7 @@
 {
   "name": "@dudousxd/nestjs-filter-codegen",
-  "version": "0.6.1",
-  "description": "nestjs-codegen extension for @dudousxd/nestjs-filter \u2014 emits a typed filterQuery() helper on filtered routes.",
+  "version": "0.6.2",
+  "description": "nestjs-codegen extension for @dudousxd/nestjs-filter — emits a typed filterQuery() helper on filtered routes.",
   "license": "MIT",
   "repository": {
     "type": "git",
