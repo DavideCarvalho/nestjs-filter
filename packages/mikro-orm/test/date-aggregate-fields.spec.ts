@@ -288,3 +288,138 @@ describe('MikroORM to-many aggregates over DATE child columns', () => {
     await mod.close();
   });
 });
+
+/**
+ * Aggregate paths arriving through the `where[]` column-filter path.
+ *
+ * `where[]` is what the typed client builder's `.where()` emits, and codegen
+ * puts aggregate paths in the field union — so `.where('visits.$max.servicedAt',
+ * …)` typechecks. It used to fail before reaching any adapter:
+ * `validateColumnFilter`'s field-name grammar allows only letters, digits,
+ * underscores and dots, so the `$` was rejected outright with an
+ * InvalidColumnFilterError. Aggregate dispatch only ever happened on the
+ * structured filter object.
+ */
+describe('MikroORM to-many aggregates via the where[] column-filter path', () => {
+  let orm: MikroORM;
+  let runner: FilterRunner;
+
+  async function createModule() {
+    const mod = await Test.createTestingModule({
+      imports: [
+        MikroOrmModule.forRoot({
+          driver: SqliteDriver,
+          dbName: ':memory:',
+          entities: [Vehicle, Visit],
+          allowGlobalContext: true,
+          metadataProvider: ReflectMetadataProvider,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        MikroOrmFilterModule.forRoot(),
+        FilterModule.forFeature([VehicleFilter]),
+      ],
+    }).compile();
+
+    orm = mod.get(MikroORM);
+    runner = mod.get(FilterRunner);
+    await orm.schema.create();
+    return mod;
+  }
+
+  async function seedVehicles() {
+    const em = orm.em.fork();
+    const truck = em.create(Vehicle, { name: 'Truck' });
+    const van = em.create(Vehicle, { name: 'Van' });
+    em.persist([truck, van]);
+    em.create(Visit, {
+      servicedAt: new Date('2019-03-01'),
+      inspectedOn: '2019-03-01',
+      cost: 100,
+      note: 'a',
+      vehicle: truck,
+    });
+    em.create(Visit, {
+      servicedAt: new Date('2022-12-25'),
+      inspectedOn: '2022-12-25',
+      cost: 500,
+      note: 'c',
+      vehicle: van,
+    });
+    await em.flush();
+  }
+
+  async function namesForWhere(where: unknown[]): Promise<string[]> {
+    const qb = orm.em.fork().createQueryBuilder(Vehicle);
+    await runner.apply(VehicleFilter, { filter: { where } } as never, qb);
+    return (await qb.getResult()).map((r) => r.name).sort();
+  }
+
+  afterEach(async () => {
+    await orm?.close(true);
+  });
+
+  it('filters on an aggregate path sent as a where[] clause', async () => {
+    const mod = await createModule();
+    await seedVehicles();
+
+    // The whole point: this used to throw InvalidColumnFilterError on the `$`.
+    expect(
+      await namesForWhere([
+        { field: 'visits.$max.servicedAt', operator: 'gte', value: new Date('2022-01-01') },
+      ]),
+    ).toEqual(['Van']);
+
+    await mod.close();
+  });
+
+  it('works for a DateType column and ANDs with plain clauses', async () => {
+    const mod = await createModule();
+    await seedVehicles();
+
+    expect(
+      await namesForWhere([
+        { field: 'visits.$min.inspectedOn', operator: 'lt', value: '2020-01-01' },
+        { field: 'name', operator: 'equals', value: 'Truck' },
+      ]),
+    ).toEqual(['Truck']);
+
+    // Same aggregate, name clause that excludes the only match — proves both
+    // halves are really applied.
+    expect(
+      await namesForWhere([
+        { field: 'visits.$min.inspectedOn', operator: 'lt', value: '2020-01-01' },
+        { field: 'name', operator: 'equals', value: 'Van' },
+      ]),
+    ).toEqual([]);
+
+    await mod.close();
+  });
+
+  it('still rejects an aggregate over a column that is not aggregatable', async () => {
+    const mod = await createModule();
+    await seedVehicles();
+
+    // The auto-field allowlist gates where[] exactly as it gates the
+    // structured path — otherwise this would be a hole for reaching arbitrary
+    // child columns. `note` is a string, so it is not in the set and the
+    // clause is dropped rather than honored.
+    expect(
+      await namesForWhere([{ field: 'visits.$max.note', operator: 'equals', value: 'c' }]),
+    ).toEqual(['Truck', 'Van']);
+
+    await mod.close();
+  });
+
+  it('leaves a field that merely contains $ to normal validation', async () => {
+    const mod = await createModule();
+    await seedVehicles();
+
+    // Not a valid aggregate path, so it must NOT be routed to the aggregate
+    // branch — it falls through to the column-filter grammar, which rejects it.
+    await expect(
+      namesForWhere([{ field: 'visits.$notafn', operator: 'equals', value: 1 }]),
+    ).rejects.toThrow();
+
+    await mod.close();
+  });
+});

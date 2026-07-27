@@ -557,16 +557,28 @@ export class FilterRunner {
             ? this.pruneBlacklistedColumnFilters(columnFilters, blacklistedFields)
             : columnFilters;
 
-        // A computed alias can arrive through `where[]` just as easily as
-        // through the structured filter object: the typed client builder's
-        // `.where()` emits column filters, and codegen puts computed aliases
-        // in the field union, so `.where('lastVisit', 'gte', …)` typechecks.
-        // Computed aliases are dev-declared SQL, not real columns, so they
-        // must be routed to `applyComputedField` — handing them to
-        // `applyColumnFilters` would emit the alias as a column name and let
-        // the database reject the query.
-        const { plain: plainColumnFilters, computed: computedColumnFilters } =
-          this.splitComputedColumnFilters(scopedColumnFilters, computedRegistry);
+        // Resolve auto-fields configuration. Needed by the aggregate branch of
+        // the where[] split below, which gates aggregate paths against the
+        // same allowlist the structured path uses.
+        const autoFieldSet = this.resolveAutoFields(FilterClass);
+
+        // A computed alias or an aggregate path can arrive through `where[]`
+        // just as easily as through the structured filter object: the typed
+        // client builder's `.where()` emits column filters, and codegen puts
+        // both in the field union, so `.where('lastVisit', …)` and
+        // `.where('posts.$max.publishedAt', …)` typecheck.
+        //
+        // Neither is a real column. A computed alias handed to
+        // `applyColumnFilters` becomes a bogus column name; an aggregate path
+        // doesn't even survive validation, since `$` is not in the SQL-safe
+        // field-name grammar. Both are peeled off here and routed to the
+        // capability that understands them — which also keeps that grammar
+        // untouched for the paths that really are columns.
+        const {
+          plain: plainColumnFilters,
+          computed: computedColumnFilters,
+          aggregate: aggregateColumnFilters,
+        } = this.splitSpecialColumnFilters(scopedColumnFilters, computedRegistry);
 
         // Apply column filters via adapter before @FilterFor dispatch
         if (plainColumnFilters.length > 0 && adapter?.applyColumnFilters) {
@@ -612,8 +624,38 @@ export class FilterRunner {
           }
         }
 
-        // Resolve auto-fields configuration
-        const autoFieldSet = this.resolveAutoFields(FilterClass);
+        if (aggregateColumnFilters.length > 0) {
+          if (adapter?.applyAggregateField) {
+            const opAllowed = this.enforceOperatorAllowlist(
+              aggregateColumnFilters,
+              normalizedAllowed,
+              throwOnInvalidPolicy,
+            );
+            // Gated against the auto-field set exactly like the structured
+            // path: that set is the allowlist, so skipping it here would let a
+            // client reach child columns through `where[]` that the structured
+            // path refuses — `@Filterable.blocked` relations, to-one
+            // relations, and non-aggregatable column types included.
+            const canValidateAggregate = !!(adapter.getEntityRelations && adapter.getRelatedFields);
+            for (const clause of opAllowed) {
+              const field = clause.field as string;
+              if (canValidateAggregate && !autoFieldSet?.has(field)) {
+                this.handleUnknownKey(field);
+                continue;
+              }
+              // Re-parsed rather than carried from the split, so the grammar
+              // is enforced at the point of use.
+              const aggregatePath = parseAggregatePath(field);
+              if (!aggregatePath) continue;
+              adapter.applyAggregateField(qb as unknown, aggregatePath, clause);
+            }
+          } else {
+            this.warnUnsupported(
+              'Aggregate field in column filters (where) provided',
+              'applyAggregateField',
+            );
+          }
+        }
 
         // Collect relation-bound keys for batched processing
         const relationBatches = new Map<
@@ -1884,45 +1926,66 @@ export class FilterRunner {
   }
 
   /**
-   * Splits `where[]` clauses into plain column filters and computed-alias
-   * ones, so each half reaches the adapter capability that understands it
-   * (`applyColumnFilters` vs `applyComputedField`).
+   * Splits `where[]` clauses into the three kinds the pipeline handles
+   * differently, so each reaches the adapter capability that understands it:
+   * plain column filters (`applyColumnFilters`), computed aliases
+   * (`applyComputedField`) and to-many aggregate paths
+   * (`applyAggregateField`).
+   *
+   * Neither of the latter two is a real column. A computed alias handed to
+   * `applyColumnFilters` becomes a bogus column name the database rejects; an
+   * aggregate path does not even reach the adapter, because `$` is outside the
+   * SQL-safe field-name grammar `validateColumnFilters` enforces. Peeling them
+   * off here is what lets that grammar stay strict for real column paths.
    *
    * Only TOP-LEVEL clauses are extracted, and that is exact rather than a
    * simplification: `resolveSingleFilter` composes a clause as
    * `$and: [leaf, ...AND, { $or: [...OR] }]` — the leaf is always ANDed with
-   * its own children. So lifting the computed leaf out and leaving its
-   * children behind as a field-less group node (the group convention used
-   * across the where pipeline) produces an identical condition tree, since
-   * the query builder ANDs both halves.
+   * its own children. So lifting the special leaf out and leaving its children
+   * behind as a field-less group node (the group convention used across the
+   * where pipeline) produces an identical condition tree, since the query
+   * builder ANDs both halves.
    *
-   * A computed alias NESTED inside an AND/OR group is dropped with a warning.
-   * `applyComputedField` appends its own top-level `andWhere`, so it cannot be
-   * composed into a nested boolean group — honoring it there would silently
-   * widen or narrow the group. Dropping is still strictly better than the
-   * pre-fix behavior, which emitted the alias as a column name and failed in
-   * the database.
+   * A computed alias or aggregate path NESTED inside an AND/OR group is
+   * dropped with a warning. `applyComputedField`/`applyAggregateField` append
+   * their own top-level `andWhere`, so neither can be composed into a nested
+   * boolean group — honoring one there would silently widen or narrow the
+   * group. Dropping is still strictly better than the pre-fix behavior, which
+   * failed in the database or threw a validation error.
    */
-  private splitComputedColumnFilters(
+  private splitSpecialColumnFilters(
     filters: ColumnFilter[],
     computed: ReadonlyMap<string, ComputedRegistryEntry>,
-  ): { plain: ColumnFilter[]; computed: ColumnFilter[] } {
-    if (computed.size === 0) return { plain: filters, computed: [] };
+  ): { plain: ColumnFilter[]; computed: ColumnFilter[]; aggregate: ColumnFilter[] } {
+    /** How a clause must be routed, or `null` when it's an ordinary column. */
+    const kindOf = (clause: ColumnFilter): 'computed' | 'aggregate' | null => {
+      if (!clause.field) return null;
+      if (computed.has(clause.field)) return 'computed';
+      // The aggregate grammar is the authority — a field merely containing `$`
+      // is not one, and falls through to the normal (and failing) validation.
+      return parseAggregatePath(clause.field) ? 'aggregate' : null;
+    };
+
+    if (!filters.some((clause) => kindOf(clause) !== null) && !filters.some((c) => c.AND || c.OR)) {
+      return { plain: filters, computed: [], aggregate: [] };
+    }
 
     const warned = new Set<string>();
     /**
-     * Strips computed-alias clauses at any depth below the top level, warning
-     * once per alias and collapsing groups it empties — the same
+     * Strips computed/aggregate clauses at any depth below the top level,
+     * warning once per field and collapsing groups it empties — the same
      * prune-and-collapse shape as {@link pruneBlacklistedColumnFilters}.
      */
     const pruneNested = (clauses: ColumnFilter[]): ColumnFilter[] =>
       clauses
         .filter((clause) => {
-          if (!clause.field || !computed.has(clause.field)) return true;
-          if (!warned.has(clause.field)) {
-            warned.add(clause.field);
+          const kind = kindOf(clause);
+          if (kind === null) return true;
+          const field = clause.field as string;
+          if (!warned.has(field)) {
+            warned.add(field);
             this.logger.warn(
-              `Computed field "${clause.field}" nested inside a where AND/OR group is not supported and was ignored — put it in a top-level where clause or in the structured filter object.`,
+              `${kind === 'computed' ? 'Computed field' : 'Aggregate field'} "${field}" nested inside a where AND/OR group is not supported and was ignored — put it in a top-level where clause or in the structured filter object.`,
             );
           }
           return false;
@@ -1942,13 +2005,15 @@ export class FilterRunner {
 
     const plain: ColumnFilter[] = [];
     const computedClauses: ColumnFilter[] = [];
+    const aggregateClauses: ColumnFilter[] = [];
     for (const clause of filters) {
       const AND = clause.AND ? pruneNested(clause.AND) : undefined;
       const OR = clause.OR ? pruneNested(clause.OR) : undefined;
+      const kind = kindOf(clause);
 
-      if (clause.field && computed.has(clause.field)) {
+      if (kind !== null) {
         const { AND: _droppedAnd, OR: _droppedOr, ...leaf } = clause;
-        computedClauses.push(leaf as ColumnFilter);
+        (kind === 'computed' ? computedClauses : aggregateClauses).push(leaf as ColumnFilter);
         // Keep whatever group the clause carried; it stays ANDed either way.
         if (AND?.length || OR?.length) {
           plain.push({
@@ -1964,10 +2029,10 @@ export class FilterRunner {
         ...(AND ? { AND } : {}),
         ...(OR ? { OR } : {}),
       };
-      // A pure group node whose every child was computed is now empty.
+      // A pure group node whose every child was extracted is now empty.
       if (isLiveClause(pruned)) plain.push(pruned);
     }
-    return { plain, computed: computedClauses };
+    return { plain, computed: computedClauses, aggregate: aggregateClauses };
   }
 
   /**
