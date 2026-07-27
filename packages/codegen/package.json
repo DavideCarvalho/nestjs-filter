@@ -19,9 +19,7 @@
       "default": "./dist/index.js"
     }
   },
-  "files": [
-    "dist/"
-  ],
+  "files": ["dist/"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
@@ -44,10 +42,5 @@
   "engines": {
     "node": ">=20"
   },
-  "keywords": [
-    "nestjs",
-    "filter",
-    "codegen",
-    "extension"
-  ]
+  "keywords": ["nestjs", "filter", "codegen", "extension"]
 }
