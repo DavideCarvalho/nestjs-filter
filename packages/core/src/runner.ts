@@ -7,7 +7,7 @@ import {
   type Type,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import type { FilterAdapter, GroupByCountField } from './adapter/adapter.js';
+import type { EntityFieldInfo, FilterAdapter, GroupByCountField } from './adapter/adapter.js';
 import { parseAggregatePath } from './aggregate/aggregate-path.js';
 import { runWithFilterState } from './als-store.js';
 import type { ContextAccessor } from './context-accessor.js';
@@ -66,8 +66,33 @@ type AutoFieldSet = { has(key: string): boolean };
 
 const MATCH_ALL_SET: AutoFieldSet = { has: () => true };
 
-/** Numeric-column aggregate functions synthesized per to-many relation (see {@link FilterRunner.addAggregateAutoFields}). `$count` is handled separately — it needs no child column. */
+/** Aggregate functions synthesized for a **numeric** child column. `$count` is handled separately — it needs no child column. */
 const AGGREGATE_COLUMN_FNS = ['sum', 'avg', 'min', 'max'] as const;
+
+/**
+ * Aggregate functions synthesized for a child column that is ordered but not
+ * arithmetic — currently `date`. `MIN`/`MAX` are order-based, so "earliest /
+ * latest child date" is valid SQL; `SUM`/`AVG` over a date is not.
+ */
+const ORDERED_AGGREGATE_COLUMN_FNS = ['min', 'max'] as const;
+
+/** No aggregate is meaningful over strings/booleans/json — see {@link FilterRunner.addAggregateAutoFields}. */
+const NO_AGGREGATE_COLUMN_FNS = [] as const;
+
+/**
+ * Which aggregate functions a to-many child column of this type may be
+ * aggregated by. Single source of truth for the synthesis in
+ * {@link FilterRunner.addAggregateAutoFields}, which also gates what
+ * `applyAggregateField`/`applyAggregateSort` will accept — the auto-field set
+ * is the validation allowlist for explicitly-passed aggregate paths too.
+ */
+function aggregateFnsForColumnType(
+  type: EntityFieldInfo['type'],
+): readonly ('sum' | 'avg' | 'min' | 'max')[] {
+  if (type === 'number') return AGGREGATE_COLUMN_FNS;
+  if (type === 'date') return ORDERED_AGGREGATE_COLUMN_FNS;
+  return NO_AGGREGATE_COLUMN_FNS;
+}
 
 /**
  * One resolved entry of the computed-field registry: the dev-provided SQL
@@ -559,10 +584,21 @@ export class FilterRunner {
             ? this.pruneBlacklistedColumnFilters(columnFilters, blacklistedFields)
             : columnFilters;
 
+        // A computed alias can arrive through `where[]` just as easily as
+        // through the structured filter object: the typed client builder's
+        // `.where()` emits column filters, and codegen puts computed aliases
+        // in the field union, so `.where('lastVisit', 'gte', …)` typechecks.
+        // Computed aliases are dev-declared SQL, not real columns, so they
+        // must be routed to `applyComputedField` — handing them to
+        // `applyColumnFilters` would emit the alias as a column name and let
+        // the database reject the query.
+        const { plain: plainColumnFilters, computed: computedColumnFilters } =
+          this.splitComputedColumnFilters(scopedColumnFilters, computedRegistry);
+
         // Apply column filters via adapter before @FilterFor dispatch
-        if (scopedColumnFilters.length > 0 && adapter?.applyColumnFilters) {
+        if (plainColumnFilters.length > 0 && adapter?.applyColumnFilters) {
           const opAllowed = this.enforceOperatorAllowlist(
-            scopedColumnFilters,
+            plainColumnFilters,
             normalizedAllowed,
             throwOnInvalidPolicy,
           );
@@ -570,8 +606,37 @@ export class FilterRunner {
             validateColumnFilters(opAllowed);
             adapter.applyColumnFilters(qb, opAllowed, filterableMeta?.entity);
           }
-        } else if (scopedColumnFilters.length > 0 && !adapter?.applyColumnFilters) {
+        } else if (plainColumnFilters.length > 0 && !adapter?.applyColumnFilters) {
           this.warnUnsupported('Column filters (where) provided', 'applyColumnFilters');
+        }
+
+        if (computedColumnFilters.length > 0) {
+          if (adapter?.applyComputedField) {
+            const opAllowed = this.enforceOperatorAllowlist(
+              computedColumnFilters,
+              normalizedAllowed,
+              throwOnInvalidPolicy,
+            );
+            if (opAllowed.length > 0) {
+              validateColumnFilters(opAllowed);
+              for (const clause of opAllowed) {
+                // `applyComputedField` takes the STRUCTURED operator-object
+                // form (it re-expands it through `valueToColumnFilters`
+                // internally), so hand the clause over in that shape rather
+                // than as a ColumnFilter.
+                adapter.applyComputedField(
+                  qb as unknown,
+                  computedRegistry.get(clause.field as string)!.source,
+                  { [clause.operator]: clause.value },
+                );
+              }
+            }
+          } else {
+            this.warnUnsupported(
+              'Computed field in column filters (where) provided',
+              'applyComputedField',
+            );
+          }
         }
 
         // Resolve auto-fields configuration
@@ -1103,12 +1168,18 @@ export class FilterRunner {
    * `one-to-many` or `many-to-many` (a to-one relation has no "many" to
    * aggregate) and that isn't excluded by `@Filterable.blocked`, adds:
    * - `${rel.name}.$count` — always (no child column needed).
-   * - `${rel.name}.$sum.${col}` / `.$avg.` / `.$min.` / `.$max.` — one set per
-   *   **numeric** child column reported by `getRelatedFields`. Non-numeric
-   *   child columns (strings, dates, …) never qualify — `SUM`/`AVG`/`MIN`/
-   *   `MAX` over them is either a SQL error or nonsensical, and allowing them
-   *   would let a client probe arbitrary child columns through the aggregate
-   *   path.
+   * - `${rel.name}.$sum.${col}` / `.$avg.` — one set per **numeric** child
+   *   column reported by `getRelatedFields`. These are arithmetic, so a
+   *   non-numeric column is a SQL error or nonsense.
+   * - `${rel.name}.$min.${col}` / `.$max.` — per **numeric OR date** child
+   *   column. `MIN`/`MAX` are order-based, not arithmetic: "the earliest /
+   *   latest child date" is both valid SQL and a routinely useful filter (the
+   *   last service visit on a vehicle, the most recent login of a user).
+   *
+   * Every other child type (strings, booleans, json, unknown) still never
+   * qualifies. That keeps the second reason the numeric-only rule existed —
+   * not letting a client probe arbitrary child columns through the aggregate
+   * path — while dropping the first, which was simply wrong for dates.
    *
    * A no-op unless the adapter implements both `getEntityRelations` and
    * `getRelatedFields` (relation-cardinality + related-field introspection)
@@ -1136,8 +1207,8 @@ export class FilterRunner {
       const relatedFields = adapter.getRelatedFields(meta.entity, relation.name);
       if (!relatedFields) continue;
       for (const field of relatedFields) {
-        if (field.type !== 'number') continue;
-        for (const fn of AGGREGATE_COLUMN_FNS) {
+        const fns = aggregateFnsForColumnType(field.type);
+        for (const fn of fns) {
           set.add(`${relation.name}.$${fn}.${field.name}`);
         }
       }
@@ -1837,6 +1908,93 @@ export class FilterRunner {
         }));
 
     return prune(filters);
+  }
+
+  /**
+   * Splits `where[]` clauses into plain column filters and computed-alias
+   * ones, so each half reaches the adapter capability that understands it
+   * (`applyColumnFilters` vs `applyComputedField`).
+   *
+   * Only TOP-LEVEL clauses are extracted, and that is exact rather than a
+   * simplification: `resolveSingleFilter` composes a clause as
+   * `$and: [leaf, ...AND, { $or: [...OR] }]` — the leaf is always ANDed with
+   * its own children. So lifting the computed leaf out and leaving its
+   * children behind as a field-less group node (the group convention used
+   * across the where pipeline) produces an identical condition tree, since
+   * the query builder ANDs both halves.
+   *
+   * A computed alias NESTED inside an AND/OR group is dropped with a warning.
+   * `applyComputedField` appends its own top-level `andWhere`, so it cannot be
+   * composed into a nested boolean group — honoring it there would silently
+   * widen or narrow the group. Dropping is still strictly better than the
+   * pre-fix behavior, which emitted the alias as a column name and failed in
+   * the database.
+   */
+  private splitComputedColumnFilters(
+    filters: ColumnFilter[],
+    computed: ReadonlyMap<string, ComputedRegistryEntry>,
+  ): { plain: ColumnFilter[]; computed: ColumnFilter[] } {
+    if (computed.size === 0) return { plain: filters, computed: [] };
+
+    const warned = new Set<string>();
+    /**
+     * Strips computed-alias clauses at any depth below the top level, warning
+     * once per alias and collapsing groups it empties — the same
+     * prune-and-collapse shape as {@link pruneBlacklistedColumnFilters}.
+     */
+    const pruneNested = (clauses: ColumnFilter[]): ColumnFilter[] =>
+      clauses
+        .filter((clause) => {
+          if (!clause.field || !computed.has(clause.field)) return true;
+          if (!warned.has(clause.field)) {
+            warned.add(clause.field);
+            this.logger.warn(
+              `Computed field "${clause.field}" nested inside a where AND/OR group is not supported and was ignored — put it in a top-level where clause or in the structured filter object.`,
+            );
+          }
+          return false;
+        })
+        .map((clause) => ({
+          ...clause,
+          ...(clause.AND && { AND: pruneNested(clause.AND) }),
+          ...(clause.OR && { OR: pruneNested(clause.OR) }),
+        }))
+        .filter((clause) => isLiveClause(clause));
+
+    /** A clause still says something: it has a column, or a non-empty group. */
+    const isLiveClause = (clause: ColumnFilter): boolean =>
+      Boolean(clause.field) ||
+      Boolean(clause.AND && clause.AND.length > 0) ||
+      Boolean(clause.OR && clause.OR.length > 0);
+
+    const plain: ColumnFilter[] = [];
+    const computedClauses: ColumnFilter[] = [];
+    for (const clause of filters) {
+      const AND = clause.AND ? pruneNested(clause.AND) : undefined;
+      const OR = clause.OR ? pruneNested(clause.OR) : undefined;
+
+      if (clause.field && computed.has(clause.field)) {
+        const { AND: _droppedAnd, OR: _droppedOr, ...leaf } = clause;
+        computedClauses.push(leaf as ColumnFilter);
+        // Keep whatever group the clause carried; it stays ANDed either way.
+        if (AND?.length || OR?.length) {
+          plain.push({
+            ...(AND?.length ? { AND } : {}),
+            ...(OR?.length ? { OR } : {}),
+          } as ColumnFilter);
+        }
+        continue;
+      }
+
+      const pruned = {
+        ...clause,
+        ...(AND ? { AND } : {}),
+        ...(OR ? { OR } : {}),
+      };
+      // A pure group node whose every child was computed is now empty.
+      if (isLiveClause(pruned)) plain.push(pruned);
+    }
+    return { plain, computed: computedClauses };
   }
 
   /**
