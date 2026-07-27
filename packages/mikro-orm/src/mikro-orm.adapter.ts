@@ -400,14 +400,35 @@ export class MikroOrmAdapter implements FilterAdapter {
    * ORM's `Opt<string>` wrapper reflect as `Object`, not `String`, which used
    * to drop them from the global-search column set entirely. The DB columnType
    * (e.g. `varchar(200)`, `text`) is authoritative, so key off it first.
+   *
+   * The same unreliability bites DATE columns, for a different reason: MikroORM's
+   * `DateType` maps a DATE column to a `'YYYY-MM-DD'` **string**, so its
+   * `runtimeType` is `string` (only `DateTimeType` reflects as `Date`). Keying
+   * off the runtime type alone therefore classified a genuine date column as
+   * `'string'` — which silently excluded it from date-aware behavior such as the
+   * `$min`/`$max` to-many aggregates.
    */
   private resolveFieldType(
     columnTypes: string[] | undefined,
     runtimeType: string | undefined,
   ): EntityFieldInfo['type'] {
     if (this.isJsonProp(columnTypes)) return 'json';
+    if (this.isDateColumn(columnTypes)) return 'date';
     if (this.isStringColumn(columnTypes)) return 'string';
     return this.mapMikroOrmType(runtimeType);
+  }
+
+  /**
+   * Whether the property maps to a date/time DB column (`date`, `datetime`,
+   * `timestamp`, `timestamptz`, with or without a precision suffix). Prefix-
+   * anchored so it matches the column type and not an unrelated name.
+   *
+   * Checked before {@link isStringColumn} even though the two patterns don't
+   * currently overlap, so a future textual-date column type can't be
+   * misclassified as a plain string.
+   */
+  private isDateColumn(columnTypes: string[] | undefined): boolean {
+    return (columnTypes ?? []).some((columnType) => /^(date|datetime|timestamp)/i.test(columnType));
   }
 
   /**
