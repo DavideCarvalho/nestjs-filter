@@ -830,6 +830,19 @@ export function nestjsFilterCodegen(options: NestjsFilterCodegenOptions = {}): C
 
         const filterClass = resolveFilterClassFromControllerRef(route.controllerRef, project);
         if (filterClass) {
+          // The filter class is an input to this extension's output (its
+          // `@Computed`/`@Filterable({ computed })` declarations become
+          // `filterFields` entries) but no host glob matches it — the host
+          // globs controllers, DTOs and pages. Declare it so the
+          // skip-when-unchanged hash covers it; otherwise editing a filter
+          // class leaves the hash untouched and the next run reports "up to
+          // date, skipped" while serving stale types. Requires
+          // @dudousxd/nestjs-codegen with `trackInput`; the peer range is
+          // `>=0.1.0`, so it is typed structurally and called optionally —
+          // this must compile and run against hosts that predate the hook.
+          (ctx as { trackInput?: (...paths: string[]) => void }).trackInput?.(
+            filterClass.getSourceFile().getFilePath(),
+          );
           augmentContractWithComputed(filterClass, contractSource);
           augmentContractWithAggregates(filterClass, contractSource);
         }
