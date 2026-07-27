@@ -724,3 +724,141 @@ describe('nestjsFilterCodegen transformRoutes (to-many aggregate fields — chil
     expect(fields).not.toContain('posts.$sum.views');
   });
 });
+
+/**
+ * An entity whose child carries date columns in the three shapes that occur in
+ * practice, alongside a plain string column that must never qualify.
+ *
+ * `inspectedOn` is the shape that made the runtime-side fix land short: MikroORM's
+ * `DateType` maps a DATE column to a `'YYYY-MM-DD'` **string**, so the TS type
+ * reads `string` and only the decorator argument reveals it is a date.
+ */
+function projectWithDateChildColumns() {
+  const project = inMemoryProject();
+  const controllerPath = '/virtual/vehicle.controller.ts';
+  const filterPath = '/virtual/vehicle.filter.ts';
+
+  project.createSourceFile(
+    filterPath,
+    `
+    class Visit {
+      @Property({ type: DateType, columnType: 'date' })
+      inspectedOn: string;
+
+      @Property({ columnType: 'datetime' })
+      recordedAt: string;
+
+      @Property()
+      servicedAt: Date;
+
+      @Property()
+      note: string;
+
+      @Property()
+      cost: number;
+    }
+
+    class Vehicle {
+      id: string;
+
+      @OneToMany(() => Visit, (visit) => visit.vehicle)
+      visits: Visit[];
+    }
+
+    @Filterable({ entity: Vehicle, autoFields: true })
+    export class VehicleFilter {}
+    `,
+  );
+
+  project.createSourceFile(
+    controllerPath,
+    `
+    import { VehicleFilter } from './vehicle.filter';
+
+    export class VehicleController {
+      list(@ApplyFilter(VehicleFilter) filter: VehicleFilter) {}
+    }
+    `,
+  );
+
+  return {
+    project,
+    controllerRef: { className: 'VehicleController', methodName: 'list', filePath: controllerPath },
+  };
+}
+
+describe('nestjsFilterCodegen transformRoutes (date child columns)', () => {
+  function runOn(fields: string[], types: Array<{ name: string; kind: string }>) {
+    const { project, controllerRef } = projectWithDateChildColumns();
+    const routes = [routeFixture({ filterFields: fields, filterFieldTypes: types, controllerRef })];
+    nestjsFilterCodegen().transformRoutes?.(routes, extensionCtx(routes, project));
+    return routes[0];
+  }
+
+  it('emits only $min/$max for a date column discovered upstream, typed date', () => {
+    const route = runOn(
+      ['id', 'visits.recordedAt'],
+      [
+        { name: 'id', kind: 'string' },
+        { name: 'visits.recordedAt', kind: 'date' },
+      ],
+    );
+
+    const fields = filterFieldsOf(route) ?? [];
+    expect(fields).toEqual(
+      expect.arrayContaining(['visits.$min.recordedAt', 'visits.$max.recordedAt']),
+    );
+    // Arithmetic over a date is not valid SQL — and the runner rejects it, so
+    // advertising it here would be a lie the server refuses to honor.
+    expect(fields).not.toContain('visits.$sum.recordedAt');
+    expect(fields).not.toContain('visits.$avg.recordedAt');
+
+    const types = filterFieldTypesOf(route);
+    for (const name of ['visits.$min.recordedAt', 'visits.$max.recordedAt']) {
+      expect(types).toEqual(expect.arrayContaining([{ name, kind: 'date' }]));
+    }
+  });
+
+  it('reads a DateType column from source even though its TS type is string', () => {
+    const route = runOn(['id'], [{ name: 'id', kind: 'string' }]);
+
+    // The case the whole follow-up exists for: nothing about `inspectedOn: string`
+    // says "date" except the decorator argument.
+    const fields = filterFieldsOf(route) ?? [];
+    expect(fields).toEqual(
+      expect.arrayContaining(['visits.$min.inspectedOn', 'visits.$max.inspectedOn']),
+    );
+    expect(fields).not.toContain('visits.$sum.inspectedOn');
+  });
+
+  it('reads a columnType: datetime column and a plain Date-typed column from source', () => {
+    const route = runOn(['id'], [{ name: 'id', kind: 'string' }]);
+
+    const fields = filterFieldsOf(route) ?? [];
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        'visits.$min.recordedAt',
+        'visits.$max.recordedAt',
+        'visits.$min.servicedAt',
+        'visits.$max.servicedAt',
+      ]),
+    );
+  });
+
+  it('still emits all four fns for a numeric child column and none for a string one', () => {
+    const route = runOn(['id'], [{ name: 'id', kind: 'string' }]);
+
+    const fields = filterFieldsOf(route) ?? [];
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        'visits.$sum.cost',
+        'visits.$avg.cost',
+        'visits.$min.cost',
+        'visits.$max.cost',
+      ]),
+    );
+    for (const fn of ['sum', 'avg', 'min', 'max']) {
+      expect(fields).not.toContain(`visits.$${fn}.note`);
+    }
+  });
+});

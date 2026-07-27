@@ -14,6 +14,7 @@ import {
   parseFieldPath,
   valueToColumnFilters,
 } from '@dudousxd/nestjs-filter';
+import { isDateColumnType } from '@dudousxd/nestjs-filter/aggregate';
 import { type RawQueryFragment, ReferenceKind, raw } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/sql';
 import type { Type } from '@nestjs/common';
@@ -426,9 +427,13 @@ export class MikroOrmAdapter implements FilterAdapter {
    * Checked before {@link isStringColumn} even though the two patterns don't
    * currently overlap, so a future textual-date column type can't be
    * misclassified as a plain string.
+   *
+   * The recognition rule itself lives in core's `aggregate/aggregate-rules`,
+   * shared with the runner and the codegen extension — see that module for why
+   * all three must agree.
    */
   private isDateColumn(columnTypes: string[] | undefined): boolean {
-    return (columnTypes ?? []).some((columnType) => /^(date|datetime|timestamp)/i.test(columnType));
+    return (columnTypes ?? []).some(isDateColumnType);
   }
 
   /**

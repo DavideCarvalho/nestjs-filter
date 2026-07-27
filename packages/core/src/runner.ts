@@ -9,6 +9,7 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import type { EntityFieldInfo, FilterAdapter, GroupByCountField } from './adapter/adapter.js';
 import { parseAggregatePath } from './aggregate/aggregate-path.js';
+import { aggregateFnsForColumnType } from './aggregate/aggregate-rules.js';
 import { runWithFilterState } from './als-store.js';
 import type { ContextAccessor } from './context-accessor.js';
 import { resolveFieldAlias } from './decorator/aliases.js';
@@ -65,34 +66,6 @@ import type {
 type AutoFieldSet = { has(key: string): boolean };
 
 const MATCH_ALL_SET: AutoFieldSet = { has: () => true };
-
-/** Aggregate functions synthesized for a **numeric** child column. `$count` is handled separately — it needs no child column. */
-const AGGREGATE_COLUMN_FNS = ['sum', 'avg', 'min', 'max'] as const;
-
-/**
- * Aggregate functions synthesized for a child column that is ordered but not
- * arithmetic — currently `date`. `MIN`/`MAX` are order-based, so "earliest /
- * latest child date" is valid SQL; `SUM`/`AVG` over a date is not.
- */
-const ORDERED_AGGREGATE_COLUMN_FNS = ['min', 'max'] as const;
-
-/** No aggregate is meaningful over strings/booleans/json — see {@link FilterRunner.addAggregateAutoFields}. */
-const NO_AGGREGATE_COLUMN_FNS = [] as const;
-
-/**
- * Which aggregate functions a to-many child column of this type may be
- * aggregated by. Single source of truth for the synthesis in
- * {@link FilterRunner.addAggregateAutoFields}, which also gates what
- * `applyAggregateField`/`applyAggregateSort` will accept — the auto-field set
- * is the validation allowlist for explicitly-passed aggregate paths too.
- */
-function aggregateFnsForColumnType(
-  type: EntityFieldInfo['type'],
-): readonly ('sum' | 'avg' | 'min' | 'max')[] {
-  if (type === 'number') return AGGREGATE_COLUMN_FNS;
-  if (type === 'date') return ORDERED_AGGREGATE_COLUMN_FNS;
-  return NO_AGGREGATE_COLUMN_FNS;
-}
 
 /**
  * One resolved entry of the computed-field registry: the dev-provided SQL

@@ -4,7 +4,14 @@ import type {
   LeafModel,
 } from '@dudousxd/nestjs-codegen/extension';
 import {
+  AGGREGATE_COLUMN_FNS,
+  DATE_COLUMN_TYPE_CLASSES,
+  ORDERED_AGGREGATE_COLUMN_FNS,
+  isDateColumnType,
+} from '@dudousxd/nestjs-filter/aggregate';
+import {
   type ClassDeclaration,
+  type Decorator,
   type MethodDeclaration,
   Node,
   Project,
@@ -453,10 +460,13 @@ function augmentContractWithComputed(
 // entity: () => Child, ... })`) and reads its own scalar numeric columns from
 // source, unioned with whatever the existing-column scan already found.
 
-/** Numeric-column aggregate functions synthesized per to-many relation. Mirrors
- * `AGGREGATE_COLUMN_FNS` in `packages/core/src/runner.ts`; `$count` needs no
- * child column so it's handled separately. */
-const AGGREGATE_COLUMN_FNS = ['sum', 'avg', 'min', 'max'] as const;
+// The aggregate rule — which fns a child column of a given type may be
+// aggregated by, and what counts as a date column — is imported from core
+// rather than restated here. This pass and the runtime's must agree exactly:
+// when they drifted, the server accepted date `$min`/`$max` while the emitted
+// union omitted them, so the paths typechecked nowhere. See
+// `@dudousxd/nestjs-filter/aggregate`. That subpath is dependency-free, so
+// importing it doesn't pull a Nest runtime into the build.
 
 /** Decorator names that mark a to-many relation property, shared by TypeORM and
  * MikroORM entity decorators (both use these exact names). A `many-to-one` /
@@ -654,6 +664,90 @@ function isNumericTypeNode(typeNode: TypeNode): boolean {
  * check; anything with no type annotation, or a type this function can't
  * confidently resolve, is skipped rather than guessed at.
  */
+/**
+ * Read a child entity class's own scalar DATE column names from source, the
+ * date counterpart of {@link findChildNumericColumnNames}.
+ *
+ * Type-node inspection alone is not enough here, and that is the whole reason
+ * this function exists separately: MikroORM's `DateType` maps a DATE column to
+ * a `'YYYY-MM-DD'` **string**, so the property's TS type reads as `string`.
+ * The scalar-column decorator's own arguments are authoritative — `columnType:
+ * 'date' | 'datetime' | 'timestamp'…` or `type: DateType` — exactly as the
+ * MikroORM adapter prefers `columnTypes` over the reflected runtime type. A
+ * plain `Date`-typed property (no decorator hint) still qualifies.
+ */
+function findChildDateColumnNames(childClass: ClassDeclaration): string[] {
+  const names: string[] = [];
+  for (const prop of childClass.getProperties()) {
+    const decorators = prop.getDecorators();
+    if (decorators.some((d) => RELATION_DECORATORS.has(d.getName()))) continue;
+    const columnDecorator = decorators.find((d) => SCALAR_COLUMN_DECORATORS.has(d.getName()));
+    if (!columnDecorator) continue;
+
+    if (isDateColumnDecorator(columnDecorator) || isDateTypeNode(prop.getTypeNode())) {
+      names.push(prop.getName());
+    }
+  }
+  return names;
+}
+
+/** Whether a `@Property`/`@Column` argument object names a date column, via
+ * `columnType: 'date'…` or `type: DateType`. */
+function isDateColumnDecorator(decorator: Decorator): boolean {
+  const [arg] = decorator.getArguments();
+  if (!arg || !Node.isObjectLiteralExpression(arg)) return false;
+
+  const columnType = arg.getProperty('columnType');
+  if (columnType && Node.isPropertyAssignment(columnType)) {
+    const init = columnType.getInitializer();
+    if (init && Node.isStringLiteral(init) && isDateColumnType(init.getLiteralValue())) {
+      return true;
+    }
+  }
+
+  const type = arg.getProperty('type');
+  if (type && Node.isPropertyAssignment(type)) {
+    const init = type.getInitializer();
+    if (!init) return false;
+    // `type: DateType` (identifier) or `type: 'Date'` / `type: 'date'` (string).
+    if (Node.isIdentifier(init) && DATE_COLUMN_TYPE_CLASSES.has(init.getText())) return true;
+    if (Node.isStringLiteral(init) && isDateColumnType(init.getLiteralValue())) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Whether a type annotation is `Date` (unwrapping `Opt<…>`, unions with
+ * `null`/`undefined`, and intersections — same shapes `isNumericTypeNode`
+ * handles). */
+function isDateTypeNode(typeNode: TypeNode | undefined): boolean {
+  if (!typeNode) return false;
+
+  if (Node.isUnionTypeNode(typeNode)) {
+    const nonNullish = typeNode
+      .getTypeNodes()
+      .filter((t) => t.getText() !== 'null' && t.getText() !== 'undefined');
+    return nonNullish.length === 1 && isDateTypeNode(nonNullish[0] as TypeNode);
+  }
+
+  if (Node.isIntersectionTypeNode(typeNode)) {
+    return typeNode.getTypeNodes().some((t) => isDateTypeNode(t as TypeNode));
+  }
+
+  if (Node.isTypeReference(typeNode)) {
+    const name = typeNode.getTypeName().getText();
+    if (name === 'Date') return true;
+    if (name === 'Opt') {
+      const [inner] = typeNode.getTypeArguments();
+      return inner !== undefined && isDateTypeNode(inner);
+    }
+  }
+
+  return false;
+}
+
 function findChildNumericColumnNames(childClass: ClassDeclaration): string[] {
   const names: string[] = [];
   for (const prop of childClass.getProperties()) {
@@ -706,10 +800,10 @@ function augmentContractWithAggregates(
   const existingTypes = contract.filterFieldTypes ? [...contract.filterFieldTypes] : [];
   const types = [...existingTypes];
 
-  const addField = (name: string): void => {
+  const addField = (name: string, kind: FieldTypeKind = 'number'): void => {
     if (fields.has(name)) return;
     fields.add(name);
-    types.push({ name, kind: 'number' });
+    types.push({ name, kind });
   };
 
   for (const rel of relationNames) {
@@ -724,14 +818,19 @@ function augmentContractWithAggregates(
     // relation path). A column found by either path contributes exactly once
     // — `addField` dedups against `fields`/`types`.
     const numericColumns = new Set<string>();
+    // Date children get only `$min`/`$max` — ordering a date is meaningful,
+    // summing one is not. Mirrors `aggregateFnsForColumnType` in the runner;
+    // the two rules must agree or the emitted union advertises paths the
+    // server rejects (or hides ones it accepts).
+    const dateColumns = new Set<string>();
 
     const prefix = `${rel}.`;
     for (const ft of existingTypes) {
-      if (ft.kind !== 'number') continue;
       if (!ft.name.startsWith(prefix)) continue;
       const column = ft.name.slice(prefix.length);
       if (!column || column.includes('.')) continue; // single relation hop only
-      numericColumns.add(column);
+      if (ft.kind === 'number') numericColumns.add(column);
+      else if (ft.kind === 'date') dateColumns.add(column);
     }
 
     const relProp = entityClass.getProperty(rel);
@@ -743,11 +842,23 @@ function augmentContractWithAggregates(
       for (const column of findChildNumericColumnNames(childClass)) {
         numericColumns.add(column);
       }
+      for (const column of findChildDateColumnNames(childClass)) {
+        dateColumns.add(column);
+      }
     }
 
     for (const column of numericColumns) {
       for (const fn of AGGREGATE_COLUMN_FNS) {
         addField(`${rel}.$${fn}.${column}`);
+      }
+    }
+
+    for (const column of dateColumns) {
+      // A column can't be both; if some upstream type said number and the
+      // source scan said date, the numeric set already claimed it and
+      // `addField` dedups, so the narrower date set never widens it.
+      for (const fn of ORDERED_AGGREGATE_COLUMN_FNS) {
+        addField(`${rel}.$${fn}.${column}`, 'date');
       }
     }
   }
