@@ -12,6 +12,7 @@ import {
 import {
   type ClassDeclaration,
   type Decorator,
+  type FunctionDeclaration,
   type MethodDeclaration,
   Node,
   Project,
@@ -141,10 +142,38 @@ function fieldDepth(fieldName: string): number {
   return segments.length - 1;
 }
 
+/**
+ * A route's binding to the controller FACTORY that produced its base class, as
+ * recorded by `@dudousxd/nestjs-codegen` >= 0.17.1 for
+ * `class X extends createTableController(Entity) {}` (and the
+ * `const T = createTableController(Entity); class X extends T {}` form an
+ * override needs). Typed structurally, like the rest of the IR shapes this
+ * extension reads — hosts that predate it simply never set it.
+ */
+interface MixinBindingLike {
+  factoryName: string;
+  factoryFilePath: string;
+  /** Call-site arguments that resolved to a class, in argument order; `[0]` is the entity. */
+  classArgs: Array<{ name: string; filePath: string }>;
+}
+
 interface ControllerRefLike {
   className: string;
   methodName: string;
   filePath: string;
+  /**
+   * Present only for a route whose controller extends a factory-produced base.
+   * `className`/`filePath` still point at the DERIVED class, and `methodName`
+   * may name a method that exists ONLY on the base — so this must be consulted
+   * before concluding that a route has no resolvable filter class.
+   */
+  mixin?: MixinBindingLike;
+}
+
+/** Load a file into the project on demand (the project starts empty — see
+ * `resolveFilterCodegenProject`), returning it if it exists on disk. */
+function addSourceFile(project: Project, filePath: string): SourceFile | undefined {
+  return project.getSourceFile(filePath) ?? project.addSourceFileAtPathIfExists(filePath);
 }
 
 /** Resolve an identifier to its class declaration: same file, or a named import. */
@@ -174,18 +203,227 @@ function resolveClassDeclaration(
   return undefined;
 }
 
-/** The identifier passed to `@ApplyFilter(<FilterClass>)` on the method's parameters, if any. */
-function findApplyFilterClassName(method: MethodDeclaration): string | undefined {
+/** The first argument of `@ApplyFilter(<expr>)` on the method's parameters, if any.
+ * The expression is returned unresolved: it is an identifier on a hand-written
+ * controller, but a property access (`<Const>.filter`) on a route that overrides
+ * a factory-produced one — see `resolveFactoryStaticClass`. */
+function findApplyFilterArgument(method: MethodDeclaration): Node | undefined {
   for (const param of method.getParameters()) {
     const applyFilterDecorator = param.getDecorators().find((d) => d.getName() === 'ApplyFilter');
     if (!applyFilterDecorator) continue;
 
     const [filterClassArg] = applyFilterDecorator.getArguments();
-    if (filterClassArg && Node.isIdentifier(filterClassArg)) {
-      return filterClassArg.getText();
-    }
+    if (filterClassArg) return filterClassArg;
   }
   return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// factory-produced ("mixin") controllers
+// ---------------------------------------------------------------------------
+//
+// A table controller built by a factory — `class X extends
+// createTableController(Entity) {}` — declares NONE of its routes itself: they
+// live on a class the factory returns, and their `@ApplyFilter` names a filter
+// class generated inside the factory body. Neither is reachable from the call
+// site by name, so the plain "controller class → method → identifier" walk
+// below finds nothing and every augmentation this extension performs is
+// silently skipped — the table loses its computed and aggregate paths while a
+// hand-written controller keeps them.
+//
+// `@dudousxd/nestjs-codegen` >= 0.17.1 records the missing link on each route's
+// `controllerRef.mixin` (which factory, in which file, called with which
+// classes). These helpers mirror that package's own discovery pass
+// (`packages/core/src/discovery/heritage.ts`) so codegen and this extension
+// resolve the same class.
+
+/** Strip `as`/`satisfies`/parenthesised wrappers to the underlying expression —
+ * a factory casts on the way out (`return C as unknown as TableControllerClass<E, D>`). */
+function unwrapExpression(node: Node): Node {
+  let current = node;
+  while (
+    Node.isAsExpression(current) ||
+    Node.isSatisfiesExpression(current) ||
+    Node.isParenthesizedExpression(current) ||
+    Node.isTypeAssertion(current)
+  ) {
+    current = current.getExpression();
+  }
+  return current;
+}
+
+/**
+ * Resolve an identifier to a class declared in an enclosing LOCAL scope (e.g. a
+ * filter class generated inside a controller factory), which the module-level
+ * `resolveClassDeclaration` above cannot see.
+ */
+function resolveLocalClassDeclaration(node: Node): ClassDeclaration | undefined {
+  if (!Node.isIdentifier(node)) return undefined;
+  return node
+    .getDefinitions()
+    .map((d) => d.getDeclarationNode())
+    .find((n): n is ClassDeclaration => n !== undefined && Node.isClassDeclaration(n));
+}
+
+/** The function-like declaration a node sits directly inside, if any. */
+function enclosingFunction(node: Node): Node | undefined {
+  return node.getFirstAncestor(
+    (a) =>
+      Node.isFunctionDeclaration(a) ||
+      Node.isFunctionExpression(a) ||
+      Node.isArrowFunction(a) ||
+      Node.isMethodDeclaration(a) ||
+      Node.isConstructorDeclaration(a) ||
+      Node.isGetAccessorDeclaration(a) ||
+      Node.isSetAccessorDeclaration(a),
+  );
+}
+
+/**
+ * Find the class a factory actually RETURNS.
+ *
+ * Not "the first class declared in the body": a controller factory declares its
+ * generated filter FIRST, so picking the first class yields a filter where a
+ * controller was wanted. Only the factory's own top-level `return` statements
+ * count — the returned controller's method bodies have returns of their own,
+ * and they appear earlier in source order.
+ */
+function resolveReturnedClass(factory: FunctionDeclaration): ClassDeclaration | undefined {
+  const body = factory.getBody();
+  if (!body) return undefined;
+
+  for (const ret of body.getDescendantsOfKind(SyntaxKind.ReturnStatement)) {
+    if (enclosingFunction(ret) !== factory) continue;
+
+    const expr = ret.getExpression();
+    if (!expr) continue;
+    const inner = unwrapExpression(expr);
+
+    // `return class { ... }` — the class expression itself.
+    if (Node.isClassExpression(inner)) return inner as unknown as ClassDeclaration;
+
+    // `return GeneratedTableController;` — declared in the factory body, so it
+    // resolves lexically rather than at module level.
+    const local = resolveLocalClassDeclaration(inner);
+    if (local) return local;
+  }
+
+  return undefined;
+}
+
+/** The factory function a route's mixin binding names. */
+function resolveMixinFactory(
+  mixin: MixinBindingLike | undefined,
+  project: Project,
+): FunctionDeclaration | undefined {
+  if (!mixin) return undefined;
+  return addSourceFile(project, mixin.factoryFilePath)?.getFunction(mixin.factoryName);
+}
+
+/**
+ * Whether `<Const>` in `@ApplyFilter(<Const>.filter)` is demonstrably bound to a
+ * call of a DIFFERENT factory than the one this route inherits from. Such a
+ * const hands back a filter for another entity, and typing this route's fields
+ * off it would advertise paths the server rejects — so a positive mismatch
+ * bails out. Anything unreadable (no variable declaration, an initializer this
+ * can't parse) is trusted instead: the mixin binding already proved the
+ * controller extends this factory.
+ */
+function referencesForeignFactory(base: Node, mixin: MixinBindingLike): boolean {
+  if (!Node.isIdentifier(base)) return false;
+
+  const decl = base
+    .getDefinitions()
+    .map((d) => d.getDeclarationNode())
+    .find((n) => n !== undefined && Node.isVariableDeclaration(n));
+  const init = decl && Node.isVariableDeclaration(decl) ? decl.getInitializer() : undefined;
+  if (!init) return false;
+
+  const call = unwrapExpression(init);
+  if (!Node.isCallExpression(call)) return false;
+
+  const callee = call.getExpression();
+  if (!Node.isIdentifier(callee)) return false;
+
+  return callee.getText() !== mixin.factoryName;
+}
+
+/**
+ * Resolve `@ApplyFilter(<Const>.filter)` — the escape hatch a route OVERRIDE has
+ * to use.
+ *
+ * An override must re-declare the decorators its base carried, and `@ApplyFilter`
+ * needs the very filter class the factory generated internally. That class has
+ * no importable declaration (it lives inside the function body), so the factory
+ * hands it back as a static and the override names it through the const it bound
+ * the factory call to. The expression is a property access, not an identifier,
+ * which is exactly why the identifier-only walk skipped these routes.
+ */
+function resolveFactoryStaticClass(
+  node: Node,
+  mixin: MixinBindingLike | undefined,
+  project: Project,
+): ClassDeclaration | undefined {
+  if (!mixin || !Node.isPropertyAccessExpression(node)) return undefined;
+  if (referencesForeignFactory(node.getExpression(), mixin)) return undefined;
+
+  const factory = resolveMixinFactory(mixin, project);
+  const returnedClass = factory && resolveReturnedClass(factory);
+  if (!returnedClass) return undefined;
+
+  const staticProp = returnedClass
+    .getStaticProperties()
+    .find((p) => p.getName() === node.getName());
+  if (!staticProp || !Node.isPropertyDeclaration(staticProp)) return undefined;
+
+  const init = staticProp.getInitializer();
+  if (!init) return undefined;
+  const inner = unwrapExpression(init);
+
+  if (Node.isClassExpression(inner)) return inner as unknown as ClassDeclaration;
+  return resolveLocalClassDeclaration(inner);
+}
+
+/**
+ * Resolve the class an already-located method's `@ApplyFilter(...)` names.
+ * `sourceFile` is the file the METHOD is declared in — the controller's for an
+ * ordinary route, the factory's for one inherited from a factory-produced base.
+ */
+function resolveApplyFilterClass(
+  method: MethodDeclaration,
+  sourceFile: SourceFile,
+  mixin: MixinBindingLike | undefined,
+  project: Project,
+): ClassDeclaration | undefined {
+  const arg = findApplyFilterArgument(method);
+  if (!arg) return undefined;
+
+  if (Node.isIdentifier(arg)) {
+    // Module-level/imported first (every hand-written controller), then
+    // lexically — a factory's generated filter is declared inside the factory
+    // function, invisible to any module-level lookup.
+    return resolveClassDeclaration(arg.getText(), sourceFile) ?? resolveLocalClassDeclaration(arg);
+  }
+
+  return resolveFactoryStaticClass(arg, mixin, project);
+}
+
+/**
+ * Resolve the entity class a controller factory was CALLED with.
+ *
+ * A factory-generated filter carries `@Filterable({ entity })` where `entity` is
+ * the factory's own parameter — it names nothing resolvable in that file. The
+ * concrete entity exists only at the call site, which the route's mixin binding
+ * recorded by name + file.
+ */
+function resolveMixinEntityClass(
+  mixin: MixinBindingLike | undefined,
+  project: Project,
+): ClassDeclaration | undefined {
+  const entityArg = mixin?.classArgs[0];
+  if (!entityArg) return undefined;
+
+  return addSourceFile(project, entityArg.filePath)?.getClass(entityArg.name);
 }
 
 /**
@@ -221,6 +459,14 @@ function readFilterableCodegenMaxDepth(filterClass: ClassDeclaration): number | 
  * controller method to the `@ApplyFilter(FilterClass)` parameter. Returns
  * `undefined` when the controller/method/parameter chain isn't resolvable
  * (e.g. no `controllerRef`, or the route isn't `@ApplyFilter`-decorated).
+ *
+ * Two shapes reach the filter class:
+ *   - the route is declared on the controller itself — the ordinary walk, and
+ *     also how an OVERRIDE of a factory-produced route resolves (its
+ *     `@ApplyFilter(<Const>.filter)` goes through the factory);
+ *   - the route is INHERITED from a factory-produced base, so no such method
+ *     exists on the controller at all and the walk continues in the factory's
+ *     file, via the route's mixin binding.
  */
 function resolveFilterClassFromControllerRef(
   controllerRef: ControllerRefLike | undefined,
@@ -233,19 +479,25 @@ function resolveFilterClassFromControllerRef(
   // `skipAddingFilesFromTsConfig` — so add the controller on demand. Its imports
   // (e.g. the `@ApplyFilter(FilterClass)` target under a `@/` path alias) resolve
   // lazily through the project's tsconfig `paths`.
-  const sourceFile =
-    project.getSourceFile(controllerRef.filePath) ??
-    project.addSourceFileAtPathIfExists(controllerRef.filePath);
+  const sourceFile = addSourceFile(project, controllerRef.filePath);
   if (!sourceFile) return undefined;
 
   const controllerClass = sourceFile.getClass(controllerRef.className);
   const method = controllerClass?.getMethod(controllerRef.methodName);
-  if (!method) return undefined;
+  if (method) {
+    return resolveApplyFilterClass(method, sourceFile, controllerRef.mixin, project);
+  }
 
-  const filterClassName = findApplyFilterClassName(method);
-  if (!filterClassName) return undefined;
+  // No method by that name on the controller. Either the route isn't
+  // resolvable at all, or it is inherited from a factory-produced base whose
+  // methods only exist in the factory's file.
+  const factory = resolveMixinFactory(controllerRef.mixin, project);
+  const baseMethod = factory
+    ? resolveReturnedClass(factory)?.getMethod(controllerRef.methodName)
+    : undefined;
+  if (!factory || !baseMethod) return undefined;
 
-  return resolveClassDeclaration(filterClassName, sourceFile);
+  return resolveApplyFilterClass(baseMethod, factory.getSourceFile(), controllerRef.mixin, project);
 }
 
 /** Prune `filterFields`/`filterFieldTypes` (mutating in place) to `maxDepth` relation hops. */
@@ -777,17 +1029,25 @@ function findChildNumericColumnNames(childClass: ClassDeclaration): string[] {
  * the entity class isn't statically resolvable, has no to-many relation, or
  * the filter's `autoFields`/`allowed` config means the runtime would never
  * synthesize these fields anyway (see `filterableAllowsAggregateAutoFields`).
+ *
+ * `entityOverride` supplies the entity for a factory-generated filter, whose
+ * `@Filterable({ entity })` names the FACTORY'S OWN PARAMETER and so resolves
+ * to nothing by name — the concrete class is knowable only from the call site
+ * (see `resolveMixinEntityClass`). It wins over the declared identifier, which
+ * is the same precedence `@dudousxd/nestjs-codegen` applies when it derives the
+ * base field list for these routes.
  */
 function augmentContractWithAggregates(
   filterClass: ClassDeclaration,
   contract: FilterContract,
+  entityOverride?: ClassDeclaration | undefined,
 ): void {
   if (!filterableAllowsAggregateAutoFields(filterClass)) return;
 
   const entityName = readFilterableEntityIdentifierName(filterClass);
-  if (!entityName) return;
-
-  const entityClass = resolveClassDeclaration(entityName, filterClass.getSourceFile());
+  const entityClass =
+    entityOverride ??
+    (entityName ? resolveClassDeclaration(entityName, filterClass.getSourceFile()) : undefined);
   if (!entityClass) return;
 
   const relationNames = findToManyRelationNames(entityClass);
@@ -939,7 +1199,8 @@ export function nestjsFilterCodegen(options: NestjsFilterCodegenOptions = {}): C
         const contractSource = route.contract?.contractSource as FilterContract | undefined;
         if (!contractSource) continue;
 
-        const filterClass = resolveFilterClassFromControllerRef(route.controllerRef, project);
+        const controllerRef = route.controllerRef as ControllerRefLike | undefined;
+        const filterClass = resolveFilterClassFromControllerRef(controllerRef, project);
         if (filterClass) {
           // The filter class is an input to this extension's output (its
           // `@Computed`/`@Filterable({ computed })` declarations become
@@ -951,11 +1212,24 @@ export function nestjsFilterCodegen(options: NestjsFilterCodegenOptions = {}): C
           // @dudousxd/nestjs-codegen with `trackInput`; the peer range is
           // `>=0.1.0`, so it is typed structurally and called optionally —
           // this must compile and run against hosts that predate the hook.
-          (ctx as { trackInput?: (...paths: string[]) => void }).trackInput?.(
-            filterClass.getSourceFile().getFilePath(),
-          );
+          //
+          // For a factory-produced route the factory file is an input too: it
+          // declares the routes themselves, and usually the generated filter —
+          // but not necessarily, so it is declared explicitly rather than
+          // assumed to be the filter's own file.
+          const trackedPaths: string[] = [filterClass.getSourceFile().getFilePath()];
+          const factoryFilePath = controllerRef?.mixin?.factoryFilePath;
+          if (factoryFilePath && !trackedPaths.includes(factoryFilePath)) {
+            trackedPaths.push(factoryFilePath);
+          }
+          (ctx as { trackInput?: (...paths: string[]) => void }).trackInput?.(...trackedPaths);
+
           augmentContractWithComputed(filterClass, contractSource);
-          augmentContractWithAggregates(filterClass, contractSource);
+          augmentContractWithAggregates(
+            filterClass,
+            contractSource,
+            resolveMixinEntityClass(controllerRef?.mixin, project),
+          );
         }
 
         // Only now check: a route with neither upstream-discovered fields NOR
