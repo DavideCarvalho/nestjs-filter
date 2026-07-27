@@ -138,6 +138,35 @@ The builder is the standard `TypedFilterQueryBuilder` from `@dudousxd/nestjs-fil
 
 ---
 
+## Table controllers built by a factory
+
+Tables are often produced by a factory rather than written out per entity:
+
+```ts
+// Every route lives on the class the factory returns…
+@Controller('users/search')
+export class SearchUsersController extends createTableController(User, { dto: UserDto }) {}
+
+// …and an override names the generated filter through the factory's static.
+const PostsTable = createTableController(Post, { dto: PostDto });
+
+@Controller('posts/search')
+export class SearchPostsController extends PostsTable {
+  @Post()
+  override async search(
+    @ApplyFilter(PostsTable.filter, { source: 'body' }) qb: QueryBuilder<Post>,
+  ) { /* … */ }
+}
+```
+
+Both shapes are fully supported: inherited routes and overridden ones get the same `filterQuery()` builder, the same [computed aliases](/docs/guides/computed), and the same [to-many aggregate paths](/docs/guides/relations) (`<rel>.$count`, `<rel>.$sum.<col>`, …) as a hand-written controller filtering the same entity.
+
+<Callout type="info">
+  Requires `@dudousxd/nestjs-codegen` >= 0.17.1, which records which factory produced a route's base class and which entity it was called with — the generated filter's `@Filterable({ entity })` names the factory's own parameter, so the entity is knowable only from the call site.
+</Callout>
+
+---
+
 ## How it fits
 
 `nestjs-codegen` exposes a `CodegenExtension` contract at `@dudousxd/nestjs-codegen/extension`. This package implements two of its `api.ts` hooks: `apiHeader` (adds the `filterQueryTyped` import) and `apiMembers` (adds the `filterQuery` member to each handle leaf that carries filter fields). Because member contributions land on handle leaves, `filterQuery()` sits alongside whatever client layer is active — the plain fetcher or, for example, TanStack Query. The codegen owns route discovery and the field-type model; the extension maps that onto a typed call.
