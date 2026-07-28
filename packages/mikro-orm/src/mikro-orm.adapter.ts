@@ -14,7 +14,7 @@ import {
   parseFieldPath,
   valueToColumnFilters,
 } from '@dudousxd/nestjs-filter';
-import { isDateColumnType } from '@dudousxd/nestjs-filter/aggregate';
+import { aggregateDistinctAlias, isDateColumnType } from '@dudousxd/nestjs-filter/aggregate';
 import { type RawQueryFragment, ReferenceKind, raw } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/sql';
 import type { Type } from '@nestjs/common';
@@ -892,7 +892,40 @@ export class MikroOrmAdapter implements FilterAdapter {
    * validated ORM metadata (`em.getMetadata()`), never from client-supplied
    * text.
    */
+  /**
+   * Adds a to-many aggregate to the DISTINCT projection.
+   *
+   * Delegates to {@link applyComputedDistinct} with the aggregate compiled to
+   * the same `ComputedSource` shape a dev-declared computed field uses. That
+   * reuse is deliberate: computed-distinct already carries the bookkeeping
+   * that keeps `getDistinctResultAndCount` from undercounting tuples which
+   * differ only in a non-column member (see `computedDistinctBuilders`).
+   * Duplicating the projection here and forgetting that marker would silently
+   * return a wrong total.
+   *
+   * The path is not a legal SQL identifier (`.` and `$`), so it is flattened
+   * into one — `posts.$max.views` → `posts_max_views`.
+   */
+  applyAggregateDistinct(qb: unknown, aggregate: AggregatePath): void {
+    this.applyComputedDistinct(
+      qb,
+      aggregateDistinctAlias(aggregate),
+      this.aggregateComputedSource(qb, aggregate),
+    );
+  }
+
   private aggregateSubquery(qb: unknown, aggregate: AggregatePath) {
+    return this.resolveComputed(this.aggregateComputedSource(qb, aggregate));
+  }
+
+  /**
+   * The aggregate compiled to a `ComputedSource` — the correlated scalar
+   * subquery, still as a function of the outer alias. Split out of
+   * {@link aggregateSubquery} so consumers that need the source itself (the
+   * distinct projection) can have it, while the WHERE/ORDER BY paths keep
+   * getting the resolved raw fragment.
+   */
+  private aggregateComputedSource(qb: unknown, aggregate: AggregatePath): ComputedSource {
     const rootMeta = (qb as { mainAlias: { meta: AggregateEntityMeta } }).mainAlias.meta;
     const prop = rootMeta.properties?.[aggregate.relation];
     if (!prop) {
@@ -919,7 +952,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     rootMeta: AggregateEntityMeta,
     prop: AggregateEntityProp,
     aggregate: AggregatePath,
-  ) {
+  ): ComputedSource {
     const childMeta = this.resolveChildMeta(prop, aggregate.relation);
     const mappedBy = prop.mappedBy;
     const fkProp = mappedBy ? childMeta.properties?.[mappedBy] : undefined;
@@ -934,9 +967,8 @@ export class MikroOrmAdapter implements FilterAdapter {
     const childTable = this.quoteIdent(childMeta.tableName);
     const fk = this.quoteIdent(fkColumn);
     const pk = this.quoteIdent(pkColumn);
-    const source: ComputedSource = ({ alias }) =>
+    return ({ alias }) =>
       `(SELECT ${aggExpr} FROM ${childTable} WHERE ${childTable}.${fk} = ${alias}.${pk})`;
-    return this.resolveComputed(source);
   }
 
   /**
@@ -964,7 +996,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     rootMeta: AggregateEntityMeta,
     prop: AggregateEntityProp,
     aggregate: AggregatePath,
-  ) {
+  ): ComputedSource {
     const childMeta = this.resolveChildMeta(prop, aggregate.relation);
     const pivotTable = prop.pivotTable;
     const ownerFk = prop.joinColumns?.[0];
@@ -980,9 +1012,8 @@ export class MikroOrmAdapter implements FilterAdapter {
     const ownerPk = this.quoteIdent(ownerPkColumn);
 
     if (aggregate.fn === 'count') {
-      const source: ComputedSource = ({ alias }) =>
+      return ({ alias }) =>
         `(SELECT COUNT(*) FROM ${pivot} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk})`;
-      return this.resolveComputed(source);
     }
 
     const childPkName = childMeta.primaryKeys?.[0];
@@ -998,9 +1029,8 @@ export class MikroOrmAdapter implements FilterAdapter {
     const childTable = this.quoteIdent(childMeta.tableName);
     const childPk = this.quoteIdent(childPkColumn);
     const inverseFkQ = this.quoteIdent(inverseFk);
-    const source: ComputedSource = ({ alias }) =>
+    return ({ alias }) =>
       `(SELECT ${aggExpr} FROM ${childTable} JOIN ${pivot} ON ${childTable}.${childPk} = ${pivot}.${inverseFkQ} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk})`;
-    return this.resolveComputed(source);
   }
 
   /** Resolves a relation property's target entity metadata via `em.getMetadata()`. */

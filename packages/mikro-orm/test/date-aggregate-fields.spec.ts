@@ -423,3 +423,102 @@ describe('MikroORM to-many aggregates via the where[] column-filter path', () =>
     await mod.close();
   });
 });
+
+/**
+ * Aggregate paths listed in `distinct`.
+ *
+ * The generated `filterFields` union carries aggregate paths, and the typed
+ * client's `distinct(...fields)` is typed off that same union — so
+ * `.distinct('visits.$max.servicedAt')` typechecks. It used to be dropped as
+ * an unknown column and the query came back as a plain `select u0.*`: no
+ * error, no DISTINCT, silently ignoring what was asked. Silent is worse than
+ * loud for an operation whose whole purpose is shaping the result set.
+ */
+describe('MikroORM to-many aggregates in distinct', () => {
+  let orm: MikroORM;
+  let runner: FilterRunner;
+
+  async function createModule() {
+    const mod = await Test.createTestingModule({
+      imports: [
+        MikroOrmModule.forRoot({
+          driver: SqliteDriver,
+          dbName: ':memory:',
+          entities: [Vehicle, Visit],
+          allowGlobalContext: true,
+          metadataProvider: ReflectMetadataProvider,
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        MikroOrmFilterModule.forRoot(),
+        FilterModule.forFeature([VehicleFilter]),
+      ],
+    }).compile();
+    orm = mod.get(MikroORM);
+    runner = mod.get(FilterRunner);
+    await orm.schema.create();
+    return mod;
+  }
+
+  // Truck and Van share a last visit of 2022-12-25; Trailer's is 2019.
+  // So three vehicles collapse to TWO distinct max dates — a count that
+  // differs from the row count, which is what makes this worth asserting.
+  async function seedShared() {
+    const em = orm.em.fork();
+    const truck = em.create(Vehicle, { name: 'Truck' });
+    const van = em.create(Vehicle, { name: 'Van' });
+    const trailer = em.create(Vehicle, { name: 'Trailer' });
+    em.persist([truck, van, trailer]);
+    for (const [vehicle, day] of [
+      [truck, '2022-12-25'],
+      [van, '2022-12-25'],
+      [trailer, '2019-03-01'],
+    ] as const) {
+      em.create(Visit, {
+        servicedAt: new Date(day),
+        inspectedOn: day,
+        cost: 1,
+        note: 'n',
+        vehicle,
+      });
+    }
+    await em.flush();
+  }
+
+  afterEach(async () => {
+    await orm?.close(true);
+  });
+
+  it('projects the aggregate into a real DISTINCT instead of dropping it', async () => {
+    const mod = await createModule();
+    await seedShared();
+
+    const qb = orm.em.fork().createQueryBuilder(Vehicle);
+    await runner.apply(VehicleFilter, { distinct: ['visits.$max.inspectedOn'] } as never, qb);
+
+    const sql = qb.getFormattedQuery();
+    expect(sql).toContain('distinct');
+    expect(sql).toContain('MAX');
+
+    // Three vehicles, two distinct last-visit dates.
+    const rows = (await qb.execute()) as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(2);
+    // Keyed by the flattened identifier, since the path isn't a legal one.
+    expect(new Set(rows.map((r) => r.visits_max_inspectedOn))).toEqual(
+      new Set(['2022-12-25', '2019-03-01']),
+    );
+
+    await mod.close();
+  });
+
+  it('still refuses an aggregate over a non-aggregatable column', async () => {
+    const mod = await createModule();
+    await seedShared();
+
+    // The allowlist gates distinct exactly as it gates where[]/structured.
+    const qb = orm.em.fork().createQueryBuilder(Vehicle);
+    await runner.apply(VehicleFilter, { distinct: ['visits.$max.note'] } as never, qb);
+    expect(qb.getFormattedQuery()).not.toContain('MAX');
+
+    await mod.close();
+  });
+});
