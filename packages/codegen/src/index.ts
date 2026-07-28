@@ -153,8 +153,16 @@ function fieldDepth(fieldName: string): number {
 interface MixinBindingLike {
   factoryName: string;
   factoryFilePath: string;
-  /** Call-site arguments that resolved to a class, in argument order; `[0]` is the entity. */
+  /** POSITIONAL call-site arguments that resolved to a class, in argument order; `[0]` is the entity. */
   classArgs: Array<{ name: string; filePath: string }>;
+  /**
+   * Class-valued properties of an OPTIONS-OBJECT argument, keyed by property
+   * name — `createTableController(Wo, { filter: WoFilter })` yields
+   * `{ filter: { name: 'WoFilter', … } }`. Recorded by
+   * `@dudousxd/nestjs-codegen` >= 0.18.0 only, hence optional: an older host
+   * simply never sets it and resolution falls back to the pre-0.18 paths.
+   */
+  namedClassArgs?: Record<string, { name: string; filePath: string }>;
 }
 
 interface ControllerRefLike {
@@ -409,19 +417,62 @@ function resolveApplyFilterClass(
 }
 
 /**
+ * Resolve a class-valued property of the factory's OPTIONS OBJECT
+ * (`createTableController(Wo, { filter: WoFilter })`) to its declaration.
+ *
+ * Reads `namedClassArgs` optionally: the field only exists on
+ * `@dudousxd/nestjs-codegen` >= 0.18.0, and an older host must degrade to the
+ * pre-0.18 resolution rather than crash.
+ */
+function resolveMixinOptionClass(
+  mixin: MixinBindingLike | undefined,
+  key: string,
+  project: Project,
+): ClassDeclaration | undefined {
+  const ref = mixin?.namedClassArgs?.[key];
+  if (!ref) return undefined;
+
+  return addSourceFile(project, ref.filePath)?.getClass(ref.name);
+}
+
+/**
+ * Resolve the HAND-WRITTEN filter a controller factory was called with —
+ * `createTableController(Wo, { filter: WoFilter })`.
+ *
+ * At runtime that filter backs every route the factory produced, but nothing in
+ * the factory's source says so: `@ApplyFilter`'s first argument has to stay a
+ * literal for the AST scan, so it names the filter the factory generated
+ * INTERNALLY as a fallback. Resolving the route off that generated class types
+ * the route against the wrong filter — the hand-written one's `@Computed`
+ * aliases, `@FilterFor` virtuals and `@Filterable({ computed })` entries all
+ * vanish from `filterFields` while the server happily accepts and sorts by them.
+ * The call site is the only place the real filter is named, and the mixin
+ * binding is the only record of it.
+ */
+function resolveMixinFilterClass(
+  mixin: MixinBindingLike | undefined,
+  project: Project,
+): ClassDeclaration | undefined {
+  return resolveMixinOptionClass(mixin, 'filter', project);
+}
+
+/**
  * Resolve the entity class a controller factory was CALLED with.
  *
  * A factory-generated filter carries `@Filterable({ entity })` where `entity` is
  * the factory's own parameter — it names nothing resolvable in that file. The
  * concrete entity exists only at the call site, which the route's mixin binding
- * recorded by name + file.
+ * recorded by name + file. Positional first (`createTableController(Wo, {…})`,
+ * the common form), then the options-object property for the all-in-one-object
+ * call form (`createTableController({ entity: Wo, … })`), which leaves
+ * `classArgs` empty.
  */
 function resolveMixinEntityClass(
   mixin: MixinBindingLike | undefined,
   project: Project,
 ): ClassDeclaration | undefined {
   const entityArg = mixin?.classArgs[0];
-  if (!entityArg) return undefined;
+  if (!entityArg) return resolveMixinOptionClass(mixin, 'entity', project);
 
   return addSourceFile(project, entityArg.filePath)?.getClass(entityArg.name);
 }
@@ -467,6 +518,20 @@ function readFilterableCodegenMaxDepth(filterClass: ClassDeclaration): number | 
  *   - the route is INHERITED from a factory-produced base, so no such method
  *     exists on the controller at all and the walk continues in the factory's
  *     file, via the route's mixin binding.
+ *
+ * Precedence, highest first:
+ *   1. an override that names a filter BY IDENTIFIER in its own
+ *      `@ApplyFilter(SomeFilter)` — the most specific statement anyone makes
+ *      about this one route, and the only one that can differ per route;
+ *   2. the `filter` the factory was CALLED with — it backs every route the
+ *      factory produced, and outranks the factory's internally generated
+ *      fallback (which is what the source-level `@ApplyFilter` names). This is
+ *      also why an `@ApplyFilter(<Const>.filter)` override loses to it: that
+ *      expression re-declares the factory's product rather than naming a filter
+ *      of its own, and it statically resolves to the generated fallback — the
+ *      wrong class exactly when a filter was supplied;
+ *   3. the pre-0.18 walk — the route's own `@ApplyFilter`, via the factory
+ *      static or the inherited base method.
  */
 function resolveFilterClassFromControllerRef(
   controllerRef: ControllerRefLike | undefined,
@@ -483,21 +548,39 @@ function resolveFilterClassFromControllerRef(
   if (!sourceFile) return undefined;
 
   const controllerClass = sourceFile.getClass(controllerRef.className);
-  const method = controllerClass?.getMethod(controllerRef.methodName);
-  if (method) {
-    return resolveApplyFilterClass(method, sourceFile, controllerRef.mixin, project);
-  }
+  const ownMethod = controllerClass?.getMethod(controllerRef.methodName);
 
-  // No method by that name on the controller. Either the route isn't
-  // resolvable at all, or it is inherited from a factory-produced base whose
-  // methods only exist in the factory's file.
-  const factory = resolveMixinFactory(controllerRef.mixin, project);
+  // The method carrying the route's `@ApplyFilter`, and the file it lives in:
+  // the controller's for an override, the factory's for a route inherited
+  // verbatim (no such method exists on the controller at all).
+  const factory = ownMethod ? undefined : resolveMixinFactory(controllerRef.mixin, project);
   const baseMethod = factory
     ? resolveReturnedClass(factory)?.getMethod(controllerRef.methodName)
     : undefined;
-  if (!factory || !baseMethod) return undefined;
+  const method = ownMethod ?? baseMethod;
+  const methodFile = ownMethod ? sourceFile : factory?.getSourceFile();
+  if (!method || !methodFile) return undefined;
 
-  return resolveApplyFilterClass(baseMethod, factory.getSourceFile(), controllerRef.mixin, project);
+  const applyFilterArg = findApplyFilterArgument(method);
+  // No `@ApplyFilter` anywhere on this route: it is not a filtered route, and
+  // the factory's `filter` option says nothing about it. Bail before that
+  // option can hand a filter to a route that never had one.
+  if (!applyFilterArg) return undefined;
+
+  // (1) An override naming a filter BY IDENTIFIER states something specific to
+  // this one route — more specific than a factory-wide option, so it wins.
+  if (ownMethod && Node.isIdentifier(applyFilterArg)) {
+    const own =
+      resolveClassDeclaration(applyFilterArg.getText(), sourceFile) ??
+      resolveLocalClassDeclaration(applyFilterArg);
+    if (own) return own;
+  }
+
+  // (2) the filter the factory was called with, then (3) the pre-0.18 walk.
+  return (
+    resolveMixinFilterClass(controllerRef.mixin, project) ??
+    resolveApplyFilterClass(method, methodFile, controllerRef.mixin, project)
+  );
 }
 
 /** Prune `filterFields`/`filterFieldTypes` (mutating in place) to `maxDepth` relation hops. */
