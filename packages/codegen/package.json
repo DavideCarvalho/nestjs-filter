@@ -26,7 +26,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "peerDependencies": {
-    "@dudousxd/nestjs-codegen": ">=0.1.0",
+    "@dudousxd/nestjs-codegen": ">=0.18.0",
     "@dudousxd/nestjs-filter-client": ">=1.0.0",
     "@dudousxd/nestjs-filter": ">=1.19.0"
   },
