@@ -722,12 +722,17 @@ export class MikroOrmAdapter implements FilterAdapter {
       let meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
       for (const segment of relationPath) {
         const prop = meta?.properties?.[segment];
-        // Only a to-one hop can be projected: a to-many join multiplies the
-        // rows, which is not what a column-values dropdown asked for.
-        if (
-          !prop ||
-          (prop.kind !== ReferenceKind.MANY_TO_ONE && prop.kind !== ReferenceKind.ONE_TO_ONE)
-        ) {
+        // Any relation kind, to-many included. A to-many join multiplies the
+        // parent rows — but this projection is a single column under DISTINCT,
+        // and collapsing those duplicates is precisely what DISTINCT does. The
+        // question a dropdown asks ("which leave reasons appear among the
+        // people matching these filters?") is answered by exactly that join,
+        // and the total counts distinct VALUES, not parents.
+        //
+        // The multiplication only matters where entity rows survive to the
+        // caller, which is the ROWS route — a different code path that never
+        // reaches here.
+        if (!prop || prop.kind === ReferenceKind.SCALAR || prop.kind === ReferenceKind.EMBEDDED) {
           return null;
         }
         meta = this.em.getMetadata().get(prop.type as unknown as new () => unknown);

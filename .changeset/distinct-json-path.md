@@ -3,7 +3,15 @@
 '@dudousxd/nestjs-filter-mikro-orm': minor
 ---
 
-JSON sub-paths now work in `distinct` too.
+JSON sub-paths and to-many paths now work in `distinct` too — and the to-many half closes a regression window opened by the previous release.
+
+## To-many paths (`events.reason`) — and the 1.23.0 regression
+
+The relation-path release restricted the MikroORM projection to to-one hops, reasoning that a to-many join multiplies the parent rows. That reasoning applies to the ROWS route. Under a single-column `DISTINCT` the multiplication is exactly what `DISTINCT` collapses, and "which leave reasons appear among the people matching these filters?" is the question a filter dropdown asks.
+
+Worse, the two halves disagreed. `validateDistinct` in core accepts any path ending in a scalar column, which includes a to-many one; the adapter then rejected it and let the bare dotted string through into the SELECT list. So on 1.23.0 a to-many `distinct` raises `no such column: events.reason` where 1.22.0 silently dropped the field. This restores the field and makes it project properly: any relation kind is joined, many-to-many included (through its pivot), and the total counts distinct VALUES rather than parent rows.
+
+## JSON sub-paths
 
 The previous release taught `distinct` to project a to-one relation path and explicitly left the other dotted path alone: a JSON sub-path resolved to `'json'` and stayed rejected, because projecting one needs an extract expression that path did not build. This builds it.
 
