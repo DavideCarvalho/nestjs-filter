@@ -214,11 +214,21 @@ await runner.groupByCount(Author, input);
 
 Computed grouping aliases are dev-declared, so they bypass column validation exactly like computed sort/distinct; the numeric `bucket` variant applies to the expression the same way it applies to a column.
 
-### The `where[]` path still doesn't dispatch computed
+### The `where[]` path
+
+Since **1.19**, a computed alias sent as a column filter dispatches correctly. The typed client builder's `.where()` emits `where[]`, and codegen puts computed aliases in the field union, so `.where('booksCount', 'gt', 0)` both typechecks and runs:
+
+```ts
+filterQuery<Author>().where('booksCount', 'gt', 0);
+```
+
+Those clauses are peeled off the `where[]` array before column validation and routed to `applyComputedField`, so the alias never reaches `applyColumnFilters` as a bogus column name. The structured form (`?booksCount[gt]=0`, `filter[booksCount][gt]=0`, the client builder's `.set()` envelope) still works and is equivalent.
 
 <Callout type="warn">
-  The typed client builder's `.where()` (and any raw `where[]` column-filter input) routes through the adapter's `applyColumnFilters` — that path resolves **real columns only** and does not dispatch computed aliases, even though codegen's `filterQuery()` accepts the alias at compile time. To filter on a computed field over HTTP, use the structured form — a top-level `?booksCount[gt]=0` / `filter[booksCount][gt]=0` key (the client builder's `.set()` envelope) — which dispatches through `applyComputedField`. Sorting (`sort=-booksCount`) and `distinct`/`groupByCount` dispatch computed aliases correctly.
+  **One limit: only a TOP-LEVEL computed clause dispatches.** A computed alias nested inside an `AND`/`OR` group is dropped with a warning, because `applyComputedField` appends its own top-level `andWhere` and cannot be composed into a nested boolean group. Lift the computed condition out of the group, or express it through the structured filter.
 </Callout>
+
+Before 1.19 this path handed the alias to `applyColumnFilters`, which emitted it as a column name and let the database reject the query — so a filter that typechecked returned a 500. If you are carrying a workaround that rewrites a computed clause into the structured envelope after `.build()`, it is no longer needed.
 
 ## Codegen typing
 
