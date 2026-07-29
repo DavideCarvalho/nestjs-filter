@@ -78,6 +78,18 @@ interface ProjectionQB {
   addSelect: (fields: unknown) => unknown;
 }
 
+/**
+ * The join surface {@link MikroOrmAdapter.applyDistinct} needs to project a
+ * relation path. `getAliasForJoinPath` is how MikroORM itself avoids joining
+ * the same path twice (optional here: an older/foreign builder without it just
+ * gets a fresh join).
+ */
+interface JoinableQB {
+  alias: string;
+  leftJoin: (path: string, alias: string) => unknown;
+  getAliasForJoinPath?: (path: string) => string | undefined;
+}
+
 export class MikroOrmAdapter implements FilterAdapter {
   constructor(private readonly em: SqlEntityManager) {}
 
@@ -102,16 +114,19 @@ export class MikroOrmAdapter implements FilterAdapter {
   private projectedAliases = new WeakMap<object, string[]>();
 
   /**
-   * Builders whose DISTINCT projection contains at least one computed
-   * expression (added via {@link applyComputedDistinct}). The `fields`
-   * parameter of {@link getDistinctResultAndCount} only carries the PLAIN
-   * distinct columns (per the core contract), so without this marker the
-   * total would be computed with `getCount(fields, true)` over the plain
-   * columns alone — undercounting tuples that differ only in a computed
-   * member. Marked builders instead count via a `count(*)` wrapper over the
-   * builder's own full DISTINCT projection.
+   * Builders whose DISTINCT projection contains a member `getCount(fields,
+   * true)` cannot count, so the total has to go through a `count(*)` wrapper
+   * over the builder's own full DISTINCT projection instead. Two kinds qualify:
+   *
+   * - a computed expression (added via {@link applyComputedDistinct}) — the
+   *   `fields` parameter of {@link getDistinctResultAndCount} only carries the
+   *   PLAIN distinct columns (per the core contract), so counting by `fields`
+   *   alone would undercount tuples differing only in the computed member;
+   * - a relation path (added via {@link applyDistinct}) — `fields` DOES carry
+   *   it, but as the dotted string `base.name`, which `getCount` emits against
+   *   an alias nothing joined.
    */
-  private computedDistinctBuilders = new WeakSet<object>();
+  private subqueryCountDistinctBuilders = new WeakSet<object>();
 
   createQueryBuilder<E>(entity: Type<E>): unknown {
     return this.em.createQueryBuilder(entity as unknown as new () => E);
@@ -513,10 +528,112 @@ export class MikroOrmAdapter implements FilterAdapter {
     queryBuilder.andWhere({ [vectorColumn]: { $fulltext: term } });
   }
 
-  applyDistinct(qb: unknown, fields: string[]): void {
+  applyDistinct(qb: unknown, fields: string[], entity?: Type<unknown>): void {
     // Override the projection to the distinct field(s): SELECT DISTINCT a, b ...
-    const queryBuilder = qb as { select: (fields: string[], distinct?: boolean) => void };
-    queryBuilder.select(fields, true);
+    //
+    // A RELATION path (`base.name`) cannot go in as a bare string: MikroORM
+    // emits it verbatim as `base`.`name`, against an alias nothing ever joined
+    // ("Unknown column 'base.name' in 'field list'"). Each one is joined here
+    // and projected as an explicit `<join alias>.<column> as \`base.name\``, so
+    // the result row keeps the DOTTED key the caller asked for — the field name
+    // is the contract for a single-column projection (a filter dropdown reads
+    // `row["base.name"]`).
+    const queryBuilder = qb as ProjectionQB & JoinableQB;
+    const projection: unknown[] = [];
+    let hasRelationPath = false;
+
+    for (const field of fields) {
+      const expr = field.includes('.')
+        ? this.relationColumnProjection(queryBuilder, entity, field)
+        : null;
+      if (expr === null) {
+        projection.push(field);
+        continue;
+      }
+      projection.push(expr);
+      hasRelationPath = true;
+    }
+
+    queryBuilder.select(projection, true);
+
+    // `getCount(fields, true)` cannot count a dotted path either — same
+    // unjoined-alias problem, one layer down. Mark the builder so the total
+    // goes through the `count(*)` wrapper over the builder's own projection.
+    if (hasRelationPath) this.subqueryCountDistinctBuilders.add(qb as object);
+  }
+
+  /**
+   * Compiles one to-one relation path into an aliased SELECT member, joining
+   * every relation along the way. Returns `null` when the path is not a
+   * relation path this adapter can project — the caller then passes the field
+   * through untouched, preserving the pre-existing behaviour.
+   *
+   * The core runner has already validated the path (`resolveFieldPath` ===
+   * 'field'), so a `null` here means metadata disagreed with that verdict, not
+   * that client input reached the SQL: every identifier below comes from ORM
+   * metadata and is quoted defensively on the way out.
+   */
+  private relationColumnProjection(
+    qb: JoinableQB,
+    entity: Type<unknown> | undefined,
+    path: string,
+  ): unknown | null {
+    if (!entity) return null;
+    try {
+      const segments = path.split('.');
+      const leaf = segments[segments.length - 1]!;
+      const relationPath = segments.slice(0, -1);
+
+      let meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+      for (const segment of relationPath) {
+        const prop = meta?.properties?.[segment];
+        // Only a to-one hop can be projected: a to-many join multiplies the
+        // rows, which is not what a column-values dropdown asked for.
+        if (
+          !prop ||
+          (prop.kind !== ReferenceKind.MANY_TO_ONE && prop.kind !== ReferenceKind.ONE_TO_ONE)
+        ) {
+          return null;
+        }
+        meta = this.em.getMetadata().get(prop.type as unknown as new () => unknown);
+      }
+
+      const column = meta?.properties?.[leaf]?.fieldNames?.[0];
+      if (!column) return null;
+
+      const alias = this.ensureJoinAlias(qb, relationPath);
+      return raw(
+        `${this.quoteIdent(alias)}.${this.quoteIdent(column)} as ${this.quoteIdent(path)}`,
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Returns the join alias for a relation path, joining it only if the builder
+   * has not already joined it — a WHERE or ORDER BY on the same relation
+   * auto-joins it, and a second join would be dead weight in the query.
+   *
+   * `leftJoin`, never `join`: an INNER join would silently DROP rows whose FK
+   * is null, turning a projection into a filter.
+   */
+  private ensureJoinAlias(qb: JoinableQB, relationPath: string[]): string {
+    let alias = qb.alias;
+    for (const segment of relationPath) {
+      const joinPath = `${alias}.${segment}`;
+      const existing = qb.getAliasForJoinPath?.(joinPath);
+      if (existing) {
+        alias = existing;
+        continue;
+      }
+      // Prefixed so it cannot collide with a user-declared or ORM-generated
+      // alias (`b1`, `e0`, …).
+      const next = `_fd_${segment}`;
+      qb.leftJoin(joinPath, next);
+      alias = next;
+    }
+    return alias;
   }
 
   /**
@@ -821,7 +938,7 @@ export class MikroOrmAdapter implements FilterAdapter {
    *
    * The expression resolves against the concrete main alias (same sentinel
    * caveat as {@link applyComputedSelect}). The builder is marked in
-   * {@link computedDistinctBuilders} so {@link getDistinctResultAndCount}
+   * {@link subqueryCountDistinctBuilders} so {@link getDistinctResultAndCount}
    * counts distinct tuples over the FULL projection, computed members
    * included.
    */
@@ -836,7 +953,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     } else {
       queryBuilder.addSelect(expr);
     }
-    this.computedDistinctBuilders.add(qb as object);
+    this.subqueryCountDistinctBuilders.add(qb as object);
   }
 
   /**
@@ -899,7 +1016,7 @@ export class MikroOrmAdapter implements FilterAdapter {
    * the same `ComputedSource` shape a dev-declared computed field uses. That
    * reuse is deliberate: computed-distinct already carries the bookkeeping
    * that keeps `getDistinctResultAndCount` from undercounting tuples which
-   * differ only in a non-column member (see `computedDistinctBuilders`).
+   * differ only in a non-column member (see `subqueryCountDistinctBuilders`).
    * Duplicating the projection here and forgetting that marker would silently
    * return a wrong total.
    *
@@ -1192,7 +1309,7 @@ export class MikroOrmAdapter implements FilterAdapter {
    * `platform.supportsMultiColumnCountDistinct()`.
    *
    * When the distinct projection carries computed members (builder marked in
-   * {@link computedDistinctBuilders}), `getCount(fields, true)` would count
+   * {@link subqueryCountDistinctBuilders}), `getCount(fields, true)` would count
    * only the plain columns — `fields` never carries the computed aliases (core
    * contract) and `getCount` can't take a raw expression. The total instead
    * wraps the builder's own full DISTINCT projection in a dialect-neutral
@@ -1219,7 +1336,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     };
     const rows = await queryBuilder.clone().execute('all');
 
-    if (!this.computedDistinctBuilders.has(qb as object)) {
+    if (!this.subqueryCountDistinctBuilders.has(qb as object)) {
       // Total ignores limit/offset/order (getCount resets them internally),
       // mirroring how getResultAndCount's own total is computed.
       const total = await queryBuilder.clone().getCount(fields, true);
