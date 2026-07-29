@@ -988,19 +988,46 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   /**
-   * Auto-parenthesizes a resolved computed SQL string that is a bare scalar
-   * subquery: a source starting with `SELECT` (case-insensitive, after
-   * trimming) is wrapped in `( … )` so it composes as an expression in every
-   * clause it can land in — WHERE, ORDER BY, SELECT, DISTINCT and GROUP BY
-   * alike. Applied at the single resolution seam ({@link resolveComputed} /
-   * {@link computedSql} / `{ sql }` returns in {@link computedReturnToSql}),
-   * so every call site benefits uniformly. Anything not starting with
-   * `SELECT` is left untouched (an already-parenthesized subquery starts with
-   * `(`, so it never matches — no double wrapping).
+   * Auto-parenthesizes a resolved computed SQL string that is a bare subquery,
+   * so it composes as an expression in every clause it can land in — WHERE,
+   * ORDER BY, SELECT, DISTINCT and GROUP BY alike. Applied at the single
+   * resolution seam ({@link resolveComputed} / {@link computedSql} / `{ sql }`
+   * returns in {@link computedReturnToSql}), so every call site benefits
+   * uniformly.
+   *
+   * Two shapes qualify:
+   *
+   *  - `SELECT …` — a scalar subquery.
+   *  - `EXISTS (…)` / `NOT EXISTS (…)` — an existence predicate, the natural
+   *    way to write "does this row have any …?", and the one subquery shape
+   *    this did not normalize.
+   *
+   * Be precise about what the second one buys, because the obvious claim is
+   * wrong: an unwrapped `EXISTS (…) = ?` is NOT broken on the engines tested —
+   * the behavioural cases in `computed-exists-source.spec.ts` pass with and
+   * without the parentheses on SQLite, since `EXISTS` yields 0/1 and the
+   * comparison parses as intended. This is normalization, not a bug fix.
+   *
+   * What it does buy is safe composition wherever the adapter embeds the
+   * expression into a LARGER one rather than using it standalone. The concrete
+   * case is {@link groupByCount}'s bucketed variant, which wraps the source in
+   * arithmetic and a function call (`floor(<expr> / ?) * ?`) — a bare predicate
+   * there depends on operator precedence rather than on the parentheses being
+   * present. Treating both subquery shapes the same way removes the question.
+   *
+   * Anything else is left untouched (`first_name || ' ' || last_name`), and an
+   * already-parenthesized source starts with `(` so it never matches — no
+   * double wrapping.
+   *
+   * A parenthesized `EXISTS` is a boolean expression, so declare such a field
+   * `type: 'boolean'` and filter it with `equals true` / `equals false`. A
+   * count (`SELECT COUNT(*) …` with `gt 0`) remains the more portable spelling
+   * where the caller controls both sides — booleans are where the dialects
+   * differ most (`= 1` on MySQL vs `= true` on PostgreSQL).
    */
   private autoParen(sql: string): string {
     const trimmed = sql.trim();
-    return /^select\b/i.test(trimmed) ? `(${trimmed})` : sql;
+    return /^(?:select|(?:not\s+)?exists)\b/i.test(trimmed) ? `(${trimmed})` : sql;
   }
 
   /**
