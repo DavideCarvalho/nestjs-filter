@@ -105,7 +105,7 @@ A computed source can take three forms, implemented identically in both the Mikr
 
 ### Parentheses are normalized for you
 
-A subquery source may be written as a bare `SELECT …` — no wrapping parentheses required. The adapters detect a string source (or a function's string return) that starts with `SELECT` and wrap it in `(…)` before embedding it as a scalar expression, so both of these are equivalent:
+A subquery source may be written bare — no wrapping parentheses required. The adapters detect a string source (or a function's string return) that starts with `SELECT`, `EXISTS` or `NOT EXISTS` and wrap it in `(…)` before embedding it as an expression, so both of these are equivalent:
 
 ```ts
 @Computed({ type: 'number' })
@@ -117,7 +117,27 @@ booksCount({ alias }: ComputedContext) {
 // return `(SELECT COUNT(*) FROM books WHERE books.author_id = ${alias}.id)`;
 ```
 
-Already-parenthesized sources and non-`SELECT` expressions (`first_name || ' ' || last_name`) pass through untouched.
+Already-parenthesized sources and plain expressions (`first_name || ' ' || last_name`) pass through untouched.
+
+### Existence checks
+
+`EXISTS` / `NOT EXISTS` is the natural way to ask "does this row have any …?", and it is normalized the same way (since **1.24.1**). Declare the field `type: 'boolean'` and filter it with `equals true` / `equals false`:
+
+```ts
+@Computed({ type: 'boolean' })
+hasHighRatedBook({ alias }: ComputedContext) {
+  return `EXISTS (SELECT 1 FROM books WHERE books.author_id = ${alias}.id AND books.rating >= 4)`;
+}
+```
+
+```
+GET /authors?hasHighRatedBook=true
+GET /authors?sort=-hasHighRatedBook
+```
+
+<Callout type="info">
+  **A count is the more portable spelling.** `SELECT COUNT(*) …` filtered with `gt 0` / `equals 0` expresses the same thing, and the caller controls both sides of the comparison — which matters because booleans are where the dialects diverge most (`= 1` on MySQL, `= true` on PostgreSQL). Reach for `EXISTS` when the intent reads better; reach for a count when the value crosses a wire.
+</Callout>
 
 ## Inline `computed` map (alternative)
 

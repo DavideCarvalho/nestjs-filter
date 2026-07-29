@@ -378,16 +378,24 @@ export class TypeOrmAdapter implements FilterAdapter {
   }
 
   /**
-   * Auto-parenthesizes a bare scalar-subquery computed source: SQL that starts
-   * with `SELECT` (trimmed, case-insensitive) — and therefore has no outer
-   * parens, which would make the string start with `(` — is wrapped in
-   * `( ... )` so it can be inlined into a WHERE/ORDER BY/SELECT position
-   * without the dev hand-wrapping it (the QB-return path already wraps in
-   * `computedReturnToSql`). Any non-SELECT expression is returned untouched.
+   * Auto-parenthesizes a bare subquery computed source so it can be inlined
+   * into a WHERE/ORDER BY/SELECT position without the dev hand-wrapping it
+   * (the QB-return path already wraps in `computedReturnToSql`).
+   *
+   * Two shapes qualify, both of which have no outer parens — a wrapped source
+   * would start with `(` and never match, so there is no double wrapping:
+   *
+   *  - `SELECT …` — a scalar subquery.
+   *  - `EXISTS (…)` / `NOT EXISTS (…)` — an existence predicate, the natural
+   *    way to write "does this row have any …?". Previously left unwrapped, it
+   *    composed as `EXISTS (…) = ?` in a WHERE comparison, where `=` binds
+   *    tighter than intended.
+   *
+   * Any other expression is returned untouched.
    */
   private normalizeComputedSql(sql: string): string {
     const trimmed = sql.trim();
-    return /^select\b/i.test(trimmed) ? `(${trimmed})` : sql;
+    return /^(?:select|(?:not\s+)?exists)\b/i.test(trimmed) ? `(${trimmed})` : sql;
   }
 
   /**
