@@ -543,9 +543,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     let hasRelationPath = false;
 
     for (const field of fields) {
-      const expr = field.includes('.')
-        ? this.relationColumnProjection(queryBuilder, entity, field)
-        : null;
+      const expr = field.includes('.') ? this.pathProjection(queryBuilder, entity, field) : null;
       if (expr === null) {
         projection.push(field);
         continue;
@@ -560,6 +558,143 @@ export class MikroOrmAdapter implements FilterAdapter {
     // unjoined-alias problem, one layer down. Mark the builder so the total
     // goes through the `count(*)` wrapper over the builder's own projection.
     if (hasRelationPath) this.subqueryCountDistinctBuilders.add(qb as object);
+  }
+
+  /**
+   * Compiles a dotted path into an aliased SELECT member, dispatching on what
+   * the path actually is — a to-one relation hop, or a sub-path inside a JSON
+   * column. Returns `null` for anything else, and the caller then passes the
+   * field through untouched.
+   *
+   * Both arms alias the member as the DOTTED path, because for a single-column
+   * projection the field name is the contract the caller reads the row by.
+   */
+  private pathProjection(
+    qb: JoinableQB,
+    entity: Type<unknown> | undefined,
+    path: string,
+  ): unknown | null {
+    if (!entity) return null;
+    // JSON first: `metadata.tier` has a scalar head segment, so the relation
+    // walk below would reject it anyway — but asking the resolver keeps the
+    // dispatch explicit rather than order-dependent.
+    if (this.resolveFieldPath(entity, path) === 'json') {
+      return this.jsonColumnProjection(qb, entity, path);
+    }
+    return this.relationColumnProjection(qb, entity, path);
+  }
+
+  /**
+   * Compiles a JSON sub-path (`searchAttributes.origin`) into an aliased
+   * extract expression.
+   *
+   * All three supported dialects disagree, and the third one is the trap:
+   *
+   * - PostgreSQL walks the document with `->` and takes the leaf as text
+   *   with `->>`.
+   * - MySQL uses `json_extract`, wrapped in `json_unquote` — bare
+   *   `json_extract` returns a JSON scalar, so every dropdown option would
+   *   render as `"ui"`, quotes included.
+   * - SQLite uses `json_extract` alone: it already yields SQL text, and it
+   *   has no `json_unquote` function at all ("no such function"), so the
+   *   MySQL form does not merely look wrong there — it fails to execute.
+   *
+   * MikroORM's own `getSearchJsonPropertyKey` emits bare `json_extract` for
+   * both MySQL and SQLite, which is correct for its purpose (it compares
+   * against a JSON-encoded value) and wrong for a projection.
+   *
+   * MikroORM's own `getSearchJsonPropertyKey` builds the same expressions but
+   * returns a raw fragment carrying an internal alias placeholder, which
+   * cannot be concatenated into `… as "<path>"`, so the expression is built
+   * here instead. Every part is metadata-derived or a quoted literal: the
+   * column name comes from ORM metadata, and each key segment goes through
+   * {@link quoteJsonKey} / {@link escapeSqlString}.
+   */
+  private jsonColumnProjection(
+    qb: JoinableQB,
+    entity: Type<unknown>,
+    path: string,
+  ): unknown | null {
+    try {
+      const resolved = this.resolveJsonPath(entity, path);
+      if (!resolved || resolved.keys.length === 0) return null;
+
+      const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+      const column = meta?.properties?.[resolved.column]?.fieldNames?.[0];
+      if (!column) return null;
+
+      const col = `${this.quoteSingleIdent(qb.alias)}.${this.quoteSingleIdent(column)}`;
+      const jsonPath = `'${this.escapeSqlString(
+        `$.${resolved.keys.map((key) => this.quoteJsonKey(key)).join('.')}`,
+      )}'`;
+
+      let expr: string;
+      switch (this.platformKind()) {
+        case 'postgres':
+          expr = this.postgresJsonExtract(col, resolved.keys);
+          break;
+        case 'mysql':
+          expr = `json_unquote(json_extract(${col}, ${jsonPath}))`;
+          break;
+        default:
+          // SQLite, and the safe default for anything unrecognised:
+          // `json_extract` is the portable spelling, `json_unquote` is not.
+          expr = `json_extract(${col}, ${jsonPath})`;
+      }
+
+      return raw(`${expr} as ${this.quoteSingleIdent(path)}`);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Which SQL dialect is active, by platform class name — the same cheap
+   * reflection {@link usesIlike} uses. Only the JSON projection needs the
+   * three-way split; everything else in this adapter is either dialect-neutral
+   * or already asks the platform directly.
+   */
+  private platformKind(): 'postgres' | 'mysql' | 'sqlite' | 'unknown' {
+    try {
+      const name = this.em.getPlatform().constructor.name;
+      if (/postgre/i.test(name)) return 'postgres';
+      if (/sqlite/i.test(name)) return 'sqlite';
+      if (/mysql|mariadb/i.test(name)) return 'mysql';
+      return 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  /** `col->'a'->'b'->>'leaf'` — walk as JSON, take the leaf as text. */
+  private postgresJsonExtract(col: string, keys: string[]): string {
+    const leaf = keys[keys.length - 1]!;
+    const walk = keys
+      .slice(0, -1)
+      .map((key) => `->'${this.escapeSqlString(key)}'`)
+      .join('');
+    return `${col}${walk}->>'${this.escapeSqlString(leaf)}'`;
+  }
+
+  /**
+   * Escapes a string literal for embedding in SQL — doubling single quotes,
+   * the one escape every supported dialect agrees on. These segments come from
+   * the client's field path, so this is the boundary that keeps a crafted key
+   * from breaking out of the literal.
+   */
+  private escapeSqlString(value: string): string {
+    return value.replace(/'/g, "''");
+  }
+
+  /**
+   * Quotes a key for use inside a `$.a.b` JSON path: a simple identifier is
+   * left bare, anything else is wrapped in double quotes with `\` and `"`
+   * escaped — the JSON-path string syntax, matching MikroORM's own
+   * `quoteJsonKey`.
+   */
+  private quoteJsonKey(key: string): string {
+    if (/^[a-z]\w*$/i.test(key)) return key;
+    return `"${key.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
   }
 
   /**

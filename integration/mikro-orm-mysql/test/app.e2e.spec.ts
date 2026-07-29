@@ -43,13 +43,21 @@ describe('MikroORM + MySQL integration', () => {
       age: 30,
       email: 'alice@test.com',
       role: 'admin',
+      metadata: { tier: 'pro', nested: { region: 'emea' } },
     });
-    const bob = em.create(User, { name: 'Bob', age: 25, email: 'bob@test.com', role: 'user' });
+    const bob = em.create(User, {
+      name: 'Bob',
+      age: 25,
+      email: 'bob@test.com',
+      role: 'user',
+      metadata: { tier: 'pro', nested: { region: 'amer' } },
+    });
     const charlie = em.create(User, {
       name: 'Charlie',
       age: 35,
       email: 'charlie@test.com',
       role: 'admin',
+      metadata: { tier: 'free', nested: { region: 'emea' } },
     });
     em.persist([alice, bob, charlie]);
     await em.flush();
@@ -181,5 +189,42 @@ describe('MikroORM + MySQL integration', () => {
       (rows as unknown as Array<Record<string, unknown>>).map((row) => row['user.name']),
     ).toEqual(['Alice', 'Bob']);
     expect(total).toBe(2);
+  });
+  it('DISTINCT over a JSON sub-path projects the attribute as a bare value', async () => {
+    await seed();
+    const runner = mod.get(FilterRunner);
+
+    // Alice and Bob are both `pro` — the projection must collapse them. The
+    // values must come back BARE: MySQL's json_extract yields a quoted JSON
+    // scalar unless unwrapped, and SQLite (the unit suites' engine) has no
+    // json_unquote at all, so only a real engine proves this spelling.
+    const { rows, total } = await runner.findAndCount(User, {
+      filter: {},
+      distinct: 'metadata.tier',
+      sort: 'metadata.tier',
+    });
+
+    expect(
+      (rows as unknown as Array<Record<string, unknown>>).map((row) => row['metadata.tier']),
+    ).toEqual(['free', 'pro']);
+    expect(total).toBe(2);
+  });
+
+  it('DISTINCT reaches a nested JSON key and respects the other filters', async () => {
+    await seed();
+    const runner = mod.get(FilterRunner);
+
+    const { rows, total } = await runner.findAndCount(User, {
+      filter: { where: [{ field: 'role', operator: 'equals', value: 'admin' }] },
+      distinct: 'metadata.nested.region',
+    });
+
+    // Only the two admins (Alice, Charlie) count, and both are `emea`.
+    expect(
+      (rows as unknown as Array<Record<string, unknown>>).map(
+        (row) => row['metadata.nested.region'],
+      ),
+    ).toEqual(['emea']);
+    expect(total).toBe(1);
   });
 });

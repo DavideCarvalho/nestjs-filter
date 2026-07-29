@@ -1,4 +1,4 @@
-import { Collection } from '@mikro-orm/core';
+import { Collection, JsonType } from '@mikro-orm/core';
 import { Entity, OneToMany, PrimaryKey, Property } from '@mikro-orm/decorators/legacy';
 import { Post } from './post.entity.js';
 
@@ -18,6 +18,13 @@ export class User {
 
   @Property()
   role!: string;
+
+  // Exists so the integration suites can exercise a JSON sub-path against a
+  // real engine: the dialects disagree on the extract syntax, and SQLite (the
+  // unit suites' engine) accepts a form MySQL renders wrong and PostgreSQL
+  // rejects outright.
+  @Property({ type: JsonType, nullable: true })
+  metadata?: Record<string, unknown>;
 
   @OneToMany(
     () => Post,
