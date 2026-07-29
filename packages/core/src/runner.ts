@@ -2535,12 +2535,16 @@ export class FilterRunner {
         // dropped before reaching the query builder and the route answered with
         // a page of full rows instead of a column of values.
         //
-        // A bare relation (`author`) resolves to 'relation' and stays rejected —
-        // there is no single column to project. So does a JSON sub-path
-        // ('json'): projecting one needs an extract expression the distinct
-        // path does not build.
+        // A JSON sub-path ('json') is accepted too — an adapter that can
+        // resolve one can compile the extract expression the projection needs,
+        // and a dropdown over `searchAttributes.origin` is the same request as
+        // one over a relation column.
+        //
+        // A bare relation (`author`) resolves to 'relation' and stays rejected:
+        // there is no single column to project.
         if (adapter.resolveFieldPath) {
-          return accept((f) => adapter.resolveFieldPath!(entity, f) === 'field');
+          const kind = (f: string) => adapter.resolveFieldPath!(entity, f);
+          return accept((f) => kind(f) === 'field' || kind(f) === 'json');
         }
         // Fallback: scalar columns only.
         const fieldNames = new Set(entityFields.map((f) => f.name));

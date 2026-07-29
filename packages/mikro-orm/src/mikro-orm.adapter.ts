@@ -128,6 +128,25 @@ export class MikroOrmAdapter implements FilterAdapter {
    */
   private subqueryCountDistinctBuilders = new WeakSet<object>();
 
+  /**
+   * Per builder, the dotted paths {@link applyDistinct} projected and the SQL
+   * alias each got.
+   *
+   * {@link applySort} reads it so a sort on a projected path orders by that
+   * ALIAS instead of re-deriving the expression. Under `SELECT DISTINCT` the
+   * two must match textually or MySQL refuses the query outright:
+   *
+   *   Expression #1 of ORDER BY clause is not in SELECT list, references
+   *   column 'u0.metadata' which is not in SELECT list; this is incompatible
+   *   with DISTINCT
+   *
+   * and they do NOT match for a JSON path, because MikroORM's own sort
+   * translation emits a bare `json_extract` while the projection has to wrap
+   * it in `json_unquote` to return an unquoted value. SQLite does not enforce
+   * the rule, so only a real MySQL/PostgreSQL run surfaces it.
+   */
+  private distinctProjectionAliases = new WeakMap<object, Map<string, string>>();
+
   createQueryBuilder<E>(entity: Type<E>): unknown {
     return this.em.createQueryBuilder(entity as unknown as new () => E);
   }
@@ -542,17 +561,20 @@ export class MikroOrmAdapter implements FilterAdapter {
     const projection: unknown[] = [];
     let hasRelationPath = false;
 
+    const aliases = new Map<string, string>();
     for (const field of fields) {
-      const expr = field.includes('.')
-        ? this.relationColumnProjection(queryBuilder, entity, field)
-        : null;
+      const expr = field.includes('.') ? this.pathProjection(queryBuilder, entity, field) : null;
       if (expr === null) {
         projection.push(field);
         continue;
       }
       projection.push(expr);
+      // The member is aliased AS the dotted path, so that is what a sort on
+      // this field must order by — see `distinctProjectionAliases`.
+      aliases.set(field, field);
       hasRelationPath = true;
     }
+    if (aliases.size > 0) this.distinctProjectionAliases.set(qb as object, aliases);
 
     queryBuilder.select(projection, true);
 
@@ -560,6 +582,143 @@ export class MikroOrmAdapter implements FilterAdapter {
     // unjoined-alias problem, one layer down. Mark the builder so the total
     // goes through the `count(*)` wrapper over the builder's own projection.
     if (hasRelationPath) this.subqueryCountDistinctBuilders.add(qb as object);
+  }
+
+  /**
+   * Compiles a dotted path into an aliased SELECT member, dispatching on what
+   * the path actually is — a to-one relation hop, or a sub-path inside a JSON
+   * column. Returns `null` for anything else, and the caller then passes the
+   * field through untouched.
+   *
+   * Both arms alias the member as the DOTTED path, because for a single-column
+   * projection the field name is the contract the caller reads the row by.
+   */
+  private pathProjection(
+    qb: JoinableQB,
+    entity: Type<unknown> | undefined,
+    path: string,
+  ): unknown | null {
+    if (!entity) return null;
+    // JSON first: `metadata.tier` has a scalar head segment, so the relation
+    // walk below would reject it anyway — but asking the resolver keeps the
+    // dispatch explicit rather than order-dependent.
+    if (this.resolveFieldPath(entity, path) === 'json') {
+      return this.jsonColumnProjection(qb, entity, path);
+    }
+    return this.relationColumnProjection(qb, entity, path);
+  }
+
+  /**
+   * Compiles a JSON sub-path (`searchAttributes.origin`) into an aliased
+   * extract expression.
+   *
+   * All three supported dialects disagree, and the third one is the trap:
+   *
+   * - PostgreSQL walks the document with `->` and takes the leaf as text
+   *   with `->>`.
+   * - MySQL uses `json_extract`, wrapped in `json_unquote` — bare
+   *   `json_extract` returns a JSON scalar, so every dropdown option would
+   *   render as `"ui"`, quotes included.
+   * - SQLite uses `json_extract` alone: it already yields SQL text, and it
+   *   has no `json_unquote` function at all ("no such function"), so the
+   *   MySQL form does not merely look wrong there — it fails to execute.
+   *
+   * MikroORM's own `getSearchJsonPropertyKey` emits bare `json_extract` for
+   * both MySQL and SQLite, which is correct for its purpose (it compares
+   * against a JSON-encoded value) and wrong for a projection.
+   *
+   * MikroORM's own `getSearchJsonPropertyKey` builds the same expressions but
+   * returns a raw fragment carrying an internal alias placeholder, which
+   * cannot be concatenated into `… as "<path>"`, so the expression is built
+   * here instead. Every part is metadata-derived or a quoted literal: the
+   * column name comes from ORM metadata, and each key segment goes through
+   * {@link quoteJsonKey} / {@link escapeSqlString}.
+   */
+  private jsonColumnProjection(
+    qb: JoinableQB,
+    entity: Type<unknown>,
+    path: string,
+  ): unknown | null {
+    try {
+      const resolved = this.resolveJsonPath(entity, path);
+      if (!resolved || resolved.keys.length === 0) return null;
+
+      const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
+      const column = meta?.properties?.[resolved.column]?.fieldNames?.[0];
+      if (!column) return null;
+
+      const col = `${this.quoteSingleIdent(qb.alias)}.${this.quoteSingleIdent(column)}`;
+      const jsonPath = `'${this.escapeSqlString(
+        `$.${resolved.keys.map((key) => this.quoteJsonKey(key)).join('.')}`,
+      )}'`;
+
+      let expr: string;
+      switch (this.platformKind()) {
+        case 'postgres':
+          expr = this.postgresJsonExtract(col, resolved.keys);
+          break;
+        case 'mysql':
+          expr = `json_unquote(json_extract(${col}, ${jsonPath}))`;
+          break;
+        default:
+          // SQLite, and the safe default for anything unrecognised:
+          // `json_extract` is the portable spelling, `json_unquote` is not.
+          expr = `json_extract(${col}, ${jsonPath})`;
+      }
+
+      return raw(`${expr} as ${this.quoteSingleIdent(path)}`);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Which SQL dialect is active, by platform class name — the same cheap
+   * reflection {@link usesIlike} uses. Only the JSON projection needs the
+   * three-way split; everything else in this adapter is either dialect-neutral
+   * or already asks the platform directly.
+   */
+  private platformKind(): 'postgres' | 'mysql' | 'sqlite' | 'unknown' {
+    try {
+      const name = this.em.getPlatform().constructor.name;
+      if (/postgre/i.test(name)) return 'postgres';
+      if (/sqlite/i.test(name)) return 'sqlite';
+      if (/mysql|mariadb/i.test(name)) return 'mysql';
+      return 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  /** `col->'a'->'b'->>'leaf'` — walk as JSON, take the leaf as text. */
+  private postgresJsonExtract(col: string, keys: string[]): string {
+    const leaf = keys[keys.length - 1]!;
+    const walk = keys
+      .slice(0, -1)
+      .map((key) => `->'${this.escapeSqlString(key)}'`)
+      .join('');
+    return `${col}${walk}->>'${this.escapeSqlString(leaf)}'`;
+  }
+
+  /**
+   * Escapes a string literal for embedding in SQL — doubling single quotes,
+   * the one escape every supported dialect agrees on. These segments come from
+   * the client's field path, so this is the boundary that keeps a crafted key
+   * from breaking out of the literal.
+   */
+  private escapeSqlString(value: string): string {
+    return value.replace(/'/g, "''");
+  }
+
+  /**
+   * Quotes a key for use inside a `$.a.b` JSON path: a simple identifier is
+   * left bare, anything else is wrapped in double quotes with `\` and `"`
+   * escaped — the JSON-path string syntax, matching MikroORM's own
+   * `quoteJsonKey`.
+   */
+  private quoteJsonKey(key: string): string {
+    if (/^[a-z]\w*$/i.test(key)) return key;
+    return `"${key.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
   }
 
   /**
@@ -587,12 +746,17 @@ export class MikroOrmAdapter implements FilterAdapter {
       let meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
       for (const segment of relationPath) {
         const prop = meta?.properties?.[segment];
-        // Only a to-one hop can be projected: a to-many join multiplies the
-        // rows, which is not what a column-values dropdown asked for.
-        if (
-          !prop ||
-          (prop.kind !== ReferenceKind.MANY_TO_ONE && prop.kind !== ReferenceKind.ONE_TO_ONE)
-        ) {
+        // Any relation kind, to-many included. A to-many join multiplies the
+        // parent rows — but this projection is a single column under DISTINCT,
+        // and collapsing those duplicates is precisely what DISTINCT does. The
+        // question a dropdown asks ("which leave reasons appear among the
+        // people matching these filters?") is answered by exactly that join,
+        // and the total counts distinct VALUES, not parents.
+        //
+        // The multiplication only matters where entity rows survive to the
+        // caller, which is the ROWS route — a different code path that never
+        // reaches here.
+        if (!prop || prop.kind === ReferenceKind.SCALAR || prop.kind === ReferenceKind.EMBEDDED) {
           return null;
         }
         meta = this.em.getMetadata().get(prop.type as unknown as new () => unknown);
@@ -725,8 +889,21 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   applySort(qb: unknown, sorts: SortItem[]): void {
+    const projected = this.distinctProjectionAliases.get(qb as object);
     const orderBy: Record<string, unknown> = {};
     for (const s of sorts) {
+      // Sorting a path this builder projected under DISTINCT: order by the
+      // SELECT alias, not by a re-derived expression. Same reason the alias
+      // map exists — MySQL rejects an ORDER BY expression that is not
+      // textually in the DISTINCT select list, and a JSON path's two forms
+      // differ by the `json_unquote` wrapper.
+      const alias = projected?.get(s.field);
+      if (alias) {
+        (qb as { andOrderBy: (order: Record<string, unknown>) => void }).andOrderBy({
+          [raw(this.quoteSingleIdent(alias)) as unknown as string]: s.direction,
+        });
+        continue;
+      }
       // Relation path (`base.name`, `author.profile.country`) → nested object
       // (`{ base: { name: dir } }`) so MikroORM auto-joins each relation for the
       // ORDER BY. A flat `{ 'base.name': dir }` key is emitted as a raw column
@@ -747,6 +924,9 @@ export class MikroOrmAdapter implements FilterAdapter {
     // run after an `applyComputedSort` already emitted an ORDER BY term — which a
     // replacing `orderBy` would clobber. Called once on a fresh QB (the common,
     // non-computed path), append is byte-identical to replace.
+    // Skipped when every sort was already emitted as a projected alias above —
+    // an empty `andOrderBy({})` is a no-op at best.
+    if (Object.keys(orderBy).length === 0) return;
     const queryBuilder = qb as { andOrderBy: (order: Record<string, unknown>) => void };
     queryBuilder.andOrderBy(orderBy);
   }
