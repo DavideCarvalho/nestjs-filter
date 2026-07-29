@@ -146,6 +146,29 @@ describe('distinct over a JSON sub-path (MikroORM)', () => {
     expect(total).toBe(3);
   });
 
+  it('orders by the SELECT alias, not by a re-derived expression', async () => {
+    const mod = await createModule();
+    await seed();
+    const runner2 = mod.get(FilterRunner);
+
+    const qb = orm.em.fork().createQueryBuilder(Run);
+    await runner2.applyDynamic(
+      Run,
+      { filter: {}, distinct: 'searchAttributes.origin', sort: 'searchAttributes.origin' },
+      qb,
+    );
+    const sql = qb.getQuery();
+
+    // The projection wraps the extract in `json_unquote` (MySQL) and the ORDER
+    // BY must not re-derive the bare `json_extract`: under SELECT DISTINCT
+    // MySQL rejects an ORDER BY expression that is not textually in the select
+    // list ("...is incompatible with DISTINCT"). SQLite runs it happily, so
+    // this asserts the SQL rather than the result.
+    const orderBy = sql.slice(sql.toLowerCase().lastIndexOf('order by'));
+    expect(orderBy).toContain('searchAttributes.origin');
+    expect(orderBy).not.toContain('json_extract');
+  });
+
   it('does not project a bare JSON column', async () => {
     await createModule();
     await seed();

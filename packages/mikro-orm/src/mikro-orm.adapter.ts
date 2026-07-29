@@ -128,6 +128,25 @@ export class MikroOrmAdapter implements FilterAdapter {
    */
   private subqueryCountDistinctBuilders = new WeakSet<object>();
 
+  /**
+   * Per builder, the dotted paths {@link applyDistinct} projected and the SQL
+   * alias each got.
+   *
+   * {@link applySort} reads it so a sort on a projected path orders by that
+   * ALIAS instead of re-deriving the expression. Under `SELECT DISTINCT` the
+   * two must match textually or MySQL refuses the query outright:
+   *
+   *   Expression #1 of ORDER BY clause is not in SELECT list, references
+   *   column 'u0.metadata' which is not in SELECT list; this is incompatible
+   *   with DISTINCT
+   *
+   * and they do NOT match for a JSON path, because MikroORM's own sort
+   * translation emits a bare `json_extract` while the projection has to wrap
+   * it in `json_unquote` to return an unquoted value. SQLite does not enforce
+   * the rule, so only a real MySQL/PostgreSQL run surfaces it.
+   */
+  private distinctProjectionAliases = new WeakMap<object, Map<string, string>>();
+
   createQueryBuilder<E>(entity: Type<E>): unknown {
     return this.em.createQueryBuilder(entity as unknown as new () => E);
   }
@@ -542,6 +561,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     const projection: unknown[] = [];
     let hasRelationPath = false;
 
+    const aliases = new Map<string, string>();
     for (const field of fields) {
       const expr = field.includes('.') ? this.pathProjection(queryBuilder, entity, field) : null;
       if (expr === null) {
@@ -549,8 +569,12 @@ export class MikroOrmAdapter implements FilterAdapter {
         continue;
       }
       projection.push(expr);
+      // The member is aliased AS the dotted path, so that is what a sort on
+      // this field must order by — see `distinctProjectionAliases`.
+      aliases.set(field, field);
       hasRelationPath = true;
     }
+    if (aliases.size > 0) this.distinctProjectionAliases.set(qb as object, aliases);
 
     queryBuilder.select(projection, true);
 
@@ -865,8 +889,21 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   applySort(qb: unknown, sorts: SortItem[]): void {
+    const projected = this.distinctProjectionAliases.get(qb as object);
     const orderBy: Record<string, unknown> = {};
     for (const s of sorts) {
+      // Sorting a path this builder projected under DISTINCT: order by the
+      // SELECT alias, not by a re-derived expression. Same reason the alias
+      // map exists — MySQL rejects an ORDER BY expression that is not
+      // textually in the DISTINCT select list, and a JSON path's two forms
+      // differ by the `json_unquote` wrapper.
+      const alias = projected?.get(s.field);
+      if (alias) {
+        (qb as { andOrderBy: (order: Record<string, unknown>) => void }).andOrderBy({
+          [raw(this.quoteSingleIdent(alias)) as unknown as string]: s.direction,
+        });
+        continue;
+      }
       // Relation path (`base.name`, `author.profile.country`) → nested object
       // (`{ base: { name: dir } }`) so MikroORM auto-joins each relation for the
       // ORDER BY. A flat `{ 'base.name': dir }` key is emitted as a raw column
@@ -887,6 +924,9 @@ export class MikroOrmAdapter implements FilterAdapter {
     // run after an `applyComputedSort` already emitted an ORDER BY term — which a
     // replacing `orderBy` would clobber. Called once on a fresh QB (the common,
     // non-computed path), append is byte-identical to replace.
+    // Skipped when every sort was already emitted as a projected alias above —
+    // an empty `andOrderBy({})` is a no-op at best.
+    if (Object.keys(orderBy).length === 0) return;
     const queryBuilder = qb as { andOrderBy: (order: Record<string, unknown>) => void };
     queryBuilder.andOrderBy(orderBy);
   }
