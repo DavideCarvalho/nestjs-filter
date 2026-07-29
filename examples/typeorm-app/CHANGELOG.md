@@ -1,5 +1,13 @@
 # @example/typeorm-app
 
+## 0.0.33
+
+### Patch Changes
+
+- Updated dependencies [[`b2ba516`](https://github.com/DavideCarvalho/nestjs-filter/commit/b2ba51671f495ae9983bbd744220a3dd1160ad88)]:
+  - @dudousxd/nestjs-filter@1.23.0
+  - @dudousxd/nestjs-filter-typeorm@1.22.0
+
 ## 0.0.32
 
 ### Patch Changes
