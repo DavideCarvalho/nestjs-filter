@@ -1,7 +1,8 @@
 import 'reflect-metadata';
+import { FilterRunner } from '@dudousxd/nestjs-filter';
 import { MikroORM } from '@mikro-orm/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
@@ -11,9 +12,10 @@ import { User } from '../src/user.entity.js';
 describe('MikroORM + PostgreSQL integration', () => {
   let app: NestExpressApplication;
   let orm: MikroORM;
+  let mod: TestingModule;
 
   beforeAll(async () => {
-    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = mod.createNestApplication<NestExpressApplication>();
     await app.init();
 
@@ -110,5 +112,24 @@ describe('MikroORM + PostgreSQL integration', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Bob']);
+  });
+  it('DISTINCT over a relation path projects the related column under its dotted key', async () => {
+    await seed();
+    const runner = mod.get(FilterRunner);
+
+    // Alice has 2 posts, Bob 1 — the projection must collapse Alice's two into
+    // one row. The raw `<alias>.<column> as "user.name"` fragment is quoted per
+    // the ACTIVE platform, which is what this suite (a real engine, not SQLite)
+    // is here to prove.
+    const { rows, total } = await runner.findAndCount(Post, {
+      filter: {},
+      distinct: 'user.name',
+      sort: 'user.name',
+    });
+
+    expect(
+      (rows as unknown as Array<Record<string, unknown>>).map((row) => row['user.name']),
+    ).toEqual(['Alice', 'Bob']);
+    expect(total).toBe(2);
   });
 });

@@ -2527,6 +2527,22 @@ export class FilterRunner {
     if (entity && adapter.getEntityFields) {
       const entityFields = adapter.getEntityFields(entity);
       if (entityFields) {
+        // Mirrors validateSorts: when the adapter can resolve relation paths,
+        // accept any path ending in a scalar column — `name`, `base.name`,
+        // `author.profile.country`. A filter dropdown over a relation column
+        // projects exactly that, and `where`/`sort` have always accepted it, so
+        // rejecting it here made `distinct` the odd one out: the field was
+        // dropped before reaching the query builder and the route answered with
+        // a page of full rows instead of a column of values.
+        //
+        // A bare relation (`author`) resolves to 'relation' and stays rejected —
+        // there is no single column to project. So does a JSON sub-path
+        // ('json'): projecting one needs an extract expression the distinct
+        // path does not build.
+        if (adapter.resolveFieldPath) {
+          return accept((f) => adapter.resolveFieldPath!(entity, f) === 'field');
+        }
+        // Fallback: scalar columns only.
         const fieldNames = new Set(entityFields.map((f) => f.name));
         return accept((f) => fieldNames.has(f));
       }

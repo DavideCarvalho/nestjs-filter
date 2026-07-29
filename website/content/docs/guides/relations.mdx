@@ -150,6 +150,30 @@ export class UserFilter extends MikroOrmFilter<User> {
   Dot-notation requires the adapter to implement `getEntityRelations()` and `applyAutoRelationField()`. Both the MikroORM and TypeORM adapters support this. For complex cases (e.g. nested relations, custom join conditions), use `@Relations` or manual relation filtering instead.
 </Callout>
 
+### Projecting a related column with `distinct`
+
+`distinct` takes the same dot-notation, which is what a filter dropdown over a relation column needs -- "which authors appear in these posts?":
+
+```
+GET /posts?distinct=author.name
+```
+
+```ts
+filterQuery<Post>().where('status', 'equals', 'published').distinct('author.name');
+```
+
+The relation is joined and its column projected, so the rows come back keyed by the **path you asked for** -- for a single-column projection the field name is the contract:
+
+```json
+{ "data": [{ "author.name": "Ada" }, { "author.name": "Grace" }], "totalCount": 2 }
+```
+
+Every other clause still applies, so the values are the ones actually reachable under the current filters, not the whole related table. The distinct-tuple total counts the projection as a whole, and a relation path mixes freely with root columns (`distinct=status,author.name`).
+
+<Callout type="info">
+  **To-one only.** A to-many hop would multiply the rows, which is not what a column-values lookup asked for -- use [aggregate paths](#aggregating-a-to-many-relation) for those. A bare relation (`distinct=author`) has no single column to project and is dropped, as is a JSON sub-path. MikroORM only: the TypeORM adapter resolves scalar columns only here.
+</Callout>
+
 ## Aggregating a to-many relation
 
 Dot-notation sort (`sort=posts.title`) orders the list by a column of a **to-one**
