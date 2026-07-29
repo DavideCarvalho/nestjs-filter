@@ -127,10 +127,9 @@ describe('MikroORM + PostgreSQL integration', () => {
       sort: 'user.name',
     });
 
-    expect((rows as Array<Record<string, unknown>>).map((row) => row['user.name'])).toEqual([
-      'Alice',
-      'Bob',
-    ]);
+    expect(
+      (rows as unknown as Array<Record<string, unknown>>).map((row) => row['user.name']),
+    ).toEqual(['Alice', 'Bob']);
     expect(total).toBe(2);
   });
 });
