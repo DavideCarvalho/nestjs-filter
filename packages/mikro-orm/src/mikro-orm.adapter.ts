@@ -603,7 +603,7 @@ export class MikroOrmAdapter implements FilterAdapter {
 
       const alias = this.ensureJoinAlias(qb, relationPath);
       return raw(
-        `${this.quoteIdent(alias)}.${this.quoteIdent(column)} as ${this.quoteIdent(path)}`,
+        `${this.quoteSingleIdent(alias)}.${this.quoteSingleIdent(column)} as ${this.quoteSingleIdent(path)}`,
       );
     } catch {
       return null;
@@ -1207,6 +1207,38 @@ export class MikroOrmAdapter implements FilterAdapter {
    */
   private quoteIdent(name: string): string {
     return `\`${name.replace(/`/g, '``')}\``;
+  }
+
+  /**
+   * Quotes a name as ONE identifier, using the ACTIVE platform's quote
+   * character — backticks on MySQL/SQLite, double quotes on PostgreSQL —
+   * instead of the backtick-only {@link quoteIdent}.
+   *
+   * Used by the relation-path distinct projection, which is reachable from any
+   * dialect (a filter dropdown over a relation column is not a MySQL feature),
+   * so MySQL-only quoting there would trade a silent drop for a PostgreSQL
+   * syntax error.
+   *
+   * The platform's own `quoteIdentifier()` cannot be called directly: it treats
+   * its argument as a QUALIFIED name and splits on dots, so the output alias
+   * `base.name` would come back as `"base"."name"` — a column reference, not an
+   * alias, and a syntax error where an alias belongs. The quote character is
+   * probed from it instead (with a dot-free token) and applied here, doubling
+   * any embedded occurrence the way every supported dialect escapes it.
+   */
+  private quoteSingleIdent(name: string): string {
+    const quote = this.platformQuoteChar();
+    return `${quote}${name.split(quote).join(quote + quote)}${quote}`;
+  }
+
+  private platformQuoteChar(): string {
+    try {
+      const platform = this.em.getPlatform() as { quoteIdentifier?: (id: string) => string };
+      const probe = platform.quoteIdentifier?.('x');
+      return typeof probe === 'string' && probe.length >= 2 ? probe[0]! : '`';
+    } catch {
+      return '`';
+    }
   }
 
   /**

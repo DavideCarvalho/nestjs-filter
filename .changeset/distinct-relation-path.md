@@ -17,4 +17,6 @@ For MikroORM, `applyDistinct` joins each relation on the path (`leftJoin`, never
 
 A relation path in the projection also marks the builder for the `count(*)`-wrapper total that computed members already used — the plain `getCount(fields, true)` cannot count a dotted path either.
 
+The projection fragment is quoted with the ACTIVE platform's quote character, not the adapter's MySQL-only backticks: a filter dropdown over a relation column is not a MySQL feature, and emitting backticks there would trade a silent drop for a PostgreSQL syntax error. The platform's own `quoteIdentifier()` is not usable directly for the output alias — it treats its argument as a qualified name and splits on dots, turning the alias `base.name` into the column reference `"base"."name"` — so the quote character is probed from it and applied to the whole name. Both engines are covered by the MikroORM integration suites, which run against real MySQL and PostgreSQL rather than the unit suite's SQLite.
+
 TypeORM is unaffected: its adapter implements no `resolveFieldPath`, so validation falls through to the scalar-column path exactly as before.
