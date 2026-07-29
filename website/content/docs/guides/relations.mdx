@@ -217,10 +217,13 @@ each of its numeric child columns. Exclude a relation from aggregation the same
 way you'd exclude any other field — add its name to `@Filterable.blocked`.
 
 <Callout type="info">
-  Only **numeric** child columns are eligible for `$sum`/`$avg`/`$min`/`$max` —
-  string and date columns never qualify, so a client can't probe non-numeric
-  columns through the aggregate path. The comparison value (`gt=100` above) is
-  always bound as a query parameter, never inlined into SQL.
+  `$sum`/`$avg` are **numeric-only** — averaging a date or a string is either a
+  SQL error or nonsensical. Since **1.19**, `$min`/`$max` also accept **date**
+  child columns, because ordering a date is neither ("last service visit",
+  "most recent login"). Strings, booleans and json still never qualify for any
+  of the four, so a client can't probe arbitrary child columns through the
+  aggregate path. The comparison value (`gt=100` above) is always bound as a
+  query parameter, never inlined into SQL.
 </Callout>
 
 ### Empty collections
