@@ -20,6 +20,7 @@ import {
   type SourceFile,
   SyntaxKind,
   type TypeNode,
+  ts,
 } from 'ts-morph';
 
 // Minimal structural views of the codegen IR fields this extension reads. (The full types
@@ -1232,38 +1233,107 @@ export interface NestjsFilterCodegenOptions {
 }
 
 /**
+ * Read ONLY the `compilerOptions` out of a tsconfig, without letting TypeScript
+ * enumerate the consumer's file tree.
+ *
+ * Handing `tsConfigFilePath` to ts-morph looks equivalent and is not: parsing a
+ * tsconfig also resolves its FILE LIST, and a tsconfig with no `include` defaults
+ * to `**\/*` — so TypeScript walks every directory under the project root. One
+ * directory the codegen process cannot read (a docker bind mount a container
+ * chowned to its own UID with mode-700 subdirs — Grafana, Prometheus, MinIO, a DB
+ * data dir) makes that walk throw `EACCES ... scandir`, and the throw takes the
+ * whole tsconfig with it. `skipAddingFilesFromTsConfig` does not help: it discards
+ * the file list AFTER it has been computed.
+ *
+ * We only ever wanted `paths`, so `readDirectory` returns nothing and no directory
+ * is ever read. Options are passed through wholesale so TypeScript's own
+ * `pathsBasePath` (how `paths` resolve when the tsconfig sets no `baseUrl`) comes
+ * along. `extends` still resolves, through the host's `readFile`.
+ */
+/**
+ * Warn on stderr without a `console` declaration: this package ships no
+ * `@types/node` (and no DOM lib), so the global is reached through a typed
+ * `globalThis` view rather than assumed. A host that has no console is simply
+ * silent instead of crashing.
+ */
+function warn(message: string): void {
+  (globalThis as { console?: { warn?: (msg: string) => void } }).console?.warn?.(message);
+}
+
+function readTsconfigCompilerOptions(tsconfigPath: string): ts.CompilerOptions {
+  const read = ts.readConfigFile(tsconfigPath, (path) => ts.sys.readFile(path));
+  if (read.error) {
+    throw new Error(ts.flattenDiagnosticMessageText(read.error.messageText, ' '));
+  }
+  // Portable dirname (this package carries no @types/node, so no `node:path`).
+  const basePath = tsconfigPath.replace(/[/\\][^/\\]*$/, '') || '.';
+  const parsed = ts.parseJsonConfigFileContent(
+    read.config,
+    {
+      useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
+      readDirectory: () => [],
+      fileExists: (path) => ts.sys.fileExists(path),
+      readFile: (path) => ts.sys.readFile(path),
+    },
+    basePath,
+    undefined,
+    tsconfigPath,
+  );
+  // `parsed.errors` is deliberately ignored: with `readDirectory` stubbed the file
+  // list is always empty, so TypeScript reports "No inputs were found" on every
+  // well-formed tsconfig.
+  return parsed.options;
+}
+
+/**
  * Build a ts-morph `Project` seeded from the app's `tsconfig.json`, so filter-class
  * resolution can follow `paths` aliases (e.g. `@/api/...`) from a controller to its
  * `@ApplyFilter(FilterClass)` target.
  *
  * We do NOT reuse `ctx.project()`: since @dudousxd/nestjs-codegen ≥0.3 that shared
- * project is created lazily WITHOUT a `tsConfigFilePath`, so it carries no `paths`
- * mapping — `getModuleSpecifierSourceFile()` can't resolve alias imports through it.
- * (nestjs-filter-codegen 0.3.0 relied on the older, discovery-populated `ctx.project()`
- * and silently no-op'd its computed augmentation once that contract changed.) Files are
- * still added on demand — `skipAddingFilesFromTsConfig` — so this stays cheap.
+ * project is created lazily WITHOUT a tsconfig, so it carries no `paths` mapping —
+ * `getModuleSpecifierSourceFile()` can't resolve alias imports through it.
+ * (nestjs-filter-codegen 0.3.0 relied on the older, discovery-populated
+ * `ctx.project()` and silently no-op'd its computed augmentation once that contract
+ * changed.) Files are still added on demand — `skipAddingFilesFromTsConfig` — so
+ * this stays cheap.
  *
- * Falls back to `ctx.project()` when the tsconfig can't be loaded (e.g. no `app` config),
- * preserving prior behaviour for setups that never needed alias resolution.
+ * Falling back to `ctx.project()` is correct when there is no tsconfig to read, and
+ * a trap when there is one we failed to read: that project has no `paths` either, so
+ * filter-class resolution quietly resolves nothing and the computed augmentation
+ * no-ops — the exact silent failure the comment above records. So a tsconfig that
+ * EXISTS and cannot be loaded says so, once, naming what it costs.
  */
 function resolveFilterCodegenProject(ctx: ExtensionContext): Project {
-  try {
-    // Portable join (this package carries no @types/node, so no `node:path`):
-    // ts-morph accepts forward slashes on every platform.
-    const cwd = (ctx.cwd ?? '').replace(/[/\\]+$/, '');
-    const tsconfigPath = ctx.config?.app?.tsconfig ?? `${cwd}/tsconfig.json`;
-    return new Project({
-      tsConfigFilePath: tsconfigPath,
-      skipAddingFilesFromTsConfig: true,
-      skipLoadingLibFiles: true,
-      skipFileDependencyResolution: true,
-    });
-  } catch {
-    // No loadable tsconfig (e.g. a minimal/in-memory test ctx, or a config
-    // without `app`). Fall back to the shared project — preserving prior
-    // behaviour for setups that never needed `paths`-alias resolution.
+  // Portable join (this package carries no @types/node, so no `node:path`):
+  // ts-morph accepts forward slashes on every platform.
+  const cwd = (ctx.cwd ?? '').replace(/[/\\]+$/, '');
+  const tsconfigPath = ctx.config?.app?.tsconfig ?? `${cwd}/tsconfig.json`;
+
+  if (!ts.sys.fileExists(tsconfigPath)) {
+    // No tsconfig at all (e.g. a minimal/in-memory test ctx, or a config without
+    // `app`) — the documented shape, and silent on purpose.
     return ctx.project();
   }
+
+  let compilerOptions: ts.CompilerOptions;
+  try {
+    compilerOptions = readTsconfigCompilerOptions(tsconfigPath);
+  } catch (error) {
+    warn(
+      `[nestjs-filter-codegen] Could not load ${tsconfigPath}: ${
+        error instanceof Error ? error.message : String(error)
+      } — path alias imports (e.g. '@/...') will not resolve, so @ApplyFilter targets reached through an alias contribute no filter fields and computed columns are dropped.`,
+    );
+    return ctx.project();
+  }
+
+  return new Project({
+    compilerOptions,
+    skipAddingFilesFromTsConfig: true,
+    skipLoadingLibFiles: true,
+    skipFileDependencyResolution: true,
+  });
 }
 
 /**

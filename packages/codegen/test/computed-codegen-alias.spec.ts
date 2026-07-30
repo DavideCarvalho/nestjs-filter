@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Project } from 'ts-morph';
@@ -144,6 +144,83 @@ describe('nestjsFilterCodegen transformRoutes (tsconfig `paths` alias, real FS)'
     // contract's projectedFields.
     expect(routes[0].contract.contractSource.projectedFields).toContain('subwosCount');
   });
+
+  it.skipIf(typeof process.getuid === 'function' && process.getuid() === 0)(
+    'still resolves when a directory under the project root is unreadable',
+    () => {
+      root = mkdtempSync(join(tmpdir(), 'filter-codegen-alias-'));
+      mkdirSync(join(root, 'src'), { recursive: true });
+
+      // NO `include` — the shape a Nest app's tsconfig actually has, which makes
+      // TypeScript's tsconfig parsing enumerate every directory under the root...
+      writeFileSync(
+        join(root, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'ESNext',
+            moduleResolution: 'node',
+            baseUrl: '.',
+            paths: { '@/*': ['src/*'] },
+          },
+        }),
+      );
+
+      // ...including this one, which the process cannot read. That is a docker
+      // bind mount a container chowned to its own UID (Grafana, Prometheus, MinIO,
+      // a DB data dir): loading the tsconfig threw EACCES, the extension fell back
+      // to the paths-less `ctx.project()`, and every aliased @ApplyFilter target
+      // silently resolved to nothing — dropping its computed columns.
+      const unreadable = join(root, 'unreadable', 'sub');
+      mkdirSync(unreadable, { recursive: true });
+      chmodSync(unreadable, 0o000);
+
+      writeFileSync(
+        join(root, 'src', 'wo.filter.ts'),
+        `
+      class Wo {}
+
+      @Filterable({ entity: Wo, autoFields: true })
+      export class WoFilter {
+        @Computed({ type: 'number' })
+        subwosCount() {
+          return '(SELECT 1)';
+        }
+      }
+      `,
+      );
+
+      const controllerPath = join(root, 'src', 'get-work-orders.controller.ts');
+      writeFileSync(
+        controllerPath,
+        `
+      import { WoFilter } from '@/wo.filter';
+
+      export class GetWorkOrdersController {
+        getWorkOrders(@ApplyFilter(WoFilter) filter: WoFilter) {}
+      }
+      `,
+      );
+
+      const ext = nestjsFilterCodegen();
+      const routes = [
+        routeFixture(['id'], {
+          className: 'GetWorkOrdersController',
+          methodName: 'getWorkOrders',
+          filePath: controllerPath,
+        }),
+      ];
+
+      // `aliasCtx`'s `project()` throws, so a fallback fails the test outright
+      // rather than degrading quietly the way the bug did.
+      ext.transformRoutes?.(routes, aliasCtx(routes, root));
+
+      expect(routes[0].contract.contractSource.filterFields ?? []).toContain('subwosCount');
+
+      // Restore before teardown, or the cleanup trips over the same EACCES.
+      chmodSync(unreadable, 0o755);
+    },
+  );
 
   it('also resolves when the tsconfig path is given explicitly via config.app.tsconfig', () => {
     root = mkdtempSync(join(tmpdir(), 'filter-codegen-alias-'));
