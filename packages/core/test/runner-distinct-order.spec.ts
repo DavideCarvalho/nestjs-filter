@@ -88,6 +88,21 @@ async function makeRunner(
   return mod.get(FilterRunner);
 }
 
+/**
+ * `apply()` with the per-call override the `@ApplyFilter` interceptor forwards.
+ * `undefined` is the "the route said nothing" case, which falls through to the
+ * filter class.
+ */
+async function applyWith(
+  runner: FilterRunner,
+  FilterClass: new (...args: never[]) => unknown,
+  input: unknown,
+  qb: MockQB,
+  distinctOrder?: boolean,
+) {
+  return runner.apply(FilterClass as never, input, qb, {}, { distinctOrder });
+}
+
 /** Every `sort`/`computedSort` the adapter saw, in order. */
 function orderingCalls(qb: MockQB) {
   return qb.calls.filter(([name]) => name === 'sort' || name === 'computedSort');
@@ -111,11 +126,11 @@ describe('distinctOrder — off unless asked for', () => {
     expect(qb.calls).toEqual([['distinct', ['status']]]);
   });
 
-  it('adds no ORDER BY when explicitly disabled at the module level', async () => {
-    const runner = await makeRunner({ distinctOrder: false }, [PlainFilter]);
+  it('adds no ORDER BY when the route explicitly says false', async () => {
+    const runner = await makeRunner({}, [PlainFilter]);
     const qb = makeMockQB();
 
-    await runner.apply(PlainFilter, { filter: {}, distinct: 'status' }, qb);
+    await applyWith(runner, PlainFilter, { filter: {}, distinct: 'status' }, qb, false);
 
     expect(orderingCalls(qb)).toEqual([]);
   });
@@ -125,10 +140,10 @@ describe('distinctOrder — off unless asked for', () => {
 
 describe('distinctOrder — ordering the projection', () => {
   it('orders ascending by the projected column', async () => {
-    const runner = await makeRunner({ distinctOrder: true }, [PlainFilter]);
+    const runner = await makeRunner({}, [PlainFilter]);
     const qb = makeMockQB();
 
-    await runner.apply(PlainFilter, { filter: {}, distinct: 'status' }, qb);
+    await applyWith(runner, PlainFilter, { filter: {}, distinct: 'status' }, qb, true);
 
     expect(qb.calls).toEqual([
       ['distinct', ['status']],
@@ -139,10 +154,10 @@ describe('distinctOrder — ordering the projection', () => {
   it('orders a multi-column projection in REQUEST order', async () => {
     // Not the order the projection branches ran in: the ORDER BY should read
     // like the `distinct` the client wrote.
-    const runner = await makeRunner({ distinctOrder: true }, [PlainFilter]);
+    const runner = await makeRunner({}, [PlainFilter]);
     const qb = makeMockQB();
 
-    await runner.apply(PlainFilter, { filter: {}, distinct: 'status,name' }, qb);
+    await applyWith(runner, PlainFilter, { filter: {}, distinct: 'status,name' }, qb, true);
 
     expect(orderingCalls(qb)).toEqual([
       [
@@ -156,10 +171,10 @@ describe('distinctOrder — ordering the projection', () => {
   });
 
   it('does nothing when the request asked for no distinct at all', async () => {
-    const runner = await makeRunner({ distinctOrder: true }, [PlainFilter]);
+    const runner = await makeRunner({}, [PlainFilter]);
     const qb = makeMockQB();
 
-    await runner.apply(PlainFilter, { filter: {} }, qb);
+    await applyWith(runner, PlainFilter, { filter: {} }, qb, true);
 
     expect(orderingCalls(qb)).toEqual([]);
   });
@@ -169,10 +184,10 @@ describe('distinctOrder — ordering the projection', () => {
 
 describe('distinctOrder — what wins', () => {
   it('a client sort wins, and is not appended to', async () => {
-    const runner = await makeRunner({ distinctOrder: true }, [PlainFilter]);
+    const runner = await makeRunner({}, [PlainFilter]);
     const qb = makeMockQB();
 
-    await runner.apply(PlainFilter, { filter: {}, distinct: 'status', sort: '-status' }, qb);
+    await applyWith(runner, PlainFilter, { filter: {}, distinct: 'status', sort: '-status' }, qb, true);
 
     expect(orderingCalls(qb)).toEqual([['sort', [{ field: 'status', direction: 'desc' }]]]);
   });
@@ -182,51 +197,66 @@ describe('distinctOrder — what wins', () => {
     // sort the caller wrote. That the sort names a column outside the DISTINCT
     // projection is the caller's problem to own (and their database's to
     // reject) — not a reason to bolt a second term on.
-    const runner = await makeRunner({ distinctOrder: true }, [PlainFilter]);
+    const runner = await makeRunner({}, [PlainFilter]);
     const qb = makeMockQB();
 
-    await runner.apply(PlainFilter, { filter: {}, distinct: 'status', sort: 'name' }, qb);
+    await applyWith(runner, PlainFilter, { filter: {}, distinct: 'status', sort: 'name' }, qb, true);
 
     expect(orderingCalls(qb)).toEqual([['sort', [{ field: 'name', direction: 'asc' }]]]);
   });
 
   it('defaultSort wins too — it is a sort, and it got there first', async () => {
-    const runner = await makeRunner({ distinctOrder: true, defaultSort: '-createdAt' }, [
-      PlainFilter,
-    ]);
+    const runner = await makeRunner({ defaultSort: '-createdAt' }, [PlainFilter]);
     const qb = makeMockQB();
 
-    await runner.apply(PlainFilter, { filter: {}, distinct: 'status' }, qb);
+    await applyWith(runner, PlainFilter, { filter: {}, distinct: 'status' }, qb, true);
 
     expect(orderingCalls(qb)).toEqual([['sort', [{ field: 'createdAt', direction: 'desc' }]]]);
   });
 
-  it('per-@Filterable true overrides a module-level false', async () => {
+  it('the filter class decides when the route says nothing', async () => {
     @Injectable()
     @Filterable({ entity: FakeEntity, autoFields: false, distinctOrder: true })
     class OrderedFilter extends BaseFilter<MockQB> {}
 
-    const runner = await makeRunner({ distinctOrder: false }, [OrderedFilter]);
+    const runner = await makeRunner({}, [OrderedFilter]);
     const qb = makeMockQB();
 
-    await runner.apply(OrderedFilter, { filter: {}, distinct: 'status' }, qb);
+    await applyWith(runner, OrderedFilter, { filter: {}, distinct: 'status' }, qb, undefined);
 
     expect(orderingCalls(qb)).toEqual([['sort', [{ field: 'status', direction: 'asc' }]]]);
   });
 
-  it('per-@Filterable false overrides a module-level true', async () => {
-    // The escape hatch for the one table where the sort costs more than the
-    // ordering is worth.
+  it('the ROUTE overrides the filter class, in both directions', async () => {
+    // Why the route wins: one filter class serves a rows route and a distinct
+    // route, and only the second has an opinion here. It is also what survives
+    // `@ApplyFilter({ resolve })` swapping the class per request — the flag
+    // stays with the declaration that asked for it.
+    @Injectable()
+    @Filterable({ entity: FakeEntity, autoFields: false, distinctOrder: true })
+    class OrderedFilter extends BaseFilter<MockQB> {}
+
     @Injectable()
     @Filterable({ entity: FakeEntity, autoFields: false, distinctOrder: false })
     class UnorderedFilter extends BaseFilter<MockQB> {}
 
-    const runner = await makeRunner({ distinctOrder: true }, [UnorderedFilter]);
-    const qb = makeMockQB();
+    const runner = await makeRunner({}, [OrderedFilter, UnorderedFilter]);
 
-    await runner.apply(UnorderedFilter, { filter: {}, distinct: 'status' }, qb);
+    const offOnOrdered = makeMockQB();
+    await applyWith(runner, OrderedFilter, { filter: {}, distinct: 'status' }, offOnOrdered, false);
+    expect(orderingCalls(offOnOrdered)).toEqual([]);
 
-    expect(orderingCalls(qb)).toEqual([]);
+    const onOnUnordered = makeMockQB();
+    await applyWith(
+      runner,
+      UnorderedFilter,
+      { filter: {}, distinct: 'status' },
+      onOnUnordered,
+      true,
+    );
+    expect(orderingCalls(onOnUnordered)).toEqual([
+      ['sort', [{ field: 'status', direction: 'asc' }]],
+    ]);
   });
 });
 
@@ -234,10 +264,10 @@ describe('distinctOrder — what wins', () => {
 
 describe('distinctOrder — never orders by what the projection dropped', () => {
   it('leaves out a column that failed entity validation', async () => {
-    const runner = await makeRunner({ distinctOrder: true }, [PlainFilter]);
+    const runner = await makeRunner({}, [PlainFilter]);
     const qb = makeMockQB();
 
-    await runner.apply(PlainFilter, { filter: {}, distinct: ['status', 'nope'] }, qb);
+    await applyWith(runner, PlainFilter, { filter: {}, distinct: ['status', 'nope'] }, qb, true);
 
     expect(qb.calls).toEqual([
       ['distinct', ['status']],
@@ -264,7 +294,7 @@ describe('distinctOrder — never orders by what the projection dropped', () => 
   });
 
   it('emits nothing when the adapter cannot project at all', async () => {
-    const runner = await makeRunner({ distinctOrder: true }, [PlainFilter], {
+    const runner = await makeRunner({}, [PlainFilter], {
       createQueryBuilder: () => makeMockQB(),
       getEntityFields: () => entityFields,
       applySort(qb, sorts) {
@@ -273,7 +303,7 @@ describe('distinctOrder — never orders by what the projection dropped', () => 
     });
     const qb = makeMockQB();
 
-    await runner.apply(PlainFilter, { filter: {}, distinct: 'status' }, qb);
+    await applyWith(runner, PlainFilter, { filter: {}, distinct: 'status' }, qb, true);
 
     // No applyDistinct → no projection → nothing legal to order by.
     expect(qb.calls).toEqual([]);
@@ -399,11 +429,17 @@ describe('distinctOrder — computed aliases', () => {
 // ─── dynamic mode ────────────────────────────────────────────────────────────
 
 describe('distinctOrder — applyDynamic', () => {
-  it('honors the module option with no filter class in play', async () => {
-    const runner = await makeRunner({ distinctOrder: true });
+  it('takes the flag from the call, which is the only call site it has', async () => {
+    const runner = await makeRunner();
     const qb = makeMockQB();
 
-    await runner.applyDynamic(FakeEntity, { filter: {}, distinct: ['status', 'nope'] }, qb);
+    await runner.applyDynamic(
+      FakeEntity,
+      { filter: {}, distinct: ['status', 'nope'] },
+      qb,
+      {},
+      { distinctOrder: true },
+    );
 
     expect(qb.calls).toEqual([
       ['distinct', ['status']],

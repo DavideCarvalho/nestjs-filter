@@ -92,7 +92,13 @@ export interface FilterableOptions {
   defaultSort?: string | SortItem[];
   /**
    * Orders a `distinct` request that carries no `sort` of its own ascending by
-   * the columns it projected. **Defaults to `false`** — opt in.
+   * the columns it projected, for every route that runs through this filter.
+   * **Defaults to `false`** — opt in.
+   *
+   * Prefer {@link ApplyFilterOptions.distinctOrder} on the route itself unless
+   * every route on this filter wants the same answer: one filter class usually
+   * serves a rows route AND a distinct route, and only the second one has an
+   * opinion here.
    *
    * ## What it is for
    *
@@ -234,15 +240,6 @@ export interface FilterModuleOptions {
    * overridden per-@Filterable.
    */
   defaultSort?: string | SortItem[];
-  /**
-   * Orders a `distinct` request that carries no `sort` of its own ascending by
-   * the columns it projected. Default: `false`. Set it here to opt every filter
-   * in the app in at once — including hand-written filter classes, which is
-   * what makes this the right place for an app whose dropdowns are all paged.
-   * Can be overridden per-`@Filterable`; see
-   * {@link FilterableOptions.distinctOrder}.
-   */
-  distinctOrder?: boolean;
 }
 
 /**
@@ -420,6 +417,25 @@ export interface ApplyFilterOptions {
   source?: InputSource;
   dto?: Type<unknown>;
   resolve?: (req: unknown) => Type<unknown>;
+  /**
+   * Orders a `distinct` request that carries no `sort` of its own ascending by
+   * the columns it projected — declared on the ROUTE that runs the query. See
+   * {@link FilterableOptions.distinctOrder} for what it emits and why it is not
+   * on by default.
+   *
+   * This is the narrowest place to put it, and usually the right one: whether a
+   * DISTINCT wants an ORDER BY is a property of the endpoint reading it, not of
+   * the app, and rarely even of the filter class — the same filter typically
+   * serves both a rows route (which orders itself) and a distinct route (which
+   * does not). Declaring it here keeps the two from having to agree.
+   *
+   * It also survives {@link resolve}: a route that swaps its filter class per
+   * request keeps this setting, where a `@Filterable`-level one would travel
+   * with whichever class won and quietly differ between them.
+   *
+   * Wins over the `@Filterable` option when both are set.
+   */
+  distinctOrder?: boolean;
 }
 
 export interface FilterMetadata {
@@ -429,7 +445,7 @@ export interface FilterMetadata {
   autoFields?: boolean | readonly string[];
   throwOnInvalid?: boolean;
   defaultSort?: string | SortItem[];
-  /** See {@link FilterableOptions.distinctOrder}. Defaults to `true`. */
+  /** See {@link FilterableOptions.distinctOrder}. Defaults to `false`. */
   distinctOrder?: boolean;
   computed?: ComputedMap;
   /**

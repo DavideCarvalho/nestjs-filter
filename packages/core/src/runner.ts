@@ -522,7 +522,7 @@ export class FilterRunner {
     input: unknown,
     qb: Q,
     context: FilterContext = {},
-    internal: { native?: boolean } = {},
+    internal: { native?: boolean; distinctOrder?: boolean | undefined } = {},
   ): Promise<Q> {
     const filter = await this.resolveFilter(FilterClass);
     const adapter = this.resolveAdapter();
@@ -968,7 +968,7 @@ export class FilterRunner {
         const effectiveSorts =
           sorts.length > 0
             ? sorts
-            : this.resolveDistinctOrder(FilterClass)
+            : this.resolveDistinctOrder(FilterClass, internal.distinctOrder)
               ? distinctFields.map((field) => ({ field, direction: 'asc' as const }))
               : [];
         if (effectiveSorts.length > 0 && adapter?.applySort) {
@@ -1407,7 +1407,11 @@ export class FilterRunner {
     input: unknown,
     qb: Q,
     context: FilterContext = {},
-    internal: { skipSortAndPagination?: boolean; native?: boolean } = {},
+    internal: {
+      skipSortAndPagination?: boolean;
+      native?: boolean;
+      distinctOrder?: boolean | undefined;
+    } = {},
   ): Promise<Q> {
     const adapter = this.resolveAdapter();
     // Dynamic mode has no FilterClass — an entity class can still carry
@@ -1526,13 +1530,13 @@ export class FilterRunner {
       const sorts =
         parsedSorts.length > 0 ? parsedSorts : this.parseSorts(this.resolveDefaultSort());
       // Same distinct-ordering fallback `apply()` has, for the same reason —
-      // dynamic mode's DISTINCT is no more ordered than a filter class's. Read
-      // from the MODULE option only, exactly like `resolveDefaultSort()` on the
-      // line above: there is no filter class here to carry a per-table one.
+      // dynamic mode's DISTINCT is no more ordered than a filter class's. Here
+      // the caller IS the call site (there is no route decorator and no filter
+      // class), so the per-call flag is the only way in.
       const effectiveSorts =
         sorts.length > 0
           ? sorts
-          : this.resolveDistinctOrder()
+          : internal.distinctOrder
             ? distinctFields.map((field) => ({ field, direction: 'asc' as const }))
             : [];
       if (effectiveSorts.length > 0 && adapter?.applySort) {
@@ -2319,22 +2323,28 @@ export class FilterRunner {
   }
 
   /**
-   * Resolves the effective `distinctOrder`: per-`@Filterable` wins over the
-   * module option, and both default to `false`.
+   * Resolves the effective `distinctOrder`: the ROUTE's own
+   * `@ApplyFilter({ distinctOrder })` wins over the filter class's
+   * `@Filterable({ distinctOrder })`, and absent both it is off.
    *
-   * OFF by default deliberately. Ordering a projection the caller did not ask
-   * to order is a clause this library would be inventing — and on a large
-   * `SELECT DISTINCT` with no index on the projected column, that clause is a
-   * filesort nobody signed up for. A consumer that wants it says so once, at
-   * the module level or per-`@Filterable`. See
-   * {@link FilterableOptions.distinctOrder}.
+   * There is deliberately no module-level knob. Whether a `SELECT DISTINCT`
+   * wants an ORDER BY is a property of the endpoint reading it — one filter
+   * class typically serves a rows route that orders itself and a distinct route
+   * that does not — so an app-wide switch would be answering a question at the
+   * wrong altitude, and silently, for queries whose cost it cannot see.
+   *
+   * Off unless asked for, for the same reason: ordering a projection the caller
+   * never asked to order is a clause this library would be inventing, and on a
+   * large distinct with no index on the projected column that clause is a
+   * filesort nobody signed up for. See {@link FilterableOptions.distinctOrder}.
    */
-  private resolveDistinctOrder(FilterClass?: Function): boolean {
+  private resolveDistinctOrder(FilterClass?: Function, perCall?: boolean): boolean {
+    if (perCall !== undefined) return perCall;
     if (FilterClass) {
       const meta = getFilterableMetadata(FilterClass);
       if (meta?.distinctOrder !== undefined) return meta.distinctOrder;
     }
-    return this.options.distinctOrder ?? false;
+    return false;
   }
 
   private handleUnknownKey(key: string): void {
