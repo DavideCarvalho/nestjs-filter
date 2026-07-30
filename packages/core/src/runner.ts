@@ -402,11 +402,11 @@ export class FilterRunner {
       /** Allowlist gating aggregate paths, mirroring the where[]/structured paths. */
       autoFieldSet?: AutoFieldSet | null | undefined;
     },
-  ): boolean {
+  ): string[] {
     const { entity, adapter, allowed, throwOnInvalid, apply, unsupported, aliasMeta } = opts;
     const { computed, applyComputed, computedUnsupported } = opts;
     const fields = this.remapFieldAliases(this.parseDistinct(rawFields), aliasMeta);
-    if (fields.length === 0) return false;
+    if (fields.length === 0) return [];
 
     // Split computed aliases and aggregate paths (both dev-declared or
     // synthesized, neither a real column — same rationale as computed sorts)
@@ -423,7 +423,12 @@ export class FilterRunner {
         ? fields.filter((f) => !computed?.has(f) && parseAggregatePath(f) === null)
         : fields;
 
-    let applied = false;
+    // The fields that reached the projection, NOT the ones that were asked
+    // for: everything dropped on the way (failed validation, refused by the
+    // allowlist, an aggregate outside the auto-field set) has to stay out, so a
+    // caller can order by what this returns and still emit a legal
+    // `SELECT DISTINCT` — see `apply()`'s distinct-ordering fallback.
+    const applied = new Set<string>();
     if (plainFields.length > 0) {
       if (apply && adapter && entity) {
         const valid = this.validateDistinct(
@@ -435,7 +440,7 @@ export class FilterRunner {
         );
         if (valid.length > 0) {
           apply(qb as unknown, valid, entity);
-          applied = true;
+          for (const field of valid) applied.add(field);
         }
       } else if (apply === undefined && unsupported) {
         this.warnUnsupported(unsupported.feature, unsupported.method);
@@ -446,8 +451,8 @@ export class FilterRunner {
       if (applyComputed) {
         for (const alias of computedAliases) {
           applyComputed(qb as unknown, alias, computed!.get(alias)!.source);
+          applied.add(alias);
         }
-        applied = true;
       } else if (computedUnsupported) {
         this.warnUnsupported(computedUnsupported.feature, computedUnsupported.method);
       }
@@ -467,13 +472,16 @@ export class FilterRunner {
           const aggregatePath = parseAggregatePath(field);
           if (!aggregatePath) continue;
           adapter.applyAggregateDistinct(qb as unknown, aggregatePath);
-          applied = true;
+          applied.add(field);
         }
       } else {
         this.warnUnsupported('Distinct on an aggregate field requested', 'applyAggregateDistinct');
       }
     }
-    return applied;
+    // Request order, not the order the three branches above ran in: the ORDER
+    // BY a caller derives from this should read like the projection the client
+    // asked for.
+    return fields.filter((field) => applied.has(field));
   }
 
   /**
@@ -898,7 +906,7 @@ export class FilterRunner {
         // A computed alias in the distinct list routes to applyComputedDistinct
         // (the computed registry bypasses column validation, like computed
         // sorts do); plain columns still batch through applyDistinct first.
-        const distinctApplied = this.applyProjection(qb, rawDistinct, {
+        const distinctFields = this.applyProjection(qb, rawDistinct, {
           entity: filterableMeta?.entity,
           adapter,
           allowed: (FilterClass as unknown as { distinct?: readonly string[] }).distinct,
@@ -937,7 +945,7 @@ export class FilterRunner {
         // Skipped when a distinct projection was applied: distinct replaces
         // entity-row output, and a computed value participates in a distinct
         // projection only by being listed in `distinct` explicitly.
-        if (!distinctApplied) {
+        if (distinctFields.length === 0) {
           this.applyProjectedComputed(qb, computedRegistry, adapter);
         }
 
@@ -949,15 +957,34 @@ export class FilterRunner {
           parsedSorts.length > 0
             ? parsedSorts
             : this.parseSorts(this.resolveDefaultSort(FilterClass));
-        if (sorts.length > 0 && adapter?.applySort) {
+        // Opt-in last fallback (`distinctOrder`), for a DISTINCT projection
+        // nothing else ordered: sort ascending by what was projected. Off
+        // unless asked for — see `FilterableOptions.distinctOrder` for why the
+        // default is not to invent an ORDER BY.
+        //
+        // Derived from `distinctFields` (what the projection KEPT) rather than
+        // from the request, so every term is in the select list and the query
+        // stays legal under DISTINCT.
+        const effectiveSorts =
+          sorts.length > 0
+            ? sorts
+            : this.resolveDistinctOrder(FilterClass)
+              ? distinctFields.map((field) => ({ field, direction: 'asc' as const }))
+              : [];
+        if (effectiveSorts.length > 0 && adapter?.applySort) {
           const allowedSorts = (FilterClass as unknown as { sort?: readonly string[] }).sort;
           this.applySortsWithComputed(
             qb,
-            sorts,
+            effectiveSorts,
             allowedSorts as string[] | undefined,
             adapter,
             filterableMeta?.entity,
-            this.resolveThrowOnInvalid(FilterClass),
+            // NEVER throw for the derived ordering, whatever `throwOnInvalid`
+            // says: a `sort` the CLIENT sent is its request to get wrong, but
+            // this one it never asked for. A narrowed `static sort` allowlist
+            // that excludes a projected column must drop the ORDER BY, not turn
+            // an otherwise valid distinct request into a 400.
+            sorts.length > 0 ? this.resolveThrowOnInvalid(FilterClass) : false,
             computedRegistry,
             autoFieldSet,
           );
@@ -1471,7 +1498,7 @@ export class FilterRunner {
     }
 
     // Distinct projection (SELECT DISTINCT) — validate against entity metadata
-    this.applyProjection(qb, rawDistinct, {
+    const distinctFields = this.applyProjection(qb, rawDistinct, {
       entity,
       adapter,
       allowed: undefined,
@@ -1498,8 +1525,26 @@ export class FilterRunner {
       const parsedSorts = this.remapSortAliases(this.parseSorts(rawSort), filterableMeta);
       const sorts =
         parsedSorts.length > 0 ? parsedSorts : this.parseSorts(this.resolveDefaultSort());
-      if (sorts.length > 0 && adapter?.applySort) {
-        const validSorts = this.validateSorts(sorts, undefined, adapter, entity, throwOnInvalid);
+      // Same distinct-ordering fallback `apply()` has, for the same reason —
+      // dynamic mode's DISTINCT is no more ordered than a filter class's. Read
+      // from the MODULE option only, exactly like `resolveDefaultSort()` on the
+      // line above: there is no filter class here to carry a per-table one.
+      const effectiveSorts =
+        sorts.length > 0
+          ? sorts
+          : this.resolveDistinctOrder()
+            ? distinctFields.map((field) => ({ field, direction: 'asc' as const }))
+            : [];
+      if (effectiveSorts.length > 0 && adapter?.applySort) {
+        // `throwOnInvalid` only for a sort the CLIENT sent — the derived one
+        // drops instead of failing a request that never asked for it.
+        const validSorts = this.validateSorts(
+          effectiveSorts,
+          undefined,
+          adapter,
+          entity,
+          sorts.length > 0 ? throwOnInvalid : false,
+        );
         if (validSorts.length > 0) {
           adapter.applySort(qb as unknown, validSorts);
         }
@@ -2271,6 +2316,25 @@ export class FilterRunner {
       if (meta?.defaultSort !== undefined) return meta.defaultSort;
     }
     return this.options.defaultSort;
+  }
+
+  /**
+   * Resolves the effective `distinctOrder`: per-`@Filterable` wins over the
+   * module option, and both default to `false`.
+   *
+   * OFF by default deliberately. Ordering a projection the caller did not ask
+   * to order is a clause this library would be inventing — and on a large
+   * `SELECT DISTINCT` with no index on the projected column, that clause is a
+   * filesort nobody signed up for. A consumer that wants it says so once, at
+   * the module level or per-`@Filterable`. See
+   * {@link FilterableOptions.distinctOrder}.
+   */
+  private resolveDistinctOrder(FilterClass?: Function): boolean {
+    if (FilterClass) {
+      const meta = getFilterableMetadata(FilterClass);
+      if (meta?.distinctOrder !== undefined) return meta.distinctOrder;
+    }
+    return this.options.distinctOrder ?? false;
   }
 
   private handleUnknownKey(key: string): void {

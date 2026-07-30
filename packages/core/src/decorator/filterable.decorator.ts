@@ -18,6 +18,7 @@ export function Filterable(options: FilterableOptions): ClassDecorator {
       autoFields: options.autoFields ?? true,
       ...(options.throwOnInvalid !== undefined && { throwOnInvalid: options.throwOnInvalid }),
       ...(options.defaultSort !== undefined && { defaultSort: options.defaultSort }),
+      ...(options.distinctOrder !== undefined && { distinctOrder: options.distinctOrder }),
       ...(options.computed !== undefined && { computed: options.computed }),
       ...(options.aliases !== undefined && { aliases: options.aliases }),
       // Metadata only — consumed statically (ts-morph AST) by

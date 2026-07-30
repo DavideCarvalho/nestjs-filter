@@ -4,6 +4,7 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { MySqlDriver } from '@mikro-orm/mysql';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { Module } from '@nestjs/common';
+import { OrderedUserFilter } from './ordered-user.filter.js';
 import { Post } from './post.entity.js';
 import { PostFilter } from './post.filter.js';
 import { User } from './user.entity.js';
@@ -25,7 +26,7 @@ import { UsersController } from './users.controller.js';
     }),
     FilterModule.forRoot({ inputNormalizer: 'camelCase' }),
     MikroOrmFilterModule.forRoot(),
-    FilterModule.forFeature([UserFilter, PostFilter]),
+    FilterModule.forFeature([UserFilter, PostFilter, OrderedUserFilter]),
   ],
   controllers: [UsersController],
 })

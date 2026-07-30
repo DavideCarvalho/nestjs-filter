@@ -210,6 +210,111 @@ describe('MikroORM + MySQL integration', () => {
     expect(total).toBe(2);
   });
 
+  // ─── distinctOrder ─────────────────────────────────────────────────────────
+  //
+  // Every case here would pass on SQLite whether the ORDER BY spelling was
+  // right or not: SQLite does not enforce the DISTINCT/ORDER BY rule. MySQL
+  // does — error 3065, and the whole request fails — so these run here or they
+  // do not run at all.
+
+  it('distinctOrder orders a plain column with no sort in the request', async () => {
+    await seed();
+    // Seeded admin/user/admin; ascending is admin,user. The point is the
+    // ABSENCE of `sort` in the body: the ordering is the option's doing.
+    const res = await request(app.getHttpServer())
+      .post('/users/distinct-ordered')
+      .send({ filter: {}, distinct: 'role' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.map((r: { role: string }) => r.role)).toEqual(['admin', 'user']);
+  });
+
+  it('distinctOrder partitions a paged distinct instead of slicing an unordered one', async () => {
+    await seed();
+    // The reason the option exists. Page 0 and page 1 of size 1 must be
+    // disjoint and in order — over an unordered query the pair proves nothing,
+    // because LIMIT/OFFSET over no ORDER BY is not a partition.
+    const page = async (n: number) => {
+      const res = await request(app.getHttpServer())
+        .post('/users/distinct-ordered')
+        .send({ filter: {}, distinct: 'role', paginate: { page: n, size: 1 } });
+      expect(res.status).toBe(201);
+      return res.body.map((r: { role: string }) => r.role);
+    };
+
+    expect(await page(0)).toEqual(['admin']);
+    expect(await page(1)).toEqual(['user']);
+  });
+
+  it('distinctOrder orders a JSON sub-path by the alias it was projected under', async () => {
+    await seed();
+    // `metadata.tier` is projected as `json_unquote(json_extract(...)) as
+    // "metadata.tier"`. Ordering by a re-derived `json_extract` instead of by
+    // that alias is textually a different expression, and MySQL rejects it.
+    const res = await request(app.getHttpServer())
+      .post('/users/distinct-ordered')
+      .send({ filter: {}, distinct: 'metadata.tier' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.map((r: Record<string, unknown>) => r['metadata.tier'])).toEqual([
+      'free',
+      'pro',
+    ]);
+  });
+
+  it('distinctOrder orders a computed member by its projected expression', async () => {
+    await seed();
+    // Alice(5), Bob(3), Charlie(7) → distinct lengths ascending: 3,5,7. The
+    // projection comes from applyComputedDistinct and the ORDER BY from
+    // applyComputedSort; a 500 here means those two disagree textually.
+    const res = await request(app.getHttpServer())
+      .post('/users/distinct-ordered')
+      .send({ filter: {}, distinct: 'nameLength' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.map((r: { nameLength: number }) => Number(r.nameLength))).toEqual([3, 5, 7]);
+  });
+
+  it('distinctOrder orders a mixed plain + computed projection', async () => {
+    await seed();
+    const res = await request(app.getHttpServer())
+      .post('/users/distinct-ordered')
+      .send({ filter: {}, distinct: ['role', 'nameLength'] });
+
+    expect(res.status).toBe(201);
+    expect(
+      res.body.map((r: { role: string; nameLength: number }) => [r.role, Number(r.nameLength)]),
+    ).toEqual([
+      ['admin', 5],
+      ['admin', 7],
+      ['user', 3],
+    ]);
+  });
+
+  it("distinctOrder leaves the request's own sort alone", async () => {
+    await seed();
+    const res = await request(app.getHttpServer())
+      .post('/users/distinct-ordered')
+      .send({ filter: {}, distinct: 'role', sort: '-role' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.map((r: { role: string }) => r.role)).toEqual(['user', 'admin']);
+  });
+
+  it('leaves the plain filter unordered — the option is opt-in, per filter class', async () => {
+    await seed();
+    // The same body on the filter that did NOT opt in. Not asserting an
+    // ORDER (there is none to assert); asserting the request still succeeds and
+    // returns the same VALUES, i.e. the option changed ordering and nothing
+    // else.
+    const res = await request(app.getHttpServer())
+      .post('/users/distinct')
+      .send({ filter: {}, distinct: 'role' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.map((r: { role: string }) => r.role).sort()).toEqual(['admin', 'user']);
+  });
+
   it('DISTINCT reaches a nested JSON key and respects the other filters', async () => {
     await seed();
     const runner = mod.get(FilterRunner);

@@ -91,6 +91,46 @@ export interface FilterableOptions {
    */
   defaultSort?: string | SortItem[];
   /**
+   * Orders a `distinct` request that carries no `sort` of its own ascending by
+   * the columns it projected. **Defaults to `false`** — opt in.
+   *
+   * ## What it is for
+   *
+   * `SELECT DISTINCT` has no inherent order, so the values arrive in whatever
+   * order the storage engine produced them. That is cosmetic for a full list
+   * and a correctness bug for a PAGED one — the shape a filter dropdown uses:
+   * `LIMIT`/`OFFSET` over an unordered query is not a partition, so one page
+   * can repeat a value another page already returned and skip a third
+   * entirely. Turn this on for any table whose distinct values are paged.
+   *
+   * ## Why it is not the default
+   *
+   * On means this library adds an `ORDER BY` the caller never wrote, and on a
+   * large distinct with no index on the projected column that is a filesort
+   * nobody asked for. Inventing a clause is the kind of thing a consumer should
+   * opt into, so upgrading never silently changes a query's cost.
+   *
+   * ## What it emits
+   *
+   * The ordering is derived from the projection itself — the fields that
+   * actually reached the SELECT list, not the ones the request named — so it is
+   * always a legal `SELECT DISTINCT`. That matters more than it sounds: MySQL
+   * rejects an `ORDER BY` term outside a DISTINCT's select list outright (error
+   * 3065, a failed query rather than a warning), so a field the allowlist
+   * refused or validation dropped must not reach the ORDER BY either.
+   *
+   * Computed aliases and to-many aggregates go through the same computed-aware
+   * sort path a client-sent sort takes, so they order by the projected
+   * expression rather than by a name no column has.
+   *
+   * A client-sent `sort`, and {@link defaultSort}, both take precedence: this
+   * is a fallback for a request that ordered nothing, never an addition to one
+   * that did. And it never throws — a projected column outside a narrowed
+   * `static sort` allowlist drops out of the ordering instead of turning an
+   * otherwise valid request into a 400.
+   */
+  distinctOrder?: boolean;
+  /**
    * Declares virtual/computed fields: a map of alias → **dev-provided** SQL
    * expression. The alias becomes filterable and sortable as if it were a real
    * column (e.g. `{ fullName: "first || ' ' || last" }` lets clients filter or
@@ -194,6 +234,15 @@ export interface FilterModuleOptions {
    * overridden per-@Filterable.
    */
   defaultSort?: string | SortItem[];
+  /**
+   * Orders a `distinct` request that carries no `sort` of its own ascending by
+   * the columns it projected. Default: `false`. Set it here to opt every filter
+   * in the app in at once — including hand-written filter classes, which is
+   * what makes this the right place for an app whose dropdowns are all paged.
+   * Can be overridden per-`@Filterable`; see
+   * {@link FilterableOptions.distinctOrder}.
+   */
+  distinctOrder?: boolean;
 }
 
 /**
@@ -380,6 +429,8 @@ export interface FilterMetadata {
   autoFields?: boolean | readonly string[];
   throwOnInvalid?: boolean;
   defaultSort?: string | SortItem[];
+  /** See {@link FilterableOptions.distinctOrder}. Defaults to `true`. */
+  distinctOrder?: boolean;
   computed?: ComputedMap;
   /**
    * Declarative field-name remapping (see {@link FilterableOptions.aliases}

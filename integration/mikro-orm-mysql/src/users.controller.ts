@@ -1,6 +1,7 @@
 import { ApplyFilter, FilterRunner } from '@dudousxd/nestjs-filter';
 import type { QueryBuilder } from '@mikro-orm/sql';
 import { Body, Controller, Get, Post } from '@nestjs/common';
+import { OrderedUserFilter } from './ordered-user.filter.js';
 import { User } from './user.entity.js';
 import { UserFilter } from './user.filter.js';
 
@@ -22,6 +23,14 @@ export class UsersController {
   distinct(@ApplyFilter(UserFilter) qb: QueryBuilder<User>, @Body() _body: unknown) {
     // `distinct` overrides the projection to the requested column(s); execute()
     // returns the raw distinct rows (e.g. `[{ role: 'admin' }, ...]`).
+    return qb.execute();
+  }
+
+  @Post('distinct-ordered')
+  distinctOrdered(@ApplyFilter(OrderedUserFilter) qb: QueryBuilder<User>, @Body() _body: unknown) {
+    // Same route as `distinct` above, through the filter that opts into
+    // `distinctOrder` — so the difference between the two responses IS the
+    // option.
     return qb.execute();
   }
 
