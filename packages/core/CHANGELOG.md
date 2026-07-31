@@ -1,5 +1,106 @@
 # @dudousxd/nestjs-filter
 
+## 1.25.0
+
+### Minor Changes
+
+- [#91](https://github.com/DavideCarvalho/nestjs-filter/pull/91) [`7c64f10`](https://github.com/DavideCarvalho/nestjs-filter/commit/7c64f105a127a3a24a5c22230437630e0ca51592) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Add `fieldExtent`, an adapter capability that answers the `MIN`/`MAX` of one or more fields over whatever the active filter selected.
+
+  A range control cannot place its endpoints without this. The shape callers reach for instead is two `ORDER BY <field> LIMIT 1` reads per field — ascending, then descending — which is two round trips, two filesorts over the filtered set when the column is unindexed, and, on a builder carrying a projected computed alias, two extra `COUNT`s nobody reads.
+
+  ```ts
+  const extent = await adapter.fieldExtent?.(
+    qb,
+    ["price", "createdAt"],
+    Product
+  );
+  // → { price: { min: 499, max: 128000 }, createdAt: { min: Date, max: Date } }
+  ```
+
+  **One query, however many fields.** `MIN`/`MAX` skip nulls per aggregate, so each field's pair is independent and they all share a single select list. That independence is exactly what the sort-and-limit approach cannot have: each field would need its own `IS NOT NULL` and its own ordering, so N fields is 2N queries there and one here.
+
+  Numbers and dates both work, and neither is coerced on the way out — a range control over dates needs real dates, and stringifying here would push parsing onto every caller. Plain columns, JSON sub-paths and computed members all resolve through the same paths the rest of the adapter uses.
+
+  Two states a caller has to tell apart, and which are deliberately not collapsed: a field present with `null` ends means no row in scope carries a value; a field **absent** from the result means this adapter could not turn it into an expression, so it measured nothing rather than guessing.
+
+  `fieldExtent` is optional on the `FilterAdapter` contract, so an adapter without aggregation support is unaffected and nothing about upgrading changes an existing query.
+
+  Deliberately only the extent, not a general `stats`. `MIN`/`MAX` are indifferent to the row multiplication a to-many join causes; an average or a sum would not be. Naming this `fieldStats` would have invited exactly that addition, and it would ship wrong numbers on any filter that joins a to-many without a single test going red.
+
+- [#91](https://github.com/DavideCarvalho/nestjs-filter/pull/91) [`7c64f10`](https://github.com/DavideCarvalho/nestjs-filter/commit/7c64f105a127a3a24a5c22230437630e0ca51592) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Add `extent` as a structured input key, answered by `FilterRunner.fieldExtent(entity, input, opts)` — the `MIN`/`MAX` of the requested fields over whatever the active `where`/`search` selected.
+
+  The adapter capability already existed; nothing server-side read the key, so a route had to take `@Body('extent')` and call the adapter itself. That bypasses the filter class's field governance. A filter can narrow which columns it exposes — `static distinct`, the entity-metadata check that rejects a bare relation or an unknown identifier, `@Filterable.aliases` — and a name read off the body and handed straight to `fieldExtent` skips all of it, so a caller could measure a column the class deliberately does not expose. It was never an injection vector (the adapter resolves names through ORM metadata and quotes defensively), but it is a surface leak, and the runner is the only layer holding the allowlist that closes it.
+
+  ```ts
+  // route
+  const [{ rows, total }, extent] = await Promise.all([
+    runner.findAndCount(Product, input),
+    runner.fieldExtent(Product, input, { filterClass: ProductFilter }),
+  ]);
+  // → { price: { min: 499, max: 128000 }, createdAt: { min: Date, max: Date } }
+  ```
+
+  Fields go through the same validation `distinct` does, with the same allowlist: the filter class's `static distinct` when `opts.filterClass` declares one, else the entity's columns via adapter metadata. `distinct` and `extent` ask the same question about a column — what values may this control offer — so a class that already narrowed which columns a control may read narrows this too. Otherwise `extent` is the way around that narrowing.
+
+  **A disallowed or unknown field is dropped and the rest still answer**, matching `distinct` rather than `groupByCount`. The difference is which one the field is: in `groupByCount` the field IS the query, so an unknown one has to reject; here the surviving fields are a usable answer, and a range control that loses one endpoint is better than a request that 400s. Under `throwOnInvalid` the drop becomes a `BadRequestException` naming `extent`, again as `distinct`. A dropped field is simply absent from the result — which the `fieldExtent` contract already defines as "not measured", so the caller needs no new state to handle.
+
+  Computed members route as `{ alias, source }` rather than a bare name, exactly as `groupByCount`'s grouping field does: the adapter measures the dev-provided expression instead of resolving a column no table has. This is the other half of why it belongs in the runner — nothing outside it can tell a computed alias from a typo, since both are strings no column matches, and one must reach the adapter while the other must not.
+
+  Not terminal, unlike `groupByCount`: the extent describes the same rows the page comes from, so sort and pagination are untouched (`fieldExtent` applies WHERE/search only) and a route can answer with rows and extent from the same input. Variadic all the way down — the capability measures N fields in one query, so the runner hands the adapter one list rather than looping, which is the property `extent` exists for.
+
+  Requires an adapter implementing the optional `fieldExtent`; without it the call throws rather than returning `{}`, because an empty answer is indistinguishable from a legitimately empty set and draws a range control collapsed to a `(0, 0)` span with no error anywhere.
+
+- [#91](https://github.com/DavideCarvalho/nestjs-filter/pull/91) [`7c64f10`](https://github.com/DavideCarvalho/nestjs-filter/commit/7c64f105a127a3a24a5c22230437630e0ca51592) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Add `distinctOrder`, an opt-in that orders a `distinct` request carrying no `sort` of its own ascending by the columns it projected.
+
+  `SELECT DISTINCT` has no inherent order. That is cosmetic for a full list and a correctness bug for a paged one — the shape a filter dropdown uses: `LIMIT`/`OFFSET` over an unordered query is not a partition, so one page can repeat a value another page already returned and skip a third entirely.
+
+  Off by default, so upgrading changes no query. Turn it on per filter class or for the whole app:
+
+  ```ts
+  @Filterable({ entity: User, distinctOrder: true })
+  export class UserFilter extends MikroOrmFilter<User> {}
+
+  // or once, covering every filter including hand-written ones:
+  FilterModule.forRoot({ distinctOrder: true });
+  ```
+
+  The ordering is derived from what the projection actually kept, not from what the request named, so it is always a legal `SELECT DISTINCT` — a field that validation or an allowlist dropped stays out of the `ORDER BY` too. That matters more than it sounds: MySQL rejects an `ORDER BY` term outside a DISTINCT's select list outright (error 3065, a failed query rather than a warning). Computed aliases and to-many aggregates route through the same computed-aware sort path a client-sent sort takes, so they order by the projected expression rather than by a name no column has.
+
+  A client-sent `sort` and `defaultSort` both take precedence, and the derived ordering never throws: a projected column outside a narrowed `static sort` allowlist drops out of the `ORDER BY` instead of turning an otherwise valid request into a 400.
+
+- [#91](https://github.com/DavideCarvalho/nestjs-filter/pull/91) [`7c64f10`](https://github.com/DavideCarvalho/nestjs-filter/commit/7c64f105a127a3a24a5c22230437630e0ca51592) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Add `histogram` as a structured input key, answered by `FilterRunner.fieldHistogram(entity, input, opts)` — one numeric field's extent AND its bucketed distribution over the same filtered set, from one request.
+
+  Both halves already shipped and neither is usable alone. `fieldExtent` places a range control's endpoints; `groupByCount`'s bucketed variant draws the bars behind them — but that variant takes a bucket **width**, and a width that is not derived from the data is either arbitrary (a hardcoded `1000` that yields two bars under one filter and four hundred under the next) or requires the extent the caller is asking for in the same breath. That circle cannot be broken from outside: you must measure, then divide. So the runner measures, then divides.
+
+  ```ts
+  await runner.fieldHistogram(Product, {
+    filter,
+    histogram: { field: "price", buckets: 10 },
+  });
+  // → { min: 499, max: 128000, bucketWidth: 10000,
+  //     buckets: [{ bucketStart: 0, bucketEnd: 10000, count: 12 }, …] }
+  ```
+
+  **Two round trips, and it cannot be one.** The width is a function of the first query's _output_, so the second query's text does not exist until the first returns. Folding them into one statement means a correlated `(SELECT MAX(col)) - (SELECT MIN(col))` inside the bucket expression — the same scan again, per row-group, to save a round trip — or window functions the adapter contract does not have. Two plain aggregates over an indexable column is cheaper and keeps this a composition.
+
+  **Nothing was added to `FilterAdapter`.** Every optional method on that contract is a cost each adapter author pays forever, and this one would buy nothing: it is arithmetic between two existing calls, identical for every ORM. An adapter with both capabilities gets this for free; one missing a half is told _which_ half, since "histogram is unsupported" would send its author looking for a method by that name.
+
+  **The width is snapped to a 1/2/5 × 10ⁿ step**, nearest rather than upward. Raw `span / count` is arithmetically right and wrong for a control, twice over: buckets are anchored at multiples of the width (`FLOOR(col / w) * w`), so 499–128000 over 10 gives 12750.1 and an axis labelled 12750.1, 25500.2, 38250.3; and a raw width changes on every row inserted, so the bars re-partition and visibly jump as the filtered set shifts. Snapping to the nearest step keeps the count within about √2 of the request in either direction — `buckets` is a target, `bucketWidth` is authoritative. Rounding _up_ instead would turn a span of 101 over 10 into a width of 20 and six bars, a worse answer to "ten, please" than eleven.
+
+  **The degenerate sets are the point, not the edge case** — a facet is drawn over whatever the filter left behind, so one row and no rows are ordinary states, and each fails quietly on its own terms:
+
+  - **No rows, or a column null throughout them** → `{ min: null, max: null, bucketWidth: null, buckets: [] }` and _no second query_. A width from null is `NaN`, and `FLOOR(col / NaN)` groups the whole table into one null bucket: a query that succeeds and means nothing. Null ends are deliberately not collapsed into "zero bars", so an empty facet is distinguishable from a flat one.
+  - **`min === max`** (one row, or many sharing a value) → width 0, which is a null group on MySQL and a division-by-zero _error_ on Postgres. The bucketed variant is not asked for at all; the plain group-by answers, and the single bucket is reported as the point `[min, min]` rather than given a fabricated span that would draw a bar over values no row has.
+  - **A field the adapter measured nothing for** → throws. An _absent_ key means "could not be compiled" per the `fieldExtent` contract, not the `{ min: null }` the same contract defines as "no row carries a value"; reporting the first as the second renders an unmeasurable column as a legitimately empty facet.
+
+  **Dates are refused, not bucketed.** `fieldExtent` supports DATE columns on purpose, so `extent` and `histogram` accept the same field names right up to this point — and the failure without a check is not an error but a wrong answer: MySQL coerces a date to `20240131` and buckets _that_, returning plausible bars over an axis where two thirds of every year does not exist. Root-column metadata refuses one before either query runs; a computed source, relation path or JSON sub-path — which metadata cannot type — is caught on the way back, by identity rather than by coercion, since `Number(new Date())` is a perfectly finite epoch. For the same reason the numeric check is not `typeof value === 'number'` in the other direction either: DECIMAL hydrates to a _string_ on mysql2 and pg, and a strict check would refuse the most ordinary histogram there is.
+
+  Buckets come back contiguous and ascending with empty ones filled in. `GROUP BY` has no defined output order and emits nothing at all for an empty bucket, so the raw groups render as evenly spaced bars that lie about where the data sits. Rows are matched to buckets by index, not by comparing the returned edge — for a width of 0.1 the database's `FLOOR(x / 0.1) * 0.1` and JavaScript's `i * 0.1` differ in the last bits, and an equality match would silently zero exactly the buckets that have rows. The null group is dropped rather than passed through, since `Number(null)` is 0 and every null row would otherwise pile into a phantom bar at the origin.
+
+  Field governance is `extent`'s, through the same path: alias remapping, the filter class's static `distinct` allowlist (else entity metadata), and computed members routed to _both_ passes as `{ alias, source }` — nothing outside the runner can tell a computed alias from a typo, since both are strings no column matches. The one divergence is what an invalid field means: rejected here, as in `groupByCount`, because the field IS the query and an empty histogram would read as "no matching rows", the answer to an entirely different question.
+
+  Single-field, unlike `extent` — the width derivation is per field and the second query groups by one expression, so N fields is genuinely N of these and batching would only hide it. Not terminal, like `extent` and unlike `groupByCount`: it describes the same rows the page comes from, so sort and pagination are untouched and a route may answer with both. And it takes no `opts.qb`: two passes need two builders (the first is consumed by an aggregate `SELECT`), and quietly creating the second from scratch would drop whatever pre-scoping a caller put on theirs, so the distribution would describe a wider set than the extent — a chart with bars outside its own axis, with nothing to make it obvious.
+
 ## 1.24.0
 
 ### Minor Changes
