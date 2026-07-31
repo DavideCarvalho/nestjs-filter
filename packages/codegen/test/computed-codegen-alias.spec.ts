@@ -289,4 +289,74 @@ describe('nestjsFilterCodegen transformRoutes (tsconfig `paths` alias, real FS)'
 
     expect(routes[0].contract.contractSource.filterFields ?? []).toContain('subwosCount');
   });
+
+  // @dudousxd/nestjs-codegen >=0.22 loads the tsconfig-seeded project once and
+  // hands it to every extension, so this one should stop parsing its own. The
+  // ctx below has NO tsconfig anywhere near its `cwd` and a `project()` that
+  // throws: resolution can only succeed through the host's project.
+  it("uses the host's tsconfigProject() when it offers one", () => {
+    root = mkdtempSync(join(tmpdir(), 'filter-codegen-alias-'));
+    mkdirSync(join(root, 'src'), { recursive: true });
+
+    writeFileSync(
+      join(root, 'src', 'wo.filter.ts'),
+      `
+      class Wo {}
+
+      @Filterable({ entity: Wo, autoFields: true })
+      export class WoFilter {
+        @Computed({ type: 'number' })
+        subwosCount() {
+          return '(SELECT 1)';
+        }
+      }
+      `,
+    );
+
+    const controllerPath = join(root, 'src', 'get-work-orders.controller.ts');
+    writeFileSync(
+      controllerPath,
+      `
+      import { WoFilter } from '@/wo.filter';
+
+      export class GetWorkOrdersController {
+        getWorkOrders(@ApplyFilter(WoFilter) filter: WoFilter) {}
+      }
+      `,
+    );
+
+    // What the host builds from the app tsconfig and shares.
+    const hostProject = new Project({
+      compilerOptions: { baseUrl: root, paths: { '@/*': ['src/*'] } },
+      skipAddingFilesFromTsConfig: true,
+      skipLoadingLibFiles: true,
+      skipFileDependencyResolution: true,
+    });
+
+    const ext = nestjsFilterCodegen();
+    const routes = [
+      routeFixture(['id'], {
+        className: 'GetWorkOrdersController',
+        methodName: 'getWorkOrders',
+        filePath: controllerPath,
+      }),
+    ];
+
+    const emptyCwd = mkdtempSync(join(tmpdir(), 'filter-codegen-no-tsconfig-'));
+    try {
+      ext.transformRoutes?.(routes, {
+        routes,
+        cwd: emptyCwd,
+        config: { app: null },
+        project: () => {
+          throw new Error('fallback should not be used when the host offers a project');
+        },
+        tsconfigProject: () => hostProject,
+      } as never);
+    } finally {
+      rmSync(emptyCwd, { recursive: true, force: true });
+    }
+
+    expect(routes[0].contract.contractSource.filterFields ?? []).toContain('subwosCount');
+  });
 });
