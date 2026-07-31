@@ -4,6 +4,8 @@ import {
   type ComputedSource,
   type EntityFieldInfo,
   type EntityRelationInfo,
+  type FieldExtent,
+  type FieldExtentField,
   type FilterAdapter,
   type GroupByCountField,
   type SortItem,
@@ -15,7 +17,7 @@ import {
   valueToColumnFilters,
 } from '@dudousxd/nestjs-filter';
 import { aggregateDistinctAlias, isDateColumnType } from '@dudousxd/nestjs-filter/aggregate';
-import { type RawQueryFragment, ReferenceKind, raw } from '@mikro-orm/core';
+import { QueryFlag, type RawQueryFragment, ReferenceKind, raw } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/sql';
 import type { Type } from '@nestjs/common';
 import { resolveColumnFilters, resolveOperator } from './operator-resolver.js';
@@ -639,6 +641,21 @@ export class MikroOrmAdapter implements FilterAdapter {
     entity: Type<unknown>,
     path: string,
   ): unknown | null {
+    const expr = this.jsonExtractSql(qb.alias, entity, path);
+    if (!expr) return null;
+    return raw(`${expr} as ${this.quoteSingleIdent(path)}`);
+  }
+
+  /**
+   * The bare extract expression for a JSON sub-path — {@link
+   * jsonColumnProjection} without the trailing `as "<alias>"`.
+   *
+   * Split out because an aliased fragment composes nowhere else: {@link
+   * fieldExtent} has to wrap this in `min(…)`/`max(…)`, and `min(x as "a")` is
+   * not SQL. The dialect knowledge documented above lives here, so both callers
+   * get the SQLite trap handled rather than one of them re-deriving it.
+   */
+  private jsonExtractSql(alias: string, entity: Type<unknown>, path: string): string | null {
     try {
       const resolved = this.resolveJsonPath(entity, path);
       if (!resolved || resolved.keys.length === 0) return null;
@@ -647,26 +664,21 @@ export class MikroOrmAdapter implements FilterAdapter {
       const column = meta?.properties?.[resolved.column]?.fieldNames?.[0];
       if (!column) return null;
 
-      const col = `${this.quoteSingleIdent(qb.alias)}.${this.quoteSingleIdent(column)}`;
+      const col = `${this.quoteSingleIdent(alias)}.${this.quoteSingleIdent(column)}`;
       const jsonPath = `'${this.escapeSqlString(
         `$.${resolved.keys.map((key) => this.quoteJsonKey(key)).join('.')}`,
       )}'`;
 
-      let expr: string;
       switch (this.platformKind()) {
         case 'postgres':
-          expr = this.postgresJsonExtract(col, resolved.keys);
-          break;
+          return this.postgresJsonExtract(col, resolved.keys);
         case 'mysql':
-          expr = `json_unquote(json_extract(${col}, ${jsonPath}))`;
-          break;
+          return `json_unquote(json_extract(${col}, ${jsonPath}))`;
         default:
           // SQLite, and the safe default for anything unrecognised:
           // `json_extract` is the portable spelling, `json_unquote` is not.
-          expr = `json_extract(${col}, ${jsonPath})`;
+          return `json_extract(${col}, ${jsonPath})`;
       }
-
-      return raw(`${expr} as ${this.quoteSingleIdent(path)}`);
     } catch {
       return null;
     }
@@ -722,21 +734,61 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   /**
-   * Compiles one to-one relation path into an aliased SELECT member, joining
-   * every relation along the way. Returns `null` when the path is not a
-   * relation path this adapter can project — the caller then passes the field
-   * through untouched, preserving the pre-existing behaviour.
-   *
-   * The core runner has already validated the path (`resolveFieldPath` ===
-   * 'field'), so a `null` here means metadata disagreed with that verdict, not
-   * that client input reached the SQL: every identifier below comes from ORM
-   * metadata and is quoted defensively on the way out.
+   * Compiles a relation path into an aliased SELECT member, joining every
+   * relation along the way. Returns `null` when the path is not a relation path
+   * this adapter can project — the caller then passes the field through
+   * untouched, preserving the pre-existing behaviour.
    */
   private relationColumnProjection(
     qb: JoinableQB,
     entity: Type<unknown> | undefined,
     path: string,
   ): unknown | null {
+    const expr = this.relationColumnSql(qb, entity, path);
+    if (!expr) return null;
+    return raw(`${expr} as ${this.quoteSingleIdent(path)}`);
+  }
+
+  /**
+   * The bare column reference behind a relation path — {@link
+   * relationColumnProjection} without the trailing `as "<alias>"` — joining
+   * every relation along the way and returning `<join alias>.<column>`.
+   *
+   * Split out for the same reason {@link jsonExtractSql} was: an ALIASED
+   * fragment composes nowhere else. {@link fieldExtent} has to wrap this in
+   * `min(…)`/`max(…)`, and `min(x as "posts.title")` is not SQL — MySQL fails
+   * to parse it outright.
+   *
+   * Any relation kind is walked, to-many included, and the two callers survive
+   * that for DIFFERENT reasons — both worth stating, because only one of them
+   * generalises:
+   *
+   * - DISTINCT projection: a to-many join multiplies the parent rows, and
+   *   collapsing those duplicates is precisely what DISTINCT does. The question
+   *   a dropdown asks ("which post titles appear among the users matching these
+   *   filters?") is answered by exactly that join, and the total counts
+   *   distinct VALUES, not parents.
+   * - {@link fieldExtent}: `MIN`/`MAX` are INDIFFERENT to duplicates — a value
+   *   seen three times because its parent joined three child rows is the same
+   *   extreme as a value seen once. So the multiplication is harmless here too.
+   *   It would NOT be for anything added later that counts or totals: `AVG` and
+   *   `SUM` over the same join weight each parent by its child count and return
+   *   a number that means nothing. Such a field must go through the correlated
+   *   scalar subquery {@link aggregateSubquery} builds, not through this.
+   *
+   * The multiplication only matters where entity rows survive to the caller,
+   * which is the ROWS route — a different code path that never reaches here.
+   *
+   * The core runner has already validated the path, so a `null` here means
+   * metadata disagreed with that verdict, not that client input reached the
+   * SQL: every identifier below comes from ORM metadata and is quoted
+   * defensively on the way out.
+   */
+  private relationColumnSql(
+    qb: JoinableQB,
+    entity: Type<unknown> | undefined,
+    path: string,
+  ): string | null {
     if (!entity) return null;
     try {
       const segments = path.split('.');
@@ -746,16 +798,6 @@ export class MikroOrmAdapter implements FilterAdapter {
       let meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
       for (const segment of relationPath) {
         const prop = meta?.properties?.[segment];
-        // Any relation kind, to-many included. A to-many join multiplies the
-        // parent rows — but this projection is a single column under DISTINCT,
-        // and collapsing those duplicates is precisely what DISTINCT does. The
-        // question a dropdown asks ("which leave reasons appear among the
-        // people matching these filters?") is answered by exactly that join,
-        // and the total counts distinct VALUES, not parents.
-        //
-        // The multiplication only matters where entity rows survive to the
-        // caller, which is the ROWS route — a different code path that never
-        // reaches here.
         if (!prop || prop.kind === ReferenceKind.SCALAR || prop.kind === ReferenceKind.EMBEDDED) {
           return null;
         }
@@ -766,9 +808,7 @@ export class MikroOrmAdapter implements FilterAdapter {
       if (!column) return null;
 
       const alias = this.ensureJoinAlias(qb, relationPath);
-      return raw(
-        `${this.quoteSingleIdent(alias)}.${this.quoteSingleIdent(column)} as ${this.quoteSingleIdent(path)}`,
-      );
+      return `${this.quoteSingleIdent(alias)}.${this.quoteSingleIdent(column)}`;
     } catch {
       return null;
     }
@@ -862,17 +902,172 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   /**
+   * The extent of each requested field, in ONE query.
+   *
+   * `MIN`/`MAX` skip nulls per aggregate, so every field's pair is independent
+   * and they all share a select list. That independence is the whole reason
+   * this beats the `ORDER BY <field> LIMIT 1` pair a caller would otherwise run
+   * twice per field: those need a per-field `IS NOT NULL` and a per-field
+   * ordering, so they can never be batched — and on an unindexed column each is
+   * a filesort over the filtered set.
+   *
+   * Every field shape the rest of the adapter can compile is measurable here —
+   * a plain column, a JSON sub-path, a relation path, a computed source. What
+   * remains unmeasurable (metadata disagreeing with the runner's validation) is
+   * OMITTED from the result rather than guessed at. An absent key therefore
+   * means "not measurable"; a present one with `null` ends means "no rows carry
+   * a value". Callers sizing a control need to tell those apart, so they are
+   * not collapsed.
+   */
+  async fieldExtent(
+    qb: unknown,
+    fields: FieldExtentField[],
+    entity: Type<unknown>,
+  ): Promise<Record<string, FieldExtent>> {
+    if (fields.length === 0) return {};
+
+    const queryBuilder = qb as {
+      clone: () => JoinableQB & {
+        select: (fields: unknown) => unknown;
+        limit: (n?: number) => unknown;
+        offset: (n?: number) => unknown;
+        orderBy: (order: unknown[]) => unknown;
+        groupBy: (fields: unknown[]) => unknown;
+        setFlag: (flag: QueryFlag) => unknown;
+        unsetFlag: (flag: QueryFlag) => unknown;
+        execute: (method: 'get') => Promise<Record<string, unknown> | undefined>;
+      };
+    };
+
+    const probe = queryBuilder.clone();
+    // Both matter. A surviving ORDER BY names a column this SELECT no longer
+    // projects, which MySQL rejects outright (error 3065); a surviving LIMIT
+    // would cap the rows the aggregate reads and quietly answer for a page.
+    probe.orderBy([]);
+    probe.limit(undefined);
+    probe.offset(undefined);
+    // GROUP BY is reset defensively, not in response to a known caller: no
+    // path in this library puts one on a builder that later reaches here
+    // (`groupByCount` is terminal and never shares its builder). It is cheap
+    // insurance against the one failure in this list that would NOT announce
+    // itself — a grouped aggregate still succeeds and still returns a row
+    // shaped like an answer, but it is one row PER GROUP, and `execute('get')`
+    // would read whichever group sorted first: a real number, for a fraction
+    // of the set, indistinguishable from the right one.
+    probe.groupBy([]);
+    // And so does the DISTINCT modifier, for the same reason the two above do:
+    // it belongs to how the caller's builder was SHAPED, not to the question
+    // this method answers (the core contract says as much — sort, pagination,
+    // distinct and select are not part of it). Replacing the select list is not
+    // enough to shed it: MikroORM's `select(fields, distinct = false)` only ever
+    // ADDS `QueryFlag.DISTINCT` and never clears it, so a builder that went
+    // through `applyDistinct` arrives here still carrying the flag and emits
+    // `SELECT DISTINCT min(x) …`.
+    //
+    // Cleared rather than refused, deliberately. Refusing would make one of the
+    // three out-of-scope modifiers fatal while the other two are silently
+    // dropped two lines up — a rule callers would have to memorise — and it
+    // would break the natural caller, who builds ONE builder from the request
+    // and uses it for both the dropdown's distinct values and the range
+    // control's extent. Leaving it is the genuinely dishonest option: with a
+    // bare aggregate select list `SELECT DISTINCT min(x)` is a no-op TODAY
+    // (deduplicating the single aggregate row into itself), so it would pass
+    // every test while encoding the wrong question, and would start biting the
+    // moment a non-aggregate member joined this select list.
+    probe.unsetFlag(QueryFlag.DISTINCT);
+    // The `limit(undefined)` above is real but not sufficient: `execute('get')`
+    // re-adds `limit(1)` on a non-finalized SELECT builder, and `finalize()`
+    // then sets `QueryFlag.PAGINATE` for any builder that has a to-many join
+    // AND a limit. That wraps the whole aggregate in
+    // `where <pk> in (select <pk> … group by <pk> limit 1)`, so MIN/MAX are
+    // taken over ONE root row and its children — a real-looking number for a
+    // sliver of the set.
+    //
+    // Not defensive: `extentExpression` joins to-many itself for every relation
+    // path, so this method CREATES the condition that triggers the wrapper.
+    //
+    // It also hides from instrumentation, which is worth knowing before
+    // debugging this again: `getQuery()`/`getFormattedQuery()` call `finalize()`
+    // themselves, so merely logging the SQL flips the builder into the correct
+    // shape and the bug disappears while you look at it.
+    probe.setFlag(QueryFlag.DISABLE_PAGINATE);
+
+    const selects: unknown[] = [];
+    const measured: Array<{ key: string; slot: number }> = [];
+
+    for (const field of fields) {
+      const expr =
+        typeof field === 'string'
+          ? this.extentExpression(probe, entity, field)
+          : this.computedSql(field.source, probe.alias);
+      if (!expr) continue;
+
+      const slot = measured.length;
+      measured.push({ key: typeof field === 'string' ? field : field.alias, slot });
+      // Aliases are positional. A field name can be a dotted path or a computed
+      // alias, neither of which is safe to interpolate into an identifier.
+      selects.push(raw(`min(${expr}) as ${this.quoteSingleIdent(`min_${slot}`)}`));
+      selects.push(raw(`max(${expr}) as ${this.quoteSingleIdent(`max_${slot}`)}`));
+    }
+    if (measured.length === 0) return {};
+
+    probe.select(selects);
+    const row = await probe.execute('get');
+
+    const stats: Record<string, FieldExtent> = {};
+    for (const { key, slot } of measured) {
+      // `??`, not `||`: a legitimate 0 or an epoch date must survive.
+      stats[key] = {
+        min: row?.[`min_${slot}`] ?? null,
+        max: row?.[`max_${slot}`] ?? null,
+      };
+    }
+    return stats;
+  }
+
+  /**
+   * A field as a qualified, dialect-quoted expression `min()`/`max()` can wrap:
+   * a plain scalar property, a JSON sub-path through {@link jsonExtractSql}, or
+   * a relation path through {@link relationColumnSql} (which joins along the
+   * path on `qb` as a side effect — hence the builder, not just its alias).
+   *
+   * All three must be BARE expressions. The projection helpers next door return
+   * `<expr> as "<path>"` fragments, and `min(x as "a")` is not SQL — which is
+   * exactly why each has a bare-expression half split out of it.
+   *
+   * `null` when metadata cannot resolve the field at all; {@link fieldExtent}
+   * then omits the key, the documented signal for "not measurable".
+   */
+  private extentExpression(qb: JoinableQB, entity: Type<unknown>, field: string): string | null {
+    try {
+      const column = this.resolveColumnName(entity, field);
+      return `${this.quoteSingleIdent(qb.alias)}.${this.quoteSingleIdent(column)}`;
+    } catch {
+      // Not a plain property of the root entity, so it is a dotted path. Same
+      // dispatch as {@link pathProjection}, and the same reason for the order:
+      // a JSON sub-path has a SCALAR head segment, which the relation walk
+      // would reject anyway, but asking the resolver first keeps the two arms
+      // explicit rather than order-dependent.
+      if (this.resolveFieldPath(entity, field) === 'json') {
+        return this.jsonExtractSql(qb.alias, entity, field);
+      }
+      return this.relationColumnSql(qb, entity, field);
+    }
+  }
+
+  /**
    * Resolves a scalar property's real DB column name via ORM metadata. `field`
    * is already validated against the entity's filterable columns by the runner
    * before it reaches here, so this only maps property → column (and quotes
    * defensively at the call site). Throws when the property/column can't be
-   * resolved — a metadata inconsistency, never a normal client path.
+   * resolved — a metadata inconsistency for `groupByCount`, and the ordinary
+   * "not a plain column" signal {@link extentExpression} catches.
    */
   private resolveColumnName(entity: Type<unknown>, field: string): string {
     const meta = this.em.getMetadata().get(entity as unknown as new () => unknown);
     const column = meta?.properties?.[field]?.fieldNames?.[0];
     if (!column) {
-      throw new Error(`Cannot resolve a DB column for groupByCount field "${field}".`);
+      throw new Error(`Cannot resolve a DB column for field "${field}".`);
     }
     return column;
   }

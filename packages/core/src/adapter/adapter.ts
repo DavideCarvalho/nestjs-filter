@@ -45,6 +45,30 @@ export interface EntityRelationInfo {
 export type GroupByCountField = string | { alias: string; source: ComputedSource };
 
 /**
+ * One field to measure with {@link FilterAdapter.fieldExtent}. Same two shapes as
+ * {@link GroupByCountField}: a validated column/path, or the `{ alias, source }`
+ * pair of a computed member — whose source is dev-provided, never client input.
+ */
+export type FieldExtentField = string | { alias: string; source: ComputedSource };
+
+/**
+ * The extent of one field over the filtered set.
+ *
+ * `null` means no row in scope carries a value — deliberately distinct from a
+ * field whose values legitimately start at zero, which a caller sizing a range
+ * control has to tell apart.
+ *
+ * Values keep their column's type rather than being coerced: a `DATE` column
+ * yields whatever the driver hydrates dates to, a numeric one a number. That is
+ * the point of measuring server-side — a range control over dates needs real
+ * dates, and stringifying here would push parsing onto every caller.
+ */
+export interface FieldExtent {
+  min: unknown;
+  max: unknown;
+}
+
+/**
  * Behavior flags for full-text vector search ({@link FilterAdapter.applyVectorSearch}).
  */
 export interface VectorSearchOptions {
@@ -319,6 +343,60 @@ export interface FilterAdapter {
     entity: Type<unknown>,
     opts?: { bucket?: number },
   ): Promise<Array<{ value: unknown; count: number }>>;
+
+  /**
+   * The extent — `MIN` and `MAX` — of one or more fields over the rows the
+   * active WHERE / search already select. One query for every field asked for:
+   * with no `GROUP BY`, all the aggregate pairs fit in a single SELECT list.
+   *
+   * This exists because a range control cannot size itself without it. The
+   * alternative callers reach for is two `ORDER BY … LIMIT 1` reads per field,
+   * which is two round trips, two filesorts over the filtered set when the
+   * column is unindexed, and — on a builder carrying a projected computed alias
+   * — two extra `COUNT`s nobody reads. `MIN`/`MAX` is one pass and can use an
+   * index.
+   *
+   * Both value types matter and both are preserved: a numeric column sizes a
+   * slider, a `DATE` column sizes a calendar's selectable span. Nothing is
+   * coerced to string on the way out; see {@link FieldExtent}.
+   *
+   * Implementations must:
+   *
+   *  - clear any `ORDER BY`, `LIMIT` and `OFFSET` the runner applied before
+   *    aggregating. An `ORDER BY` on a column this SELECT no longer projects is
+   *    MySQL error 3065 — a failed query, not a warning;
+   *  - resolve each field through the SAME path the rest of the adapter uses
+   *    (plain column, computed source, and whatever else it can project), since
+   *    a caller may bound any field the filter accepts.
+   *
+   * Nulls need no handling: `MIN`/`MAX` skip them per aggregate, so a column
+   * that is null for half the rows still reports the extent of the other half.
+   * That is also what lets ONE query answer for many fields — the `ORDER BY …
+   * LIMIT 1` approach cannot, since each field would need its own `IS NOT NULL`
+   * and its own ordering, which is a query each.
+   *
+   * A to-many join multiplying rows is harmless here in a way it is not for
+   * `COUNT`/`SUM`: `MIN`/`MAX` are indifferent to duplicates. Anything added to
+   * this later that is not (an average, a sum) would NOT be.
+   *
+   * Active WHERE / search clauses are applied upstream by the caller; sort,
+   * pagination, distinct and select are not part of the question.
+   *
+   * Optional — adapters without aggregation support don't implement it, and the
+   * caller is expected to check before calling.
+   *
+   * @param qb - The query builder instance (WHERE/search already applied).
+   * @param fields - Already-validated fields, or `{ alias, source }` for computed ones.
+   * @param entity - The root entity class.
+   * @returns One entry per requested field, keyed by the field name (or the
+   *   computed alias). A field the adapter cannot resolve is omitted rather
+   *   than guessed at.
+   */
+  fieldExtent?(
+    qb: unknown,
+    fields: FieldExtentField[],
+    entity: Type<unknown>,
+  ): Promise<Record<string, FieldExtent>>;
 
   /**
    * Restricts the query's projection to the given field(s) — JSON:API "sparse

@@ -5,6 +5,8 @@ export type {
   FilterAdapter,
   EntityFieldInfo,
   EntityRelationInfo,
+  FieldExtent,
+  FieldExtentField,
   GroupByCountField,
   VectorSearchOptions,
 } from './adapter/adapter.js';
@@ -73,6 +75,8 @@ export type {
   CursorPage,
   CursorPagination,
   EntityDescription,
+  FieldHistogram,
+  FieldHistogramSpec,
   FieldMeta,
   FilterableOptions,
   FilterContext,

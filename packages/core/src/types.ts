@@ -364,6 +364,52 @@ export interface GroupByCountBucket {
 export type GroupByCountResult = GroupByCountItem[] | GroupByCountBucket[];
 
 /**
+ * `histogram` specification carried on structured input: `{ field, buckets? }`
+ * — one numeric field and how many bars the caller would like behind its range
+ * control.
+ *
+ * `buckets` is a TARGET, not a cap. The width is derived from the measured
+ * extent and then snapped to a readable 1/2/5×10ⁿ step, so the answer carries
+ * within about √2 of the requested count. A caller that needs an exact count
+ * wants `groupByCount` with a width it computed itself; a caller that wants
+ * legible bar edges wants this. Absent or unusable, `buckets` defaults to 10.
+ */
+export interface FieldHistogramSpec {
+  field: string;
+  buckets?: number;
+}
+
+/**
+ * Result of {@link FilterRunner.fieldHistogram}: the extent a range control
+ * places its endpoints from, AND the distribution drawn behind it, from the
+ * same filtered set.
+ *
+ * `min`/`max` are numbers here, unlike {@link FilterAdapter.fieldExtent}'s
+ * deliberately uncoerced values: this shape only exists for a field that
+ * already proved numeric (the width arithmetic requires it), and a caller
+ * sizing a slider cannot divide the `"1299.00"` string a DECIMAL column
+ * hydrates to on some drivers.
+ *
+ * `null` ends mean no row in scope carries a value — an empty set, or a column
+ * null throughout it. `buckets` is then empty too, and the two states are
+ * deliberately not collapsed into "zero bars": a control over an empty set
+ * should say so rather than render a flat `(0, 0)` span.
+ *
+ * `bucketWidth` is `0` for a single-valued set (`min === max`), where the one
+ * bucket is the point `[min, min]` rather than a fabricated span.
+ *
+ * Buckets are contiguous and ascending, gaps included as zero-count entries —
+ * a histogram whose empty bins were dropped renders as evenly spaced bars that
+ * lie about where the data is.
+ */
+export interface FieldHistogram {
+  min: number | null;
+  max: number | null;
+  bucketWidth: number | null;
+  buckets: GroupByCountBucket[];
+}
+
+/**
  * Structured input format for the filter pipeline.
  *
  * Query string: `GET /users?filter[name]=Al&include=role,posts&search=fleet`
@@ -397,6 +443,42 @@ export interface StructuredInput {
    * `{ bucketStart, bucketEnd, count }[]`), never entity rows.
    */
   groupByCount?: GroupByCountSpec;
+  /**
+   * Field(s) whose extent (`MIN`/`MAX` over the filtered set) to measure —
+   * answered by {@link FilterRunner.fieldExtent} with `Record<string,
+   * FieldExtent>`. Accepts the same shapes as `distinct` (a single name, a
+   * comma-separated string from a GET query, or an array from a body).
+   *
+   * A list rather than a single field because the backing adapter capability
+   * measures every field in ONE query; asking per field forfeits the property
+   * it exists for.
+   *
+   * Unlike `distinct`/`groupByCount` this does NOT replace entity-row output:
+   * the extent describes the same rows the page comes from, so a route may
+   * answer with both. Fields go through the same allowlist/metadata validation
+   * `distinct` uses; a disallowed or unknown one is dropped (or rejected under
+   * `throwOnInvalid`) and is simply absent from the result.
+   */
+  extent?: string | string[];
+  /**
+   * Faceted range request over ONE numeric field: `{ field, buckets? }`,
+   * answered by {@link FilterRunner.fieldHistogram} with the field's extent AND
+   * its bucketed distribution over the same filtered set.
+   *
+   * This exists because the two halves are circular for a caller: `extent`
+   * gives the slider its endpoints, `groupByCount`'s bucketed variant gives it
+   * the bars behind them — but that variant needs a bucket WIDTH, which cannot
+   * be computed without the extent it is being asked for alongside. The runner
+   * measures first and derives the width from what it measured.
+   *
+   * Single-field, unlike `extent`: the width derivation is per field, and the
+   * second query groups by one expression, so N fields is genuinely N of these
+   * — batching would only hide that.
+   *
+   * Not terminal, like `extent` and unlike `groupByCount`: it describes the
+   * same rows the page comes from, so a route may answer with both.
+   */
+  histogram?: FieldHistogramSpec;
   paginate?: OffsetPagination | CursorPagination;
   [key: string]: unknown;
 }
