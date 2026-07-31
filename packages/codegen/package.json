@@ -27,7 +27,7 @@
   },
   "peerDependencies": {
     "@dudousxd/nestjs-codegen": ">=0.18.0",
-    "@dudousxd/nestjs-filter-client": ">=1.17.0",
+    "@dudousxd/nestjs-filter-client": ">=1.25.0",
     "@dudousxd/nestjs-filter": ">=1.19.0"
   },
   "dependencies": {
