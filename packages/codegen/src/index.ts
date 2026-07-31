@@ -1303,8 +1303,19 @@ function readTsconfigCompilerOptions(tsconfigPath: string): ts.CompilerOptions {
  * filter-class resolution quietly resolves nothing and the computed augmentation
  * no-ops — the exact silent failure the comment above records. So a tsconfig that
  * EXISTS and cannot be loaded says so, once, naming what it costs.
+ *
+ * @dudousxd/nestjs-codegen >=0.22 hands this project out itself as
+ * `ctx.tsconfigProject()` — loaded once for every extension, with the same
+ * EACCES-proof read. Prefer it: one parse instead of one per extension, and the
+ * alias resolution matches the host's discovery pass exactly. Everything below is
+ * the fallback for older hosts the peer range still allows, so it stays.
  */
 function resolveFilterCodegenProject(ctx: ExtensionContext): Project {
+  // Typed structurally and called optionally, like `trackInput` below: this must
+  // compile and run against hosts that predate the hook.
+  const hostProject = (ctx as { tsconfigProject?: () => Project }).tsconfigProject?.();
+  if (hostProject) return hostProject;
+
   // Portable join (this package carries no @types/node, so no `node:path`):
   // ts-morph accepts forward slashes on every platform.
   const cwd = (ctx.cwd ?? '').replace(/[/\\]+$/, '');
