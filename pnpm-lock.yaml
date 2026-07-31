@@ -538,8 +538,8 @@ importers:
   packages/codegen:
     dependencies:
       '@dudousxd/nestjs-filter-client':
-        specifier: '>=1.17.0'
-        version: 1.17.0(@tanstack/table-core@8.21.3)
+        specifier: '>=1.25.0'
+        version: 1.25.0(@tanstack/table-core@8.21.3)
       ts-morph:
         specifier: 28.0.0
         version: 28.0.0
@@ -999,8 +999,8 @@ packages:
       reflect-metadata:
         optional: true
 
-  '@dudousxd/nestjs-filter-client@1.17.0':
-    resolution: {integrity: sha512-0VjnIU4GlyTkhgHsA0Jsnqd1P80DhKJZZFolyeflXM8hH+QaPKJSb0drfCyuigmu9tJxhL8cCNV0cR4/DjMXlg==}
+  '@dudousxd/nestjs-filter-client@1.25.0':
+    resolution: {integrity: sha512-psSOOsuXXFuyH7f1fTO3RkSub9qNhP3spHlkfQZsyGhGvrBLVB09auj8cVIOfN4n9FShK1bMQ3VnNVk5TkpLXQ==}
     engines: {node: '>=20'}
     peerDependencies:
       '@tanstack/table-core': '>=8.0.0'
@@ -6284,7 +6284,7 @@ snapshots:
       '@nestjs/core': 11.1.23(@nestjs/common@11.1.23(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.23)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       reflect-metadata: 0.2.2
 
-  '@dudousxd/nestjs-filter-client@1.17.0(@tanstack/table-core@8.21.3)':
+  '@dudousxd/nestjs-filter-client@1.25.0(@tanstack/table-core@8.21.3)':
     optionalDependencies:
       '@tanstack/table-core': 8.21.3
 
