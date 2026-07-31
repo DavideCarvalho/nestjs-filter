@@ -82,6 +82,16 @@ export interface FilterQueryResult {
    * normal paginated entity-row output.
    */
   groupByCount?: GroupByCountSpec;
+  /**
+   * Fields whose extent (`MIN`/`MAX` over the filtered set) the caller wants
+   * measured, for the server to hand to the adapter's `fieldExtent`. A list
+   * rather than a single field because the whole point of that capability is
+   * that N fields cost ONE query — asking per field throws that away.
+   *
+   * Unlike `distinct`/`groupByCount` this does not replace entity-row output:
+   * the extent describes the same rows, so a route is free to answer with both.
+   */
+  extent?: string[];
   paginate?: OffsetPagination;
   [key: string]: unknown;
 }
@@ -98,6 +108,7 @@ export class FilterQueryBuilder {
   private searchTerm: string | undefined;
   private sorts: SortItem[] = [];
   private distinctFields: string[] = [];
+  private extentFields: string[] = [];
   private groupByCountSpec: GroupByCountSpec | undefined;
   private pagination: OffsetPagination | undefined;
 
@@ -331,6 +342,7 @@ export class FilterQueryBuilder {
     this.searchTerm = undefined;
     this.sorts = [];
     this.distinctFields = [];
+    this.extentFields = [];
     this.groupByCountSpec = undefined;
     this.pagination = undefined;
     this.notify();
@@ -546,6 +558,37 @@ export class FilterQueryBuilder {
   }
 
   /**
+   * Asks for the **extent** — `MIN`/`MAX` — of the given field(s) over the rows
+   * the active `where`/`search` select, which is what a range control (a numeric
+   * slider, a date-range calendar) needs before it can place its endpoints. Named
+   * for the adapter capability that answers it (`FilterAdapter.fieldExtent`), so
+   * the request key, the server method and the response type all say one word.
+   *
+   * Variadic for a reason worth stating: that capability measures every field in
+   * ONE query, so `.extent('price', 'createdAt')` costs what `.extent('price')`
+   * costs. Chaining one call per field forfeits exactly the property it exists
+   * for. Repeated fields are deduplicated.
+   *
+   * Not terminal, unlike `groupByCount` — the extent describes the same filtered
+   * set the rows come from, so pagination and sort are unaffected and a route can
+   * answer with both.
+   *
+   * @example
+   * filterQuery().where('baseId', 'b1').extent('cost', 'completedAt').build()
+   * // → { filter: { where: [...] }, extent: ['cost', 'completedAt'] }
+   */
+  extent(...fields: string[]): this {
+    for (const field of fields) {
+      if (typeof field !== 'string') continue;
+      if (!this.extentFields.includes(field)) {
+        this.extentFields.push(field);
+      }
+    }
+    this.notify();
+    return this;
+  }
+
+  /**
    * Terminal **group-by-count** aggregation over a single column — the
    * chart-feeding query shape the entity-row contract can't express. The active
    * `where`/`search` still apply; sort/pagination/distinct do not (this mode
@@ -746,6 +789,9 @@ export class FilterQueryBuilder {
     if (this.distinctFields.length > 0) {
       result.distinct = [...this.distinctFields];
     }
+    if (this.extentFields.length > 0) {
+      result.extent = [...this.extentFields];
+    }
     if (this.groupByCountSpec !== undefined) {
       result.groupByCount = { ...this.groupByCountSpec };
     }
@@ -800,6 +846,12 @@ export class FilterQueryBuilder {
     // Build distinct
     if (this.distinctFields.length > 0) {
       parts.push(`distinct=${encodeURIComponent(this.distinctFields.join(','))}`);
+    }
+
+    // Build extent — comma-joined like distinct, since a GET route reads it as
+    // one `@Query('extent')` string however many fields it names.
+    if (this.extentFields.length > 0) {
+      parts.push(`extent=${encodeURIComponent(this.extentFields.join(','))}`);
     }
 
     // Build pagination

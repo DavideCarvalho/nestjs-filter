@@ -1,6 +1,6 @@
 # @dudousxd/nestjs-filter-react
 
-React adapters for [`@dudousxd/nestjs-filter-client`](https://www.npmjs.com/package/@dudousxd/nestjs-filter-client). Three layers, from declarative to low-level — pick the one that fits.
+React adapters for [`@dudousxd/nestjs-filter-client`](https://www.npmjs.com/package/@dudousxd/nestjs-filter-client). Three layers, from declarative to low-level — pick the one that fits. Plus `useFieldExtent`, for the range controls that sit beside a filtered table.
 
 ```bash
 pnpm add @dudousxd/nestjs-filter-react
@@ -75,6 +75,35 @@ const [qb, body, values, setValues] = useFilterQueryUrl(
   },
 );
 ```
+
+## `useFieldExtent` — endpoints for a range control
+
+A numeric slider or date-range picker can't place its endpoints without knowing the `MIN`/`MAX` of the field **over the rows the current filter selects**. `useFieldExtent` asks the server for that (the `extent` request key, answered by the adapter's `fieldExtent`) and owns the request lifecycle; you supply the transport, since this package has no data-fetching dependency.
+
+```tsx
+import { useFieldExtent, useFilterQuery } from '@dudousxd/nestjs-filter-react';
+
+const [qb, body] = useFilterQuery(api.searchWorkOrders.search.filterQuery);
+
+// One call, one request, however many fields — the server measures N fields in one query.
+const extent = useFieldExtent(body, ['cost', 'completedAt'], (b, signal) =>
+  fetch('/api/work-orders/extent', { method: 'POST', body: JSON.stringify(b), signal })
+    .then((r) => r.json()),
+);
+
+const cost = extent.of('cost');
+switch (cost.status) {
+  case 'measured':   return <Slider min={cost.min} max={cost.max} />;
+  case 'empty':      return <p>No cost recorded in this selection</p>;  // measured, no values
+  case 'unmeasured': return null;                                       // server can't measure it
+  case 'error':      return <Retry onClick={extent.refetch} />;
+  case 'loading':    return <Skeleton />;
+}
+```
+
+`of(field)` never returns `undefined`: "no row in scope carries a value" (`empty`) and "the server did not measure this field at all" (`unmeasured`) are separate states, because a control has to hide in one case and say so in the other.
+
+It re-measures when the filter changes and drops the previous answer immediately — a stale extent describes rows that are no longer selected, so it is wrong, not old. Paging, sorting and `include` don't re-measure. Passing `[]` for the fields asks nothing at all, which is how a control that hasn't been opened yet stays free.
 
 ## License
 

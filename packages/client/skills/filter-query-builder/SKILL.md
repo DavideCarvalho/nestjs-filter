@@ -100,8 +100,10 @@ Source: `packages/client/src/filter-query-builder.ts` (`or`, `and`, `build`)
 ### 3. Envelope keys and serialization
 
 `set(key, value)` adds top-level extras (e.g. `page`/`size` for auto-fields), and
-`include()` / `search()` / `sort()` / `distinct()` / `page()` populate the structured
-envelope. `.build()` returns the JSON object; `.toQueryString()` serializes to a
+`include()` / `search()` / `sort()` / `distinct()` / `extent()` / `page()` populate the
+structured envelope — `extent('cost', 'completedAt')` asks for each field's `MIN`/`MAX` over
+the filtered set (a range control sizing itself), and is variadic because the server measures
+every named field in one query. `.build()` returns the JSON object; `.toQueryString()` serializes to a
 `filter[...]`-bracketed GET string; `.toFlatObject()` emits `{ field: value }` for the
 auto-fields path (groups are not representable flat).
 
@@ -117,7 +119,7 @@ const res = await fetch(`/api/users?${qs}`);
 
 Source: `packages/client/src/filter-query-builder.ts` (`set`, `include`, `search`, `sort`, `page`, `toQueryString`, `toFlatObject`)
 
-### 4. `filterQueryTyped<Fields, Types>()` for compile-time safety
+### 4. `filterQueryTyped<Fields, Types, Kinds>()` for compile-time safety
 
 `filterQueryTyped` is runtime-identical to `filterQuery` but restricts field names to a
 `Fields` union and (optionally) value/operator types to a field-type map — unknown fields or
@@ -136,6 +138,25 @@ filterQueryTyped<UserFields, { name: string; age: number; status: 'active' | 'ar
 // filterQueryTyped<UserFields>().where('invalid', 'x'); // ❌ 'invalid' not in UserFields
 ```
 
+A third type arg carries each field's classified kind (`'string' | 'number' | 'boolean' |
+'date' | 'json' | 'unknown'`) and gates `.extent()`, which only means something over an
+ordered scalar. Codegen emits it alongside the field-type map; supply it by hand only if you
+hand-wrote the other two.
+
+```typescript
+const q = filterQueryTyped<
+  'cost' | 'name',
+  { cost: number; name: string },
+  { cost: 'number'; name: 'string' }
+>();
+
+q.extent('cost'); // ✅ number → real MIN/MAX endpoints
+// q.extent('name'); // ❌ a string column's extent sizes nothing
+```
+
+Omit the kind map and `.extent()` stays permissive over `Fields` — an unclassified field is
+codegen not knowing, not codegen ruling it out.
+
 Source: `packages/client/src/typed-filter-query-builder.ts`
 
 ## Common mistakes
@@ -143,7 +164,7 @@ Source: `packages/client/src/typed-filter-query-builder.ts`
 ### Expecting `.build()` to return `{ where: [...] }` at the top level
 
 `build()` nests the conditions under `filter`. The result is
-`{ filter: { where: [...] }, include?, search?, sort?, distinct?, paginate?, ...extra }`.
+`{ filter: { where: [...] }, include?, search?, sort?, distinct?, extent?, paginate?, ...extra }`.
 Reading `result.where` (instead of `result.filter.where`) is `undefined`.
 
 ```typescript

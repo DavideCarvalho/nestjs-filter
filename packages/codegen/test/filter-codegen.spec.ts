@@ -115,6 +115,8 @@ describe('nestjsFilterCodegen', () => {
     expect(typeof ext.apiMembers).toBe('function');
   });
 
+  // Unclassified route → one type arg, so the client's field-type AND field-kind maps
+  // both fall back to their defaults and every method stays permissive.
   it('apiMembers adds filterQuery for a filtered route (fields union)', () => {
     const ext = nestjsFilterCodegen();
     const members = ext.apiMembers?.(leaf({ filterFields: ['status', 'name'] }), ctx([]));
@@ -158,7 +160,29 @@ describe('nestjsFilterCodegen', () => {
       ctx([]),
     );
     expect(members?.filterQuery).toBe(
-      '() => _filterQueryTyped<"age" | "status" | "role", { "age": number | null; "status": "A" | "B"; "role": Role }>()',
+      '() => _filterQueryTyped<"age" | "status" | "role", { "age": number | null; "status": "A" | "B"; "role": Role }, { "age": "number"; "status": "string"; "role": "string" }>()',
+    );
+  });
+
+  // The kind map is what gates `.extent()`: only it can say that `role` is lexical
+  // (its value type is the opaque `Role`) and that a json column is not measurable.
+  it('apiMembers emits the field-KIND map as a third type arg (extent gating)', () => {
+    const ext = nestjsFilterCodegen();
+    const members = ext.apiMembers?.(
+      leaf({
+        filterFields: ['cost', 'completedAt', 'name', 'active', 'payload'],
+        filterFieldTypes: [
+          { name: 'cost', kind: 'number' },
+          { name: 'completedAt', kind: 'date' },
+          { name: 'name', kind: 'string' },
+          { name: 'active', kind: 'boolean' },
+          { name: 'payload', kind: 'json' },
+        ],
+      }),
+      ctx([]),
+    );
+    expect(members?.filterQuery).toContain(
+      ', { "cost": "number"; "completedAt": "date"; "name": "string"; "active": "boolean"; "payload": "json" }>()',
     );
   });
 

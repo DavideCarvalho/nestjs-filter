@@ -90,6 +90,8 @@ const result = await api.users.search(query);             // structured input
 
 When the codegen also knows each field's concrete type (enums, `Date`, nullability, named DTO refs), it threads that into the builder so e.g. `.equals('status', …)` only accepts the enum members, and ordering operators are gated to orderable fields.
 
+Alongside it goes each field's classified **kind** (`'string' | 'number' | 'boolean' | 'date' | 'json' | 'unknown'`), which the value types cannot be read back into — a named DTO ref is opaque, and `json` and `unknown` look alike once emitted. It gates `.extent()`, the `MIN`/`MAX` request a range control uses to size itself: `.extent('cost', 'completedAt')` compiles, `.extent('name')` does not, because a string column has no endpoints to place. Fields the codegen could not classify stay accepted — silence in the map is not a verdict against the field. This needs `@dudousxd/nestjs-filter-client` 1.18 or newer.
+
 The builder is the standard `@dudousxd/nestjs-filter-client` `TypedFilterQueryBuilder`: `where` / `add` / `equals` / `contains` / `in` / `between` / `gt`·`gte`·`lt`·`lte` / `isNull` / `sort` / `search` / `include` / `page` / `or` / `and`, terminating in `build()`, `toQueryString()`, or `toFlatObject()`.
 
 ## How it fits

@@ -14,6 +14,17 @@ export type FieldTypeKind = 'string' | 'number' | 'boolean' | 'date' | 'json' | 
 /** Shape of the per-field type map: each field maps to its TS value type. */
 export type FilterFieldTypes<F extends string> = Partial<Record<F, unknown>>;
 
+/**
+ * Shape of the per-field KIND map: each field maps to its classified `FieldTypeKind`.
+ *
+ * Distinct from `FilterFieldTypes`, which carries the TS value type. The two are not
+ * interchangeable: a `typeRef` field lands in the type map as an opaque name (`Role`),
+ * and both `'json'` and `'unknown'` collapse to types this layer cannot tell apart.
+ * The kind is the classifier's own verdict — the same one the server used — so it is
+ * what a kind-gated method has to read.
+ */
+export type FilterFieldKinds<F extends string> = Partial<Record<F, FieldTypeKind>>;
+
 /** Look up a field's TS type; default to `unknown` when absent from the map. */
 export type ValueAt<M, K> = K extends keyof M ? M[K] : unknown;
 
@@ -100,3 +111,30 @@ export type OrderableFieldsOf<M> = {
 export type FieldsWithOp<M, Op extends FilterOperator> = {
   [K in keyof M]: Op extends OperatorsFor<M[K]> ? K : never;
 }[keyof M];
+
+// ─── Extent (MIN/MAX) field gating ──────────────────────────────────────────
+
+/**
+ * Kinds with no extent: `MIN`/`MAX` over them is a well-formed query that answers
+ * nothing a range control can use. Stated as the REJECT list rather than the accept
+ * list (`'number' | 'date'`) on purpose — see `ExtentFieldsOf`.
+ */
+export type NonExtentKinds = 'string' | 'boolean' | 'json';
+
+/**
+ * Field names in `F` that may be measured with `.extent()`, given the route's kind
+ * map `K`.
+ *
+ * Subtractive: a field is refused only when `K` positively classifies it as a kind
+ * with no extent. Everything else stays allowed — a field absent from `K` (present in
+ * the route's fields but unclassified), a field the classifier bucketed as `'unknown'`,
+ * and every field of a route with no kind map at all (`K` defaults to empty, which is
+ * what a two-type-arg call site — a hand-written builder, or generated output predating
+ * the kind map — resolves to). Silence in the map is not evidence against the field,
+ * and turning it into a compile error would break callers over what codegen failed to
+ * learn. Mirrors `OperatorsFor<unknown>` going permissive for the same reason.
+ */
+export type ExtentFieldsOf<F extends string, K> = Exclude<
+  F,
+  { [P in keyof K]: K[P] extends NonExtentKinds ? P : never }[keyof K]
+>;

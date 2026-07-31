@@ -85,11 +85,36 @@ function fieldTypesLiteral(fts: FilterFieldType[]): string {
   return `{ ${entries.join('; ')} }`;
 }
 
-/** Type args for `filterQueryTyped<...>` — fields union, optionally + a field-type map. */
+/**
+ * `{ "age": "number"; "status": "string" }` — the classifier's verdicts as a TYPE-level
+ * map, string literals and all.
+ *
+ * Deliberately not derived from the runtime `filter.types` literal below, which carries
+ * the same data: the host emits that inside a plain object literal, so its values widen
+ * to `string` and a `typeof` of it constrains nothing. A parameter type needs the
+ * literals, and a type position is the only place they survive.
+ *
+ * Nor is it foldable into `fieldTypesLiteral`: that map answers "what value does this
+ * field hold" (`Role`, `"A" | "B"`, `Record<string, unknown>`), which cannot be read
+ * back as a kind — a `typeRef` is an opaque name, and `json` and `unknown` are
+ * indistinguishable once emitted.
+ */
+function fieldKindsLiteral(fts: FilterFieldType[]): string {
+  const entries = fts.map((f) => `${JSON.stringify(f.name)}: ${JSON.stringify(f.kind)}`);
+  return `{ ${entries.join('; ')} }`;
+}
+
+/**
+ * Type args for `filterQueryTyped<...>` — fields union, optionally + a field-type map
+ * + a field-kind map. The last two go together: both come from `filterFieldTypes`, and
+ * the client defaults the kind map to empty, which keeps `.extent()` permissive for a
+ * route that has no classified types to gate it with.
+ */
 function filterQueryTypeArgs(c: FilterContract): string {
   const fieldsUnion = (c.filterFields ?? []).map((f) => JSON.stringify(f)).join(' | ');
   const fts = c.filterFieldTypes;
-  return fts?.length ? `${fieldsUnion}, ${fieldTypesLiteral(fts)}` : fieldsUnion;
+  if (!fts?.length) return fieldsUnion;
+  return `${fieldsUnion}, ${fieldTypesLiteral(fts)}, ${fieldKindsLiteral(fts)}`;
 }
 
 /**

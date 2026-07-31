@@ -7,7 +7,13 @@ import {
   type Type,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import type { EntityFieldInfo, FilterAdapter, GroupByCountField } from './adapter/adapter.js';
+import type {
+  EntityFieldInfo,
+  FieldExtent,
+  FieldExtentField,
+  FilterAdapter,
+  GroupByCountField,
+} from './adapter/adapter.js';
 import { parseAggregatePath } from './aggregate/aggregate-path.js';
 import { aggregateFnsForColumnType } from './aggregate/aggregate-rules.js';
 import { runWithFilterState } from './als-store.js';
@@ -46,6 +52,8 @@ import type {
   ComputedSource,
   CursorPage,
   EntityDescription,
+  FieldHistogram,
+  FieldHistogramSpec,
   FieldMeta,
   FilterContext,
   FilterMetadata,
@@ -66,6 +74,23 @@ import type {
 type AutoFieldSet = { has(key: string): boolean };
 
 const MATCH_ALL_SET: AutoFieldSet = { has: () => true };
+
+/**
+ * Bars behind a range control when the request names no `buckets` count. Ten is
+ * what a slider-width strip of bars reads as; the exact number matters less
+ * than having one, because the alternative is a caller inventing a bucket WIDTH
+ * — which is the thing it cannot compute (see {@link FilterRunner.fieldHistogram}).
+ */
+const DEFAULT_HISTOGRAM_BUCKETS = 10;
+
+/**
+ * Ceiling on the requested bucket count. The SQL costs the same whatever the
+ * width is, but the RESULT does not: the runner materializes one entry per
+ * bucket including empty ones, so `buckets: 1e9` would be a gigabyte of JSON
+ * describing a control a thousand pixels wide. Clamped rather than rejected —
+ * the number is a rendering hint, not a semantic choice.
+ */
+const MAX_HISTOGRAM_BUCKETS = 1000;
 
 /**
  * One resolved entry of the computed-field registry: the dev-provided SQL
@@ -402,11 +427,11 @@ export class FilterRunner {
       /** Allowlist gating aggregate paths, mirroring the where[]/structured paths. */
       autoFieldSet?: AutoFieldSet | null | undefined;
     },
-  ): boolean {
+  ): string[] {
     const { entity, adapter, allowed, throwOnInvalid, apply, unsupported, aliasMeta } = opts;
     const { computed, applyComputed, computedUnsupported } = opts;
     const fields = this.remapFieldAliases(this.parseDistinct(rawFields), aliasMeta);
-    if (fields.length === 0) return false;
+    if (fields.length === 0) return [];
 
     // Split computed aliases and aggregate paths (both dev-declared or
     // synthesized, neither a real column — same rationale as computed sorts)
@@ -423,7 +448,12 @@ export class FilterRunner {
         ? fields.filter((f) => !computed?.has(f) && parseAggregatePath(f) === null)
         : fields;
 
-    let applied = false;
+    // The fields that reached the projection, NOT the ones that were asked
+    // for: everything dropped on the way (failed validation, refused by the
+    // allowlist, an aggregate outside the auto-field set) has to stay out, so a
+    // caller can order by what this returns and still emit a legal
+    // `SELECT DISTINCT` — see `apply()`'s distinct-ordering fallback.
+    const applied = new Set<string>();
     if (plainFields.length > 0) {
       if (apply && adapter && entity) {
         const valid = this.validateDistinct(
@@ -435,7 +465,7 @@ export class FilterRunner {
         );
         if (valid.length > 0) {
           apply(qb as unknown, valid, entity);
-          applied = true;
+          for (const field of valid) applied.add(field);
         }
       } else if (apply === undefined && unsupported) {
         this.warnUnsupported(unsupported.feature, unsupported.method);
@@ -446,8 +476,8 @@ export class FilterRunner {
       if (applyComputed) {
         for (const alias of computedAliases) {
           applyComputed(qb as unknown, alias, computed!.get(alias)!.source);
+          applied.add(alias);
         }
-        applied = true;
       } else if (computedUnsupported) {
         this.warnUnsupported(computedUnsupported.feature, computedUnsupported.method);
       }
@@ -467,13 +497,16 @@ export class FilterRunner {
           const aggregatePath = parseAggregatePath(field);
           if (!aggregatePath) continue;
           adapter.applyAggregateDistinct(qb as unknown, aggregatePath);
-          applied = true;
+          applied.add(field);
         }
       } else {
         this.warnUnsupported('Distinct on an aggregate field requested', 'applyAggregateDistinct');
       }
     }
-    return applied;
+    // Request order, not the order the three branches above ran in: the ORDER
+    // BY a caller derives from this should read like the projection the client
+    // asked for.
+    return fields.filter((field) => applied.has(field));
   }
 
   /**
@@ -514,7 +547,7 @@ export class FilterRunner {
     input: unknown,
     qb: Q,
     context: FilterContext = {},
-    internal: { native?: boolean } = {},
+    internal: { native?: boolean; distinctOrder?: boolean | undefined } = {},
   ): Promise<Q> {
     const filter = await this.resolveFilter(FilterClass);
     const adapter = this.resolveAdapter();
@@ -898,7 +931,7 @@ export class FilterRunner {
         // A computed alias in the distinct list routes to applyComputedDistinct
         // (the computed registry bypasses column validation, like computed
         // sorts do); plain columns still batch through applyDistinct first.
-        const distinctApplied = this.applyProjection(qb, rawDistinct, {
+        const distinctFields = this.applyProjection(qb, rawDistinct, {
           entity: filterableMeta?.entity,
           adapter,
           allowed: (FilterClass as unknown as { distinct?: readonly string[] }).distinct,
@@ -937,7 +970,7 @@ export class FilterRunner {
         // Skipped when a distinct projection was applied: distinct replaces
         // entity-row output, and a computed value participates in a distinct
         // projection only by being listed in `distinct` explicitly.
-        if (!distinctApplied) {
+        if (distinctFields.length === 0) {
           this.applyProjectedComputed(qb, computedRegistry, adapter);
         }
 
@@ -949,15 +982,34 @@ export class FilterRunner {
           parsedSorts.length > 0
             ? parsedSorts
             : this.parseSorts(this.resolveDefaultSort(FilterClass));
-        if (sorts.length > 0 && adapter?.applySort) {
+        // Opt-in last fallback (`distinctOrder`), for a DISTINCT projection
+        // nothing else ordered: sort ascending by what was projected. Off
+        // unless asked for — see `FilterableOptions.distinctOrder` for why the
+        // default is not to invent an ORDER BY.
+        //
+        // Derived from `distinctFields` (what the projection KEPT) rather than
+        // from the request, so every term is in the select list and the query
+        // stays legal under DISTINCT.
+        const effectiveSorts =
+          sorts.length > 0
+            ? sorts
+            : this.resolveDistinctOrder(FilterClass, internal.distinctOrder)
+              ? distinctFields.map((field) => ({ field, direction: 'asc' as const }))
+              : [];
+        if (effectiveSorts.length > 0 && adapter?.applySort) {
           const allowedSorts = (FilterClass as unknown as { sort?: readonly string[] }).sort;
           this.applySortsWithComputed(
             qb,
-            sorts,
+            effectiveSorts,
             allowedSorts as string[] | undefined,
             adapter,
             filterableMeta?.entity,
-            this.resolveThrowOnInvalid(FilterClass),
+            // NEVER throw for the derived ordering, whatever `throwOnInvalid`
+            // says: a `sort` the CLIENT sent is its request to get wrong, but
+            // this one it never asked for. A narrowed `static sort` allowlist
+            // that excludes a projected column must drop the ORDER BY, not turn
+            // an otherwise valid distinct request into a 400.
+            sorts.length > 0 ? this.resolveThrowOnInvalid(FilterClass) : false,
             computedRegistry,
             autoFieldSet,
           );
@@ -1053,6 +1105,8 @@ export class FilterRunner {
     distinct: unknown;
     select: unknown;
     groupByCount: unknown;
+    extent: unknown;
+    histogram: unknown;
     paginate: unknown;
   } {
     // Opt-in spatie / JSON:API input format. Internal re-dispatch calls
@@ -1069,6 +1123,8 @@ export class FilterRunner {
         distinct: undefined,
         select: undefined,
         groupByCount: undefined,
+        extent: undefined,
+        histogram: undefined,
         paginate: undefined,
       };
     }
@@ -1086,6 +1142,8 @@ export class FilterRunner {
       'distinct',
       'select',
       'groupByCount',
+      'extent',
+      'histogram',
       'paginate',
     ];
     if (STRUCTURED_KEYS.some((k) => k in inputObj)) {
@@ -1097,6 +1155,8 @@ export class FilterRunner {
         distinct: inputObj.distinct ?? undefined,
         select: inputObj.select ?? undefined,
         groupByCount: inputObj.groupByCount ?? undefined,
+        extent: inputObj.extent ?? undefined,
+        histogram: inputObj.histogram ?? undefined,
         paginate: inputObj.paginate ?? undefined,
       };
     }
@@ -1109,6 +1169,8 @@ export class FilterRunner {
       distinct: undefined,
       select: undefined,
       groupByCount: undefined,
+      extent: undefined,
+      histogram: undefined,
       paginate: undefined,
     };
   }
@@ -1380,7 +1442,11 @@ export class FilterRunner {
     input: unknown,
     qb: Q,
     context: FilterContext = {},
-    internal: { skipSortAndPagination?: boolean; native?: boolean } = {},
+    internal: {
+      skipSortAndPagination?: boolean;
+      native?: boolean;
+      distinctOrder?: boolean | undefined;
+    } = {},
   ): Promise<Q> {
     const adapter = this.resolveAdapter();
     // Dynamic mode has no FilterClass — an entity class can still carry
@@ -1471,7 +1537,7 @@ export class FilterRunner {
     }
 
     // Distinct projection (SELECT DISTINCT) — validate against entity metadata
-    this.applyProjection(qb, rawDistinct, {
+    const distinctFields = this.applyProjection(qb, rawDistinct, {
       entity,
       adapter,
       allowed: undefined,
@@ -1498,8 +1564,26 @@ export class FilterRunner {
       const parsedSorts = this.remapSortAliases(this.parseSorts(rawSort), filterableMeta);
       const sorts =
         parsedSorts.length > 0 ? parsedSorts : this.parseSorts(this.resolveDefaultSort());
-      if (sorts.length > 0 && adapter?.applySort) {
-        const validSorts = this.validateSorts(sorts, undefined, adapter, entity, throwOnInvalid);
+      // Same distinct-ordering fallback `apply()` has, for the same reason —
+      // dynamic mode's DISTINCT is no more ordered than a filter class's. Here
+      // the caller IS the call site (there is no route decorator and no filter
+      // class), so the per-call flag is the only way in.
+      const effectiveSorts =
+        sorts.length > 0
+          ? sorts
+          : internal.distinctOrder
+            ? distinctFields.map((field) => ({ field, direction: 'asc' as const }))
+            : [];
+      if (effectiveSorts.length > 0 && adapter?.applySort) {
+        // `throwOnInvalid` only for a sort the CLIENT sent — the derived one
+        // drops instead of failing a request that never asked for it.
+        const validSorts = this.validateSorts(
+          effectiveSorts,
+          undefined,
+          adapter,
+          entity,
+          sorts.length > 0 ? throwOnInvalid : false,
+        );
         if (validSorts.length > 0) {
           adapter.applySort(qb as unknown, validSorts);
         }
@@ -1753,6 +1837,565 @@ export class FilterRunner {
         ? obj.bucket
         : undefined;
     return { field: obj.field, ...(bucket !== undefined && { bucket }) };
+  }
+
+  /**
+   * **Field extent**: the `MIN`/`MAX` of the requested field(s) over the rows
+   * the active `where`/`search` select — what a range control (numeric slider,
+   * date-range calendar) needs before it can place its endpoints. Reads the
+   * `extent` structured key (`{ extent: ['price', 'createdAt'] }`, or the
+   * comma-separated string a GET route carries, parsed exactly like `distinct`).
+   *
+   * Unlike {@link groupByCount} this is NOT terminal — it measures the same
+   * filtered set the rows come from, so a route answers with rows AND extent
+   * from two builders. Sort/pagination/distinct/select are not part of the
+   * question and are not applied (`skipSortAndPagination`).
+   *
+   * **Why this lives in the runner and not in the route.** Reading
+   * `@Body('extent')` and handing it straight to `adapter.fieldExtent` bypasses
+   * the filter class's field governance: `static distinct` narrowing, the
+   * entity-metadata check that rejects a bare relation or an unknown
+   * identifier, and the alias remapping every other key gets. That is not an
+   * injection hole — the adapter resolves names through ORM metadata — but it
+   * IS a surface leak: a caller could measure a column the filter class
+   * deliberately does not expose. Routing every requested field through
+   * {@link validateDistinct} here closes it, and it is also the only place
+   * that can tell a computed alias from a typo (see below).
+   *
+   * **Allowlist.** The same one `distinct` uses: the filter class's static
+   * `distinct` list when `opts.filterClass` declares one, else the entity's
+   * columns via adapter metadata. `distinct` and `extent` answer the same
+   * question about a column — what values can this control offer — so a class
+   * that has already narrowed which columns a control may read must narrow
+   * this too, or `extent` becomes the way around that narrowing.
+   *
+   * **Disallowed/unknown fields are DROPPED**, and the request still answers
+   * for the fields that survived — matching `distinct` (which drops an invalid
+   * projected field rather than failing the query) rather than `groupByCount`
+   * (which always rejects, because there the field IS the whole query). Under
+   * the ambient `throwOnInvalid` policy the drop becomes a
+   * `BadRequestException`, again as `distinct`. A dropped field is simply
+   * absent from the result, which the `fieldExtent` contract already defines as
+   * "not measured" — the caller cannot tell it apart from a field the adapter
+   * could not resolve, and does not need to.
+   *
+   * **Computed members** route as `{ alias, source }` rather than a bare name,
+   * mirroring {@link groupByCount}'s grouping field: the adapter measures the
+   * dev-provided expression instead of resolving a column that does not exist.
+   * The registry comes from `opts.filterClass` when given, else from
+   * `@Filterable` metadata on the entity itself. Computed aliases bypass column
+   * validation — dev-declared, never client input — exactly like computed
+   * sort/distinct.
+   *
+   * Requires an adapter implementing the optional `fieldExtent` method; when
+   * absent, a clear error is thrown rather than a silent empty answer, which a
+   * range control would render as a collapsed (0, 0) span.
+   *
+   * @returns One entry per measured field keyed by field name (or computed
+   *   alias). `{}` when the request named no extent fields at all.
+   */
+  async fieldExtent<E>(
+    entity: Type<E>,
+    input: unknown,
+    opts: { qb?: unknown; context?: FilterContext; filterClass?: Type<object> } = {},
+  ): Promise<Record<string, FieldExtent>> {
+    const structured = this.extractStructuredInput(input);
+    // Same parser as `distinct`: the client sends an array on a POST body and a
+    // comma-joined string on a GET query, and both mean the same list.
+    const requested = this.parseDistinct(structured.extent);
+    // No `extent` key is not an error — a route can call this unconditionally
+    // alongside its rows read and get nothing back when nobody asked.
+    if (requested.length === 0) return {};
+
+    const adapter = this.resolveAdapter();
+    if (!adapter?.fieldExtent) {
+      throw new Error(
+        'extent is not supported by the active adapter (it does not implement fieldExtent()).',
+      );
+    }
+
+    // Aliases resolve against the filter class when one is given (its `aliases`
+    // are what the client was told to use), else against entity-level metadata
+    // — the same fallback dynamic mode uses everywhere else.
+    const aliasMeta = getFilterableMetadata(opts.filterClass ?? entity);
+    const fields = this.remapFieldAliases(requested, aliasMeta);
+
+    // Registry source mirrors groupByCount's: the DI-resolved filter class when
+    // given (so `@Computed` methods bind), else `@Filterable` declared on the
+    // entity itself, which is all dynamic mode has.
+    const entityProto: object = Object.create(entity.prototype);
+    const computedRegistry = opts.filterClass
+      ? buildComputedRegistry(opts.filterClass, await this.resolveFilter(opts.filterClass))
+      : buildComputedRegistry(entity, entityProto);
+
+    const allowlist = this.resolveDistinctAllowlist(opts.filterClass);
+    const throwOnInvalid = this.resolveThrowOnInvalid(opts.filterClass);
+
+    const targets: FieldExtentField[] = [];
+    for (const field of fields) {
+      const target = this.resolveMeasurableField(
+        field,
+        entity,
+        adapter,
+        allowlist,
+        computedRegistry,
+      );
+      if (!target) {
+        // The rejection message names `extent` instead of borrowing distinct's
+        // — the policy (drop, or throw when configured to) is still distinct's,
+        // just worded for the key the client actually sent.
+        if (throwOnInvalid) {
+          throw new BadRequestException(`Invalid extent field: "${field}".`);
+        }
+        continue;
+      }
+      targets.push(target);
+    }
+    // Everything was dropped — the adapter is not called at all. An empty
+    // `fields` list would otherwise be a `SELECT` with no aggregates.
+    if (targets.length === 0) return {};
+
+    const qb = opts.qb ?? adapter.createQueryBuilder(entity);
+    await this.applyDynamic(
+      entity,
+      { filter: structured.filter, search: structured.search },
+      qb,
+      opts.context,
+      { skipSortAndPagination: true, native: true },
+    );
+
+    return adapter.fieldExtent(qb, targets, entity);
+  }
+
+  /**
+   * Resolves ONE requested field to the shape an adapter measurement takes: the
+   * `{ alias, source }` pair of a computed member, or the validated column
+   * name. `null` when it is neither.
+   *
+   * Shared by {@link fieldExtent} and {@link fieldHistogram} so both obey the
+   * same allowlist, and so the one judgement nothing outside the runner can
+   * make — computed alias, or typo? both are strings no column matches — is
+   * made once. What the two callers differ on is only what `null` MEANS (a
+   * dropped field there, a rejected request here), which is why that decision
+   * stays with them.
+   *
+   * Validation runs with `throwOnInvalid: false` unconditionally: the caller
+   * words its own rejection for the key the client actually sent, rather than
+   * surfacing `Invalid distinct field` for a request that never said `distinct`.
+   */
+  private resolveMeasurableField(
+    field: string,
+    entity: Type<unknown>,
+    adapter: FilterAdapter,
+    allowlist: string[] | undefined,
+    computedRegistry: Map<string, ComputedRegistryEntry>,
+  ): FieldExtentField | null {
+    const computedEntry = computedRegistry.get(field);
+    if (computedEntry) return { alias: field, source: computedEntry.source };
+    const validated = this.validateDistinct([field], allowlist, adapter, entity, false);
+    return validated[0] ?? null;
+  }
+
+  /**
+   * A fresh builder carrying the request's WHERE/search and nothing else — the
+   * scope every measurement in this file asks its question over.
+   *
+   * `skipSortAndPagination` is the load-bearing part: an aggregate over a
+   * LIMITed builder answers for a page and looks exactly like an answer for the
+   * set, and an ORDER BY on a column an aggregate SELECT no longer projects is
+   * MySQL error 3065.
+   */
+  private async buildFilteredQb(
+    entity: Type<unknown>,
+    structured: { filter: unknown; search: unknown },
+    adapter: FilterAdapter,
+    context: FilterContext | undefined,
+  ): Promise<unknown> {
+    const qb: unknown = adapter.createQueryBuilder(entity);
+    await this.applyDynamic(
+      entity,
+      { filter: structured.filter, search: structured.search },
+      qb,
+      context,
+      { skipSortAndPagination: true, native: true },
+    );
+    return qb;
+  }
+
+  /**
+   * The static `distinct` allowlist declared on a filter class, if any — the
+   * one {@link applyProjection} gates the DISTINCT projection with, reused by
+   * {@link fieldExtent} so both reads of a column obey the same narrowing.
+   *
+   * Read defensively rather than through a cast: `static distinct` is a plain
+   * class property no type checks, so a class can carry anything under that
+   * name. A non-array (or a list holding non-strings) yields `undefined`/the
+   * string entries, which degrades to entity-metadata validation instead of
+   * silently comparing field names against garbage and refusing everything.
+   */
+  private resolveDistinctAllowlist(FilterClass: Type<object> | undefined): string[] | undefined {
+    if (!FilterClass) return undefined;
+    const declared: unknown = Reflect.get(FilterClass, 'distinct');
+    if (!Array.isArray(declared)) return undefined;
+    return declared.filter((entry): entry is string => typeof entry === 'string');
+  }
+
+  /**
+   * **Field histogram**: one numeric field's extent AND its bucketed
+   * distribution over the same filtered set — the two halves of a faceted range
+   * control, from one request. Reads the `histogram` structured key
+   * (`{ histogram: { field: 'price', buckets: 20 } }`).
+   *
+   * **Why this is a method and not two calls in a route.** The halves already
+   * exist — {@link fieldExtent} places a slider's endpoints,
+   * {@link FilterAdapter.groupByCount}'s bucketed variant draws the
+   * distribution behind them — but they are circular for the caller: the
+   * bucketed variant needs a WIDTH, and a width that is not derived from the
+   * data is either arbitrary (a hardcoded 1000 that yields two bars on one
+   * filter and four hundred on the next) or requires the extent the caller is
+   * asking for in the same breath. Nobody can break that cycle from outside:
+   * you must measure, then divide. So the runner measures, then divides.
+   *
+   * **Two round trips, and it cannot be one.** The width is a function of the
+   * first query's OUTPUT, so the second query's text does not exist until the
+   * first has returned. Folding them into one statement means either a
+   * correlated `(SELECT MAX(col)) - (SELECT MIN(col))` inside the bucket
+   * expression — the same scan twice, once per row-group, to avoid a round trip
+   * — or window functions the adapter contract does not have. Two plain
+   * aggregate queries over an indexable column is the cheaper shape, and it
+   * keeps this a composition of capabilities adapters already implement.
+   *
+   * **Not on the adapter contract, deliberately.** Every optional method added
+   * to `FilterAdapter` is a cost each adapter author pays forever, and this one
+   * would buy nothing: it is arithmetic between two existing calls, identical
+   * for every ORM. An adapter implementing `fieldExtent` and `groupByCount`
+   * gets this for free, and one implementing neither is told which is missing.
+   *
+   * **No `opts.qb`**, unlike its neighbours. Two passes need two builders — the
+   * first is consumed by an aggregate SELECT — and a single caller-supplied
+   * builder can only serve one of them. Silently creating a fresh builder for
+   * the second pass would drop whatever pre-scoping the caller put on theirs,
+   * so the distribution would describe a WIDER set than the extent: a chart
+   * with bars outside its own axis, and nothing to make it obvious.
+   *
+   * Field governance is {@link fieldExtent}'s, through the same
+   * {@link resolveMeasurableField}: alias remapping, the filter class's static
+   * `distinct` allowlist (else entity metadata), and computed members routed as
+   * `{ alias, source }`. The one divergence is what an invalid field means —
+   * rejected here, as in {@link groupByCount}, because the field IS the query
+   * and there is no partial answer to fall back to.
+   *
+   * **Dates are refused, not bucketed.** `fieldExtent` supports DATE columns on
+   * purpose, but bucketing is `FLOOR(value / width)`, and a date divided by a
+   * number is nonsense that no database announces: MySQL coerces the column to
+   * `20240131` and buckets THAT, which produces plausible-looking bars over an
+   * axis that skips two thirds of every year. See {@link assertBucketable}.
+   *
+   * @returns `{ min, max, bucketWidth, buckets }` — null ends and an empty
+   *   bucket list when no row in scope carries a value.
+   */
+  async fieldHistogram<E>(
+    entity: Type<E>,
+    input: unknown,
+    opts: { context?: FilterContext; filterClass?: Type<object> } = {},
+  ): Promise<FieldHistogram> {
+    const structured = this.extractStructuredInput(input);
+    const spec = this.parseHistogram(structured.histogram);
+    if (!spec) {
+      throw new BadRequestException(
+        'histogram requires a `{ field }` specification (with an optional positive `buckets` count).',
+      );
+    }
+
+    const adapter = this.resolveAdapter();
+    // Named separately: an adapter can plausibly have one and not the other,
+    // and "histogram is unsupported" would send its author looking for a method
+    // by that name, which does not and will not exist.
+    if (!adapter?.fieldExtent) {
+      throw new Error(
+        'histogram is not supported by the active adapter (it does not implement fieldExtent()).',
+      );
+    }
+    if (!adapter.groupByCount) {
+      throw new Error(
+        'histogram is not supported by the active adapter (it does not implement groupByCount()).',
+      );
+    }
+
+    // Aliases against the filter class when one is given, else entity-level
+    // metadata — the fallback dynamic mode uses everywhere else.
+    const aliasMeta = getFilterableMetadata(opts.filterClass ?? entity);
+    const [remapped] = this.remapFieldAliases([spec.field], aliasMeta);
+    const field = remapped ?? spec.field;
+
+    const entityProto: object = Object.create(entity.prototype);
+    const computedRegistry = opts.filterClass
+      ? buildComputedRegistry(opts.filterClass, await this.resolveFilter(opts.filterClass))
+      : buildComputedRegistry(entity, entityProto);
+
+    const target = this.resolveMeasurableField(
+      field,
+      entity,
+      adapter,
+      this.resolveDistinctAllowlist(opts.filterClass),
+      computedRegistry,
+    );
+    // Rejected regardless of the ambient `throwOnInvalid`, exactly as
+    // `groupByCount` rejects its grouping field: dropping the only field there
+    // is would leave an empty histogram that reads as "no matching rows".
+    if (!target) {
+      throw new BadRequestException(`Invalid histogram field: "${spec.field}".`);
+    }
+    this.assertBucketable(target, entity, adapter);
+
+    // ── pass 1: where do the endpoints sit ───────────────────────────────────
+    const extentQb = await this.buildFilteredQb(entity, structured, adapter, opts.context);
+    const measured = await adapter.fieldExtent(extentQb, [target], entity);
+    const key = typeof target === 'string' ? target : target.alias;
+    const bounds = measured[key];
+    // The `fieldExtent` contract defines an ABSENT key as "the adapter could not
+    // turn this into an expression". The field passed validation, so that is a
+    // metadata disagreement, not a client mistake — and it must not be reported
+    // as `{ min: null }`, which the same contract defines as "no row carries a
+    // value" and which a control would render as a legitimately empty facet.
+    if (!bounds) {
+      throw new Error(
+        `histogram could not measure "${key}": the active adapter's fieldExtent() returned no entry for it.`,
+      );
+    }
+
+    const min = this.toBucketableNumber(bounds.min, key);
+    const max = this.toBucketableNumber(bounds.max, key);
+    // Empty set, or a column that is null throughout it. No second query: there
+    // is nothing to bin, and a width derived from null is NaN — which reaches
+    // SQL as `FLOOR(col / NaN)` and groups every row into one null bucket.
+    if (min === null || max === null) {
+      return { min: null, max: null, bucketWidth: null, buckets: [] };
+    }
+
+    // ── pass 2: how are the rows distributed across them ─────────────────────
+    const countQb = await this.buildFilteredQb(entity, structured, adapter, opts.context);
+
+    // Degenerate span: one row, or many rows sharing one value. A width of
+    // (max - min) / n is 0, and `FLOOR(col / 0)` is a null group on MySQL and a
+    // division-by-zero ERROR on Postgres — so the bucketed variant must not be
+    // asked for at all. The plain group-by answers instead: with a single
+    // distinct value it returns that one group, whose count is the bar's
+    // height. The bucket is reported as the point `[min, min]` rather than
+    // given a fabricated width, which would draw a bar spanning values no row
+    // in scope has.
+    if (min === max) {
+      const rows = await adapter.groupByCount(countQb, target, entity);
+      const count = rows.reduce(
+        (sum, row) =>
+          row.value === null || row.value === undefined ? sum : sum + Number(row.count),
+        0,
+      );
+      return { min, max, bucketWidth: 0, buckets: [{ bucketStart: min, bucketEnd: min, count }] };
+    }
+
+    const bucketWidth = this.niceBucketWidth(max - min, spec.buckets ?? DEFAULT_HISTOGRAM_BUCKETS);
+    const rows = await adapter.groupByCount(countQb, target, entity, { bucket: bucketWidth });
+    return { min, max, bucketWidth, buckets: this.assembleBuckets(min, max, bucketWidth, rows) };
+  }
+
+  /**
+   * Parses the raw `histogram` block into a canonical `{ field, buckets }`.
+   * `null` when no usable `field` is present — the caller rejects, since a
+   * histogram of nothing has no meaningful empty answer.
+   *
+   * `buckets` accepts a numeric string as well as a number: on a GET route
+   * `?histogram[buckets]=20` arrives as text, and rejecting it there while
+   * accepting `20` from a POST body would make the two transports disagree
+   * about the same request. Anything unusable (absent, zero, negative, NaN,
+   * an object) degrades to the default rather than 400ing: it is a rendering
+   * hint, and a request that says nothing about bar count still has an answer.
+   */
+  private parseHistogram(raw: unknown): FieldHistogramSpec | null {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const field: unknown = Reflect.get(raw, 'field');
+    if (typeof field !== 'string' || field.length === 0) return null;
+
+    const rawBuckets: unknown = Reflect.get(raw, 'buckets');
+    const parsed =
+      typeof rawBuckets === 'string'
+        ? Number(rawBuckets)
+        : typeof rawBuckets === 'number'
+          ? rawBuckets
+          : Number.NaN;
+    const buckets =
+      Number.isFinite(parsed) && parsed >= 1
+        ? Math.min(Math.floor(parsed), MAX_HISTOGRAM_BUCKETS)
+        : DEFAULT_HISTOGRAM_BUCKETS;
+    return { field, buckets };
+  }
+
+  /**
+   * Refuses a field whose column type cannot survive `FLOOR(value / width)`,
+   * BEFORE either query runs.
+   *
+   * A DATE column is the case this exists for. `fieldExtent` supports dates
+   * deliberately (a calendar sizes itself from one), so `extent` and
+   * `histogram` accept the same field names right up to this point — and the
+   * failure mode without the check is not an error but a wrong answer: MySQL
+   * coerces a date to `20240131` before dividing, so the query succeeds and
+   * returns bars over an axis where two thirds of every year does not exist.
+   *
+   * Only ROOT-column metadata can answer this, so anything it cannot type — a
+   * relation path, a JSON sub-path, a computed source — passes here and is
+   * caught by {@link toBucketableNumber} once the extent comes back with actual
+   * values. Refusing everything untypeable instead would reject `author.age`,
+   * which `where`, `sort` and `distinct` all accept.
+   */
+  private assertBucketable(
+    target: FieldExtentField,
+    entity: Type<unknown>,
+    adapter: FilterAdapter,
+  ): void {
+    if (typeof target !== 'string') return;
+    const info = adapter.getEntityFields?.(entity)?.find((f) => f.name === target);
+    if (!info || info.type === 'number' || info.type === 'unknown') return;
+    throw new BadRequestException(
+      `Invalid histogram field: "${target}" is a ${info.type} column and histogram buckets are numeric (FLOOR(value / width)). Use \`extent\` for its range, or \`groupByCount\` to group by its values.`,
+    );
+  }
+
+  /**
+   * Coerces one measured extent end to the number the width arithmetic needs,
+   * or `null` for "no row carries a value".
+   *
+   * Not a `typeof value === 'number'` check, in either direction:
+   *
+   *  - a DECIMAL column hydrates to a STRING on mysql2 and pg, so the strict
+   *    check would refuse the most ordinary histogram there is — a price;
+   *  - `Number(new Date())` is a finite epoch, so a bare numeric coercion would
+   *    wave a date extent straight through into `FLOOR(ms / width)`. Dates are
+   *    therefore tested for FIRST, by identity, not by what they coerce to.
+   *
+   * This is the net under {@link assertBucketable}, which only sees root-column
+   * metadata: a computed source, a relation path or a JSON sub-path is typed by
+   * nothing until its value arrives here.
+   */
+  private toBucketableNumber(value: unknown, field: string): number | null {
+    if (value === null || value === undefined) return null;
+    if (value instanceof Date) {
+      throw new BadRequestException(
+        `Invalid histogram field: "${field}" measures dates and histogram buckets are numeric (FLOOR(value / width)). Use \`extent\` for its range.`,
+      );
+    }
+    const numeric =
+      typeof value === 'number' || typeof value === 'bigint' || typeof value === 'string'
+        ? Number(value)
+        : Number.NaN;
+    if (!Number.isFinite(numeric)) {
+      throw new BadRequestException(
+        `Invalid histogram field: "${field}" did not measure to a finite number, so it cannot be bucketed.`,
+      );
+    }
+    return numeric;
+  }
+
+  /**
+   * Derives a bucket width from the measured span and the desired bar count,
+   * snapped to the nearest 1/2/5 × 10ⁿ step.
+   *
+   * The raw `span / desired` is the arithmetically correct width and the wrong
+   * answer for a control. Two reasons, both visible to a user:
+   *
+   *  - buckets are anchored at multiples of the width (`FLOOR(col / w) * w`,
+   *    which the adapter capability defines and which is what lets the grouping
+   *    be one expression), so an ugly width means ugly edges: a span of
+   *    499–128000 over 10 gives 12750.1, and axis labels at 12750.1, 25500.2,
+   *    38250.3;
+   *  - a raw width changes on every row inserted, so the bars re-partition and
+   *    visibly jump whenever the filtered set shifts slightly. A snapped width
+   *    holds still across a range of spans, which is the hysteresis a facet
+   *    that redraws on every keystroke needs.
+   *
+   * Snapped to the NEAREST step in log space (the √2 / √10 / √50 thresholds),
+   * not upward: rounding up turns a span of 101 over 10 buckets into a width of
+   * 20 and six bars, which is a worse lie about the request than eleven bars.
+   * The count therefore lands within about √2 of `desired` in either direction
+   * — `buckets` is a target, and the returned `bucketWidth` is authoritative.
+   *
+   * `span` is strictly positive here: the `min === max` case never reaches this.
+   */
+  private niceBucketWidth(span: number, desired: number): number {
+    const raw = span / desired;
+    const magnitude = 10 ** Math.floor(Math.log10(raw));
+    const normalized = raw / magnitude; // [1, 10)
+    const step =
+      normalized >= Math.sqrt(50)
+        ? 10
+        : normalized >= Math.sqrt(10)
+          ? 5
+          : normalized >= Math.SQRT2
+            ? 2
+            : 1;
+    return step * magnitude;
+  }
+
+  /**
+   * Turns the adapter's sparse `{ value, count }` groups into the contiguous
+   * ascending bucket list a chart draws.
+   *
+   * Three things the raw groups get wrong for this purpose:
+   *
+   *  - **Nulls.** A row whose column is null groups under `FLOOR(NULL / w)`,
+   *    which is NULL — and `Number(null)` is 0, so passing the groups through
+   *    unfiltered plants a phantom bar at zero holding every null row.
+   *  - **Order.** `GROUP BY` has no defined output order. A histogram is a
+   *    sequence, and bars drawn in the order MySQL happened to hash them are
+   *    not a distribution.
+   *  - **Gaps.** Empty buckets produce no group at all, so a sparse list renders
+   *    as evenly spaced bars that lie about where the data sits. They are
+   *    filled with zero-count entries, which is bounded work: the bucket count
+   *    is `span / width`, and the width came from a clamped desired count.
+   *
+   * Groups are matched to buckets by INDEX rather than by comparing the
+   * returned `value` to a computed edge: for a width like 0.1 the database's
+   * `FLOOR(x / 0.1) * 0.1` and this code's `i * 0.1` differ in the last bits,
+   * and an equality match would silently drop those buckets to zero.
+   */
+  private assembleBuckets(
+    min: number,
+    max: number,
+    width: number,
+    rows: Array<{ value: unknown; count: number }>,
+  ): GroupByCountBucket[] {
+    const firstIndex = Math.floor(min / width);
+    const size = Math.floor(max / width) - firstIndex + 1;
+    const counts = new Array<number>(size).fill(0);
+
+    for (const row of rows) {
+      if (row.value === null || row.value === undefined) continue;
+      const start = Number(row.value);
+      if (!Number.isFinite(start)) continue;
+      const index = Math.round(start / width) - firstIndex;
+      // Out of range means the grouping expression and this arithmetic disagree
+      // about the field — dropped rather than widening the axis to fit it.
+      if (index < 0 || index >= size) continue;
+      counts[index] = (counts[index] ?? 0) + Number(row.count);
+    }
+
+    return counts.map((count, i) => {
+      const bucketStart = this.snapEdge((firstIndex + i) * width, width);
+      return { bucketStart, bucketEnd: this.snapEdge(bucketStart + width, width), count };
+    });
+  }
+
+  /**
+   * Rounds a bucket edge to the decimal precision its width implies. Every edge
+   * is an exact multiple of a 1/2/5 × 10ⁿ width, so this cannot move one onto a
+   * different bucket — it only sheds the binary-float residue that otherwise
+   * labels an axis `0.30000000000000004`. Skipped entirely for widths outside
+   * `toFixed`'s useful range, where rounding would destroy information rather
+   * than tidy it.
+   */
+  private snapEdge(value: number, width: number): number {
+    const decimals = -Math.floor(Math.log10(width));
+    if (!Number.isFinite(decimals) || decimals < 0 || decimals > 15) return value;
+    return Number(value.toFixed(decimals));
   }
 
   /**
@@ -2271,6 +2914,31 @@ export class FilterRunner {
       if (meta?.defaultSort !== undefined) return meta.defaultSort;
     }
     return this.options.defaultSort;
+  }
+
+  /**
+   * Resolves the effective `distinctOrder`: the ROUTE's own
+   * `@ApplyFilter({ distinctOrder })` wins over the filter class's
+   * `@Filterable({ distinctOrder })`, and absent both it is off.
+   *
+   * There is deliberately no module-level knob. Whether a `SELECT DISTINCT`
+   * wants an ORDER BY is a property of the endpoint reading it — one filter
+   * class typically serves a rows route that orders itself and a distinct route
+   * that does not — so an app-wide switch would be answering a question at the
+   * wrong altitude, and silently, for queries whose cost it cannot see.
+   *
+   * Off unless asked for, for the same reason: ordering a projection the caller
+   * never asked to order is a clause this library would be inventing, and on a
+   * large distinct with no index on the projected column that clause is a
+   * filesort nobody signed up for. See {@link FilterableOptions.distinctOrder}.
+   */
+  private resolveDistinctOrder(FilterClass?: Function, perCall?: boolean): boolean {
+    if (perCall !== undefined) return perCall;
+    if (FilterClass) {
+      const meta = getFilterableMetadata(FilterClass);
+      if (meta?.distinctOrder !== undefined) return meta.distinctOrder;
+    }
+    return false;
   }
 
   private handleUnknownKey(key: string): void {
