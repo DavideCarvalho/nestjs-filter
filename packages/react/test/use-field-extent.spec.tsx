@@ -137,8 +137,18 @@ describe('useFieldExtent', () => {
     expect(result.current.extent.of('cost')).toEqual({ status: 'loading' });
     expect(result.current.extent.data).toBeUndefined();
 
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
-    expect(result.current.extent.of('cost')).toEqual({ status: 'measured', min: 40, max: 50 });
+    // Wait on the state, not on the call count: "the fetcher was called" is not
+    // "the promise resolved and React re-rendered". Waiting on the proxy passes
+    // on a fast machine and reads `loading` on a slower one, which is how this
+    // first failed — green locally, red in CI.
+    await waitFor(() =>
+      expect(result.current.extent.of('cost')).toEqual({
+        status: 'measured',
+        min: 40,
+        max: 50,
+      }),
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it('does not re-measure when only the page or the sort changes', async () => {
