@@ -9,17 +9,19 @@ import { filterQueryTyped } from '../../src/typed-filter-query-builder.js';
  *
  *   filterQuery: () => _filterQueryTyped<
  *     "age" | "name" | "status",
- *     { "age": number; "name": string; "status": "A" | "B" }
+ *     { "age": number; "name": string; "status": "A" | "B" },
+ *     { "age": "number"; "name": "string"; "status": "string" }
  *   >()
  *
  * If the generated map shape ever stops rejecting the Section-0 bad calls,
  * the @ts-expect-error markers below go unsatisfied and vitest fails the build.
  */
 describe('generated _filterQueryTyped shape rejects bad calls (codegen Phase 3 guard)', () => {
-  // Exactly as emitted by emit-api.ts (kindToTs + emitFieldTypesLiteral).
+  // Exactly as emitted by emit-api.ts (kindToTs + emitFieldTypesLiteral + fieldKindsLiteral).
   const q = filterQueryTyped<
     'age' | 'name' | 'status',
-    { age: number; name: string; status: 'A' | 'B' }
+    { age: number; name: string; status: 'A' | 'B' },
+    { age: 'number'; name: 'string'; status: 'string' }
   >();
 
   it('accepts type-correct operators/values', () => {
@@ -45,7 +47,16 @@ describe('generated _filterQueryTyped shape rejects bad calls (codegen Phase 3 g
       q.where('status', 'equals', 'C');
       // @ts-expect-error — enum (string) has no ordering
       q.where('status', 'gt', 'A');
+      // @ts-expect-error — extent is kind-gated: 'name' is a string column
+      q.extent('name');
+      // @ts-expect-error — an enum is classified 'string' too, however few members it has
+      q.extent('status');
     }
     expect(_rejects).toBeTypeOf('function');
+  });
+
+  it('accepts extent on the one field whose kind has a range', () => {
+    q.extent('age');
+    expect(q.build).toBeTypeOf('function');
   });
 });

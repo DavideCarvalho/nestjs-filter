@@ -21,12 +21,15 @@ export {
 export type {
   FieldTypeKind,
   FilterFieldTypes,
+  FilterFieldKinds,
   ValueAt,
   Base,
   OperatorsFor,
   ValueForOp,
   StringFieldsOf,
   OrderableFieldsOf,
+  NonExtentKinds,
+  ExtentFieldsOf,
 } from './field-types.js';
 export type { TypedFilterQuery } from './typed-filter-query.js';
 export type { TypedFilterQueryBuilder } from './typed-filter-query-builder.js';

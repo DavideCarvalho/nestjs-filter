@@ -1,7 +1,10 @@
 import type {
   Base,
   EqValue,
+  ExtentFieldsOf,
+  FieldTypeKind,
   FieldsWithOp,
+  FilterFieldKinds,
   FilterFieldTypes,
   OperatorsFor,
   OrderableFieldsOf,
@@ -28,6 +31,11 @@ import type { FilterOperator } from './types.js';
 export interface TypedFilterQueryBuilder<
   Fields extends string,
   M extends FilterFieldTypes<Fields> = Record<Fields, unknown>,
+  // The classified kinds, kept separate from `M` because `M` cannot answer "is this a
+  // date?" for a `typeRef` field and cannot separate `'json'` from `'unknown'`. Only
+  // `.extent()` reads it today. Defaults to the empty map, so a two-type-arg call site
+  // is unaffected — see `ExtentFieldsOf`.
+  K extends FilterFieldKinds<Fields> = Record<never, FieldTypeKind>,
 > {
   // ─── Core filter methods ────────────────────────────────────────────────
 
@@ -166,6 +174,20 @@ export interface TypedFilterQueryBuilder<
 
   distinct(...fields: Fields[]): this;
 
+  // ─── Extent (typed) ─────────────────────────────────────────────────────
+
+  /**
+   * `MIN`/`MAX` of each named field over the filtered set. Variadic because the
+   * adapter measures all of them in one query; the fields narrow to this route's
+   * `Fields`, matching the server-side allowlist a bad name would fail.
+   *
+   * Narrowed further by the route's classified kinds: a string, boolean or json
+   * column has no endpoints to place, so asking for its extent is a compile error
+   * rather than a request that comes back useless. Fields the codegen could not
+   * classify stay accepted; see `ExtentFieldsOf`.
+   */
+  extent(...fields: ExtentFieldsOf<Fields, K>[]): this;
+
   // ─── Group-by-count aggregation (typed) ─────────────────────────────────
 
   /**
@@ -182,8 +204,8 @@ export interface TypedFilterQueryBuilder<
   include(...relations: string[]): this;
   search(term: string): this;
   page(page: number, size?: number): this;
-  or(callback: (builder: TypedFilterQueryBuilder<Fields, M>) => void): this;
-  and(callback: (builder: TypedFilterQueryBuilder<Fields, M>) => void): this;
+  or(callback: (builder: TypedFilterQueryBuilder<Fields, M, K>) => void): this;
+  and(callback: (builder: TypedFilterQueryBuilder<Fields, M, K>) => void): this;
   set(key: string, value: unknown): this;
   clear(): this;
 
@@ -223,6 +245,7 @@ export interface TypedFilterQueryBuilder<
 export function filterQueryTyped<
   Fields extends string,
   M extends FilterFieldTypes<Fields> = Record<Fields, unknown>,
->(): TypedFilterQueryBuilder<Fields, M> {
-  return new FilterQueryBuilder() as unknown as TypedFilterQueryBuilder<Fields, M>;
+  K extends FilterFieldKinds<Fields> = Record<never, FieldTypeKind>,
+>(): TypedFilterQueryBuilder<Fields, M, K> {
+  return new FilterQueryBuilder() as unknown as TypedFilterQueryBuilder<Fields, M, K>;
 }

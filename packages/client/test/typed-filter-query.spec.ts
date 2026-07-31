@@ -41,6 +41,13 @@ describe('TypedFilterQuery type', () => {
     expect(q.distinct).toEqual(['status']);
   });
 
+  it('accepts extent', () => {
+    const q: TypedFilterQuery<UserFields> = {
+      extent: ['age', 'status'],
+    };
+    expect(q.extent).toEqual(['age', 'status']);
+  });
+
   it('accepts full structured input', () => {
     const q: TypedFilterQuery<UserFields> = {
       filter: { name: 'Al', status: 'active' },
@@ -123,6 +130,13 @@ describe('filterQueryTyped', () => {
     const q = filterQueryTyped<UserFields>().distinct('status').sortAsc('status').page(0, 20);
     const result = q.build();
     expect(result.distinct).toEqual(['status']);
+  });
+
+  it('extent() accepts several valid fields in one call and builds', () => {
+    const q = filterQueryTyped<UserFields>().equals('status', 'active').extent('age', 'name');
+    const result = q.build();
+    expect(result.extent).toEqual(['age', 'name']);
+    expect(result.filter.where).toHaveLength(1);
   });
 
   it('clear resets everything', () => {

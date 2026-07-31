@@ -3,6 +3,8 @@ import type {
   AllUnaryOps,
   ArrayOps,
   EqualityOps,
+  ExtentFieldsOf,
+  FieldTypeKind,
   OperatorsFor,
   OrderingOps,
   StringOps,
@@ -240,6 +242,94 @@ describe('enum narrowing + convenience-method tightening (Phase 4)', () => {
     u.isNotEmpty('b');
     u.isNull('a');
     expect(u.build).toBeTypeOf('function');
+  });
+});
+
+// ─── Extent gating: the kind map, not the value-type map ───
+describe('ExtentFieldsOf', () => {
+  type Kinds = {
+    cost: 'number';
+    completedAt: 'date';
+    name: 'string';
+    active: 'boolean';
+    payload: 'json';
+    whatever: 'unknown';
+  };
+  type Fields = keyof Kinds & string;
+
+  it('keeps number and date, drops string, boolean and json', () => {
+    expectTypeOf<ExtentFieldsOf<Fields, Kinds>>().toEqualTypeOf<
+      'cost' | 'completedAt' | 'whatever'
+    >();
+  });
+
+  it("keeps a field the classifier bucketed as 'unknown'", () => {
+    expectTypeOf<'whatever'>().toMatchTypeOf<ExtentFieldsOf<Fields, Kinds>>();
+  });
+
+  it('keeps a field the kind map never mentions', () => {
+    expectTypeOf<ExtentFieldsOf<Fields | 'unlisted', Kinds>>().toEqualTypeOf<
+      'cost' | 'completedAt' | 'whatever' | 'unlisted'
+    >();
+  });
+
+  it('an empty kind map excludes nothing (no kind map ⇒ no gate)', () => {
+    expectTypeOf<ExtentFieldsOf<Fields, Record<never, FieldTypeKind>>>().toEqualTypeOf<Fields>();
+  });
+});
+
+describe('extent() field gating', () => {
+  // The exact shape codegen emits for a classified route: fields, value types, kinds.
+  const q = filterQueryTyped<
+    'cost' | 'completedAt' | 'name' | 'payload',
+    {
+      cost: number;
+      completedAt: Date;
+      name: string;
+      payload: Record<string, unknown>;
+    },
+    { cost: 'number'; completedAt: 'date'; name: 'string'; payload: 'json' }
+  >();
+
+  it('accepts number and date fields, together and in any order', () => {
+    q.extent('cost');
+    q.extent('completedAt');
+    q.extent('cost', 'completedAt');
+    expect(q.build).toBeTypeOf('function');
+  });
+
+  it('rejects fields whose kind has no MIN/MAX worth asking for', () => {
+    function _rejects() {
+      // @ts-expect-error — 'name' is a string column; its extent answers nothing
+      q.extent('name');
+      // @ts-expect-error — 'payload' is json; not an ordered scalar
+      q.extent('payload');
+      // @ts-expect-error — one bad field poisons the whole variadic call
+      q.extent('cost', 'name');
+      // @ts-expect-error — still an unknown field name, as before
+      q.extent('nope');
+    }
+    expect(_rejects).toBeTypeOf('function');
+  });
+
+  it('a builder with no kind map stays permissive (pre-kind-map codegen output)', () => {
+    // Two type args — exactly what generated code emitted before the kind map existed.
+    const legacy = filterQueryTyped<'cost' | 'name', { cost: number; name: string }>();
+    // NO @ts-expect-error — nothing classifies 'name', so nothing rejects it.
+    legacy.extent('cost', 'name');
+    const bare = filterQueryTyped<'a' | 'b'>();
+    bare.extent('a', 'b');
+    expect(bare.build).toBeTypeOf('function');
+  });
+
+  it('the kind map only gates extent — other methods still read the value-type map', () => {
+    q.gte('cost', 1);
+    q.contains('name', 'al');
+    q.or((b) => {
+      // The kind map propagates into or()/and() sub-builders.
+      b.extent('completedAt');
+    });
+    expect(q.build).toBeTypeOf('function');
   });
 });
 

@@ -1167,6 +1167,67 @@ describe('FilterQueryBuilder', () => {
     });
   });
 
+  describe('extent()', () => {
+    it('sets a single extent field', () => {
+      const result = filterQuery().extent('cost').build();
+      expect(result.extent).toEqual(['cost']);
+    });
+
+    it('sets multiple extent fields in one call', () => {
+      const result = filterQuery().extent('cost', 'completedAt').build();
+      expect(result.extent).toEqual(['cost', 'completedAt']);
+    });
+
+    it('accumulates across calls and deduplicates repeated fields', () => {
+      const result = filterQuery().extent('cost').extent('cost', 'completedAt').build();
+      expect(result.extent).toEqual(['cost', 'completedAt']);
+    });
+
+    it('omits the extent key when no extent field is set', () => {
+      const result = filterQuery().where('status', 'active').build();
+      expect(result.extent).toBeUndefined();
+    });
+
+    // The extent has to describe the FILTERED set — a slider sized off the whole
+    // table would place endpoints no row in scope can reach — so `where`/`search`
+    // must survive alongside it rather than being replaced by this mode.
+    it('composes with where and search', () => {
+      const result = filterQuery()
+        .where('baseId', 'b1')
+        .search('fleet')
+        .extent('cost', 'completedAt')
+        .build();
+      expect(result.filter.where).toEqual([{ field: 'baseId', operator: 'equals', value: 'b1' }]);
+      expect(result.search).toBe('fleet');
+      expect(result.extent).toEqual(['cost', 'completedAt']);
+    });
+
+    it('composes with sort and pagination without displacing them', () => {
+      const result = filterQuery().extent('cost').sort('cost', 'desc').page(0, 20).build();
+      expect(result.extent).toEqual(['cost']);
+      expect(result.sort).toEqual([{ field: 'cost', direction: 'desc' }]);
+      expect(result.paginate).toEqual({ page: 0, size: 20 });
+    });
+
+    it('serializes to a query string', () => {
+      const qs = filterQuery().extent('cost', 'completedAt').toQueryString();
+      expect(qs).toContain('extent=cost%2CcompletedAt');
+    });
+
+    it('build() copies the field list rather than sharing the internal array', () => {
+      const b = filterQuery().extent('cost');
+      const r1 = b.build();
+      const r2 = b.build();
+      expect(r1.extent).toEqual(r2.extent);
+      expect(r1.extent).not.toBe(r2.extent);
+    });
+
+    it('clear() resets extent', () => {
+      const result = filterQuery().extent('cost').clear().build();
+      expect(result.extent).toBeUndefined();
+    });
+  });
+
   // ─── whereDynamic() ─────────────────────────────────────────────────────
 
   describe('whereDynamic()', () => {
