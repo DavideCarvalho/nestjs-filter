@@ -187,7 +187,13 @@ describe('distinctOrder — what wins', () => {
     const runner = await makeRunner({}, [PlainFilter]);
     const qb = makeMockQB();
 
-    await applyWith(runner, PlainFilter, { filter: {}, distinct: 'status', sort: '-status' }, qb, true);
+    await applyWith(
+      runner,
+      PlainFilter,
+      { filter: {}, distinct: 'status', sort: '-status' },
+      qb,
+      true,
+    );
 
     expect(orderingCalls(qb)).toEqual([['sort', [{ field: 'status', direction: 'desc' }]]]);
   });
@@ -200,7 +206,13 @@ describe('distinctOrder — what wins', () => {
     const runner = await makeRunner({}, [PlainFilter]);
     const qb = makeMockQB();
 
-    await applyWith(runner, PlainFilter, { filter: {}, distinct: 'status', sort: 'name' }, qb, true);
+    await applyWith(
+      runner,
+      PlainFilter,
+      { filter: {}, distinct: 'status', sort: 'name' },
+      qb,
+      true,
+    );
 
     expect(orderingCalls(qb)).toEqual([['sort', [{ field: 'name', direction: 'asc' }]]]);
   });
