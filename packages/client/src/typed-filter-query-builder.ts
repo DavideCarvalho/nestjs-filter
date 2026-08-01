@@ -114,26 +114,26 @@ export interface TypedFilterQueryBuilder<
   contains<K extends StringFieldsOf<M> & Fields>(field: K, value: string): this;
   in<K extends Fields>(field: K, values: Base<ValueAt<M, K>>[]): this;
   notIn<K extends Fields>(field: K, values: Base<ValueAt<M, K>>[]): this;
-  between<K extends OrderableFieldsOf<M> & Fields>(
-    field: K,
-    low: Base<ValueAt<M, K>>,
-    high: Base<ValueAt<M, K>>,
+  between<F extends OrderableFieldsOf<M, K> & Fields>(
+    field: F,
+    low: Base<ValueAt<M, F>>,
+    high: Base<ValueAt<M, F>>,
   ): this;
-  gt<K extends OrderableFieldsOf<M> & Fields>(
-    field: K,
-    value: ValueForOp<ValueAt<M, K>, 'gt'>,
+  gt<F extends OrderableFieldsOf<M, K> & Fields>(
+    field: F,
+    value: ValueForOp<ValueAt<M, F>, 'gt'>,
   ): this;
-  gte<K extends OrderableFieldsOf<M> & Fields>(
-    field: K,
-    value: ValueForOp<ValueAt<M, K>, 'gte'>,
+  gte<F extends OrderableFieldsOf<M, K> & Fields>(
+    field: F,
+    value: ValueForOp<ValueAt<M, F>, 'gte'>,
   ): this;
-  lt<K extends OrderableFieldsOf<M> & Fields>(
-    field: K,
-    value: ValueForOp<ValueAt<M, K>, 'lt'>,
+  lt<F extends OrderableFieldsOf<M, K> & Fields>(
+    field: F,
+    value: ValueForOp<ValueAt<M, F>, 'lt'>,
   ): this;
-  lte<K extends OrderableFieldsOf<M> & Fields>(
-    field: K,
-    value: ValueForOp<ValueAt<M, K>, 'lte'>,
+  lte<F extends OrderableFieldsOf<M, K> & Fields>(
+    field: F,
+    value: ValueForOp<ValueAt<M, F>, 'lte'>,
   ): this;
   // isNull/isNotNull are CommonUnary — valid for every field type — so they stay broad.
   isNull(field: Fields): this;
@@ -148,10 +148,10 @@ export interface TypedFilterQueryBuilder<
 
   // ─── Range helpers (use add — accumulate) ───────────────────────────────
 
-  addGte<K extends OrderableFieldsOf<M> & Fields>(field: K, value: Base<ValueAt<M, K>>): this;
-  addLte<K extends OrderableFieldsOf<M> & Fields>(field: K, value: Base<ValueAt<M, K>>): this;
-  addGt<K extends OrderableFieldsOf<M> & Fields>(field: K, value: Base<ValueAt<M, K>>): this;
-  addLt<K extends OrderableFieldsOf<M> & Fields>(field: K, value: Base<ValueAt<M, K>>): this;
+  addGte<F extends OrderableFieldsOf<M, K> & Fields>(field: F, value: Base<ValueAt<M, F>>): this;
+  addLte<F extends OrderableFieldsOf<M, K> & Fields>(field: F, value: Base<ValueAt<M, F>>): this;
+  addGt<F extends OrderableFieldsOf<M, K> & Fields>(field: F, value: Base<ValueAt<M, F>>): this;
+  addLt<F extends OrderableFieldsOf<M, K> & Fields>(field: F, value: Base<ValueAt<M, F>>): this;
 
   // ─── Sort (typed) ──────────────────────────────────────────────────────
 

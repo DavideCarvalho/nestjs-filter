@@ -97,9 +97,31 @@ export type StringFieldsOf<M> = {
   [K in keyof M]: StringOps extends OperatorsFor<M[K]> ? K : never;
 }[keyof M];
 
-/** Field names in M whose type allows ordering operators (number/Date/unknown). */
-export type OrderableFieldsOf<M> = {
-  [K in keyof M]: OrderingOps extends OperatorsFor<M[K]> ? K : never;
+/** Column kinds that order, whatever their value is typed as. */
+type OrderableKinds = 'number' | 'date';
+
+/**
+ * Field names that accept ordering operators.
+ *
+ * Read from the COLUMN kind first, and only then from the value type. Those can
+ * legitimately disagree: a DATE column read back as `'YYYY-MM-DD'` has a string
+ * value and orders perfectly well, and typing it `Date` to win the operators
+ * would promise a `Date` the payload never carries — visibly so under a
+ * type-preserving wire format like superjson.
+ *
+ * `K` is the codegen kind map. A field absent from it, or a caller that passes
+ * no map at all (the two-generic builders), falls back to deriving from the
+ * value type exactly as before — silence in the map means codegen did not
+ * classify the column, not that it cannot be ordered.
+ */
+export type OrderableFieldsOf<M, K = Record<never, FieldTypeKind>> = {
+  [P in keyof M]: P extends keyof K
+    ? K[P] extends OrderableKinds
+      ? P
+      : never
+    : OrderingOps extends OperatorsFor<M[P]>
+      ? P
+      : never;
 }[keyof M];
 
 /**

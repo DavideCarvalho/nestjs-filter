@@ -28,7 +28,14 @@ import {
 type FieldTypeKind = 'string' | 'number' | 'boolean' | 'date' | 'json' | 'unknown';
 interface FilterFieldType {
   name: string;
+  /** What the COLUMN is — what an operator set is derived from. */
   kind: FieldTypeKind;
+  /**
+   * What the VALUE is, when it differs from {@link kind}. Emitted by
+   * `@dudousxd/nestjs-codegen` for a mapped column whose two declared types
+   * disagree — a DATE read back as `'YYYY-MM-DD'`, a DECIMAL as a string.
+   */
+  valueKind?: FieldTypeKind;
   enumValues?: string[];
   nullable?: boolean;
   numericEnum?: boolean;
@@ -78,7 +85,13 @@ function kindToTs(kind: FieldTypeKind, enumValues?: string[], numericEnum?: bool
 /** `{ "age": number; "status": "A" | "B" }` — a named typeRef wins over kind/enumValues. */
 function fieldTypesLiteral(fts: FilterFieldType[]): string {
   const entries = fts.map((f) => {
-    let t = f.typeRef ? f.typeRef.name : kindToTs(f.kind, f.enumValues, f.numericEnum);
+    // `valueKind` when the column and the TS type disagree — this map types the
+    // VALUE, while the kind map carries the column semantics operators derive
+    // from. A DATE column read back as 'YYYY-MM-DD' is `string` here and
+    // `"date"` there, and both are true.
+    let t = f.typeRef
+      ? f.typeRef.name
+      : kindToTs(f.valueKind ?? f.kind, f.enumValues, f.numericEnum);
     if (f.nullable) t = `${t} | null`;
     return `${JSON.stringify(f.name)}: ${t}`;
   });
