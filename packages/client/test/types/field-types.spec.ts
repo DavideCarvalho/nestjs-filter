@@ -6,11 +6,11 @@ import type {
   ExtentFieldsOf,
   FieldTypeKind,
   OperatorsFor,
+  OrderableFieldsOf,
   OrderingOps,
   StringOps,
   TupleOps,
   ValueForOp,
-  OrderableFieldsOf,
 } from '../../src/field-types.js';
 import { FilterQueryBuilder } from '../../src/filter-query-builder.js';
 import { filterQueryTyped } from '../../src/typed-filter-query-builder.js';
@@ -385,9 +385,7 @@ describe('ordering on a column whose value type disagrees with its kind', () => 
   type Kinds = { serviceEndDate: 'date'; note: 'string'; age: 'number' };
 
   it('orders by the COLUMN kind, not the value type', () => {
-    expectTypeOf<OrderableFieldsOf<Types, Kinds>>().toEqualTypeOf<
-      'serviceEndDate' | 'age'
-    >();
+    expectTypeOf<OrderableFieldsOf<Types, Kinds>>().toEqualTypeOf<'serviceEndDate' | 'age'>();
   });
 
   it('still refuses a genuine string column', () => {
