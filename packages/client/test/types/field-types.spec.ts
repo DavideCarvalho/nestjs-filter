@@ -6,6 +6,7 @@ import type {
   ExtentFieldsOf,
   FieldTypeKind,
   OperatorsFor,
+  OrderableFieldsOf,
   OrderingOps,
   StringOps,
   TupleOps,
@@ -372,5 +373,29 @@ describe('drift guard: runtime *_OPS tuples mirror the field-types groups', () =
       ...UNARY_OPERATORS,
     ]);
     expect([...union].sort()).toEqual([...FILTER_OPERATORS].sort());
+  });
+});
+
+describe('ordering on a column whose value type disagrees with its kind', () => {
+  // The shape this exists for: a DATE column MikroORM reads back as
+  // 'YYYY-MM-DD'. The value is a string and the column orders — and typing it
+  // `Date` to win the operators would promise a `Date` the payload never
+  // carries, which a type-preserving wire format contradicts at runtime.
+  type Types = { serviceEndDate: string; note: string; age: number };
+  type Kinds = { serviceEndDate: 'date'; note: 'string'; age: 'number' };
+
+  it('orders by the COLUMN kind, not the value type', () => {
+    expectTypeOf<OrderableFieldsOf<Types, Kinds>>().toEqualTypeOf<'serviceEndDate' | 'age'>();
+  });
+
+  it('still refuses a genuine string column', () => {
+    expectTypeOf<'note'>().not.toMatchTypeOf<OrderableFieldsOf<Types, Kinds>>();
+  });
+
+  it('falls back to the value type when no kind map is supplied', () => {
+    // The two-generic builders, and any field absent from the map: silence
+    // there means codegen did not classify the column, not that it cannot be
+    // ordered — so the previous behaviour is what answers.
+    expectTypeOf<OrderableFieldsOf<Types>>().toEqualTypeOf<'age'>();
   });
 });
