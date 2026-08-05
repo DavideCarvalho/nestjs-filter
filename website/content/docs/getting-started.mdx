@@ -253,7 +253,7 @@ The `paginate` field supports offset-based pagination:
 { paginate: { page: 0, size: 25 } }
 ```
 
-Configure `maxPageSize` in `FilterModule.forRoot()` to cap the page size (see [Module options](#module-options)).
+Configure `maxPageSize` in `FilterModule.forRoot()` to cap the page size (see [Module options](#module-options)). Trusted server-side callers (exports, batch jobs) can lift that cap per call with `trustedPageSize` -- see [Trusted page sizes](/docs/guides/repositories#trusted-page-sizes-trustedpagesize).
 
 ### Include
 
@@ -423,7 +423,7 @@ export class UsersService {
 | `validation` | `'auto' \| 'off'` | `'auto'` | Validation mode. See [Input Validation](/docs/guides/validation). |
 | `stripEmpty` | `boolean` | `true` | Strips `null`, `undefined`, and empty-string values from input before dispatch. |
 | `maxIncludeDepth` | `number` | `3` | Maximum depth for nested `include` paths (e.g. `'posts.comments.author'`). |
-| `maxPageSize` | `number` | `100` | Maximum page size for offset pagination. |
+| `maxPageSize` | `number` | `100` | Maximum page size for offset pagination. Applies to every call unless the call site passes [`trustedPageSize`](/docs/guides/repositories#trusted-page-sizes-trustedpagesize). |
 | `throwOnInvalid` | `boolean` | `false` | When `true`, invalid sorts, distinct fields, and unknown `where` columns raise a `BadRequestException` instead of being silently dropped. Overridable per-`@Filterable`. |
 | `defaultSort` | `string \| SortItem[]` | none | Sort applied when the client sends no `sort`. Overridable per-`@Filterable`. |
 

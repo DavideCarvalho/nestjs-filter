@@ -612,3 +612,109 @@ describe('FilterRunner.applyDynamic with sort + pagination', () => {
     expect(qb.calls).toEqual([['paginate', { page: 0, size: 30 }]]);
   });
 });
+
+// ─── trustedPageSize: server-side opt-out of maxPageSize ────────────────────
+
+describe('FilterRunner trustedPageSize', () => {
+  function makeExecutingAdapter(rows: unknown[] = [{ id: 1 }], total = 1): FilterAdapter {
+    return makeAdapter({
+      getResultAndCount: async () => ({ rows, total }),
+    });
+  }
+
+  it('findAndCount caps page size at maxPageSize by default', async () => {
+    const mod = await makeModule(makeExecutingAdapter(), { maxPageSize: 50 });
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+
+    await runner.findAndCount(FakeEntity, { paginate: { page: 0, size: 10_000 } }, { qb });
+
+    expect(qb.calls).toEqual([['paginate', { page: 0, size: 50 }]]);
+  });
+
+  it('findAndCount honors the requested page size when trustedPageSize is set', async () => {
+    const mod = await makeModule(makeExecutingAdapter(), { maxPageSize: 50 });
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+
+    await runner.findAndCount(
+      FakeEntity,
+      { paginate: { page: 0, size: 10_000 } },
+      { qb, trustedPageSize: true },
+    );
+
+    expect(qb.calls).toEqual([['paginate', { page: 0, size: 10_000 }]]);
+  });
+
+  it('findAndCount still enforces the minimum page size of 1 when trusted', async () => {
+    const mod = await makeModule(makeExecutingAdapter(), { maxPageSize: 50 });
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+
+    await runner.findAndCount(
+      FakeEntity,
+      { paginate: { page: 0, size: -5 } },
+      { qb, trustedPageSize: true },
+    );
+
+    expect(qb.calls).toEqual([['paginate', { page: 0, size: 1 }]]);
+  });
+
+  it('applyDynamic honors the requested page size when trustedPageSize is set', async () => {
+    const mod = await makeModule(makeAdapter(), { maxPageSize: 30 });
+    const runner = mod.get(FilterRunner);
+    const qb = makeMockQB();
+
+    await runner.applyDynamic(
+      FakeEntity,
+      { filter: {}, paginate: { page: 0, size: 500 } },
+      qb,
+      {},
+      { trustedPageSize: true },
+    );
+
+    expect(qb.calls).toEqual([['paginate', { page: 0, size: 500 }]]);
+  });
+
+  // ─── Cursor path: same clamp, same opt-out ────────────────────────────────
+
+  interface KeysetCalls {
+    limits: number[];
+  }
+
+  function makeKeysetAdapter(calls: KeysetCalls): FilterAdapter {
+    return makeAdapter({
+      getPrimaryKey: () => 'id',
+      applyKeysetPagination: () => {},
+      applyKeysetOrderAndLimit: (_qb, _keyset, limit) => {
+        calls.limits.push(limit);
+      },
+      getResult: async () => [{ id: 1 }],
+    });
+  }
+
+  it('findPage caps first at maxPageSize by default', async () => {
+    const calls: KeysetCalls = { limits: [] };
+    const mod = await makeModule(makeKeysetAdapter(calls), { maxPageSize: 50 });
+    const runner = mod.get(FilterRunner);
+
+    await runner.findPage(FakeEntity, { paginate: { first: 10_000 } }, { qb: makeMockQB() });
+
+    // limit + 1 — findPage fetches one extra row to detect a further page.
+    expect(calls.limits).toEqual([51]);
+  });
+
+  it('findPage honors the requested first when trustedPageSize is set', async () => {
+    const calls: KeysetCalls = { limits: [] };
+    const mod = await makeModule(makeKeysetAdapter(calls), { maxPageSize: 50 });
+    const runner = mod.get(FilterRunner);
+
+    await runner.findPage(
+      FakeEntity,
+      { paginate: { first: 10_000 } },
+      { qb: makeMockQB(), trustedPageSize: true },
+    );
+
+    expect(calls.limits).toEqual([10_001]);
+  });
+});

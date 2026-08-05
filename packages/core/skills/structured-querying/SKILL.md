@@ -117,7 +117,8 @@ Source: `packages/core/src/runner.ts` (`resolveAutoFields`, `enforceAutoFieldOpe
   `static search = { vector, rank }`).
 - **distinct**: `SELECT DISTINCT` of a field — for populating filter dropdowns.
 - **select**: sparse fieldset (narrows the projection, no DISTINCT).
-- **paginate**: `{ page, size }` for offset paging (`size` capped by `maxPageSize`, default 100).
+- **paginate**: `{ page, size }` for offset paging (`size` capped by `maxPageSize`, default 100 —
+  a trusted server-side caller lifts the cap with `trustedPageSize`, see below).
 
 Source: `packages/core/src/runner.ts` (`parseSorts`, `parseIncludes`, `applyGlobalSearch`, `applyProjection`, `applyPagination`)
 
@@ -129,11 +130,23 @@ Source: `packages/core/src/runner.ts` (`parseSorts`, `parseIncludes`, `applyGlob
   `{ items, nextCursor, prevCursor, hasNext, hasPrev }`.
 - `describe(entity)` returns `{ fields, relations }` from ORM metadata (memoized) for
   building dynamic UIs / column pickers.
+- Both accept `{ trustedPageSize: true }` in their third `opts` argument, which lifts the
+  module-level `maxPageSize` ceiling for that call only. Use it when the size is written by
+  server code (exports, batch jobs, scheduled reports) — an export loop that asks for 10 000
+  and silently receives 100 reads the short page as "table exhausted" and truncates its file.
+  Never pass a client-supplied size through it.
 
 ```typescript
 const { rows, total } = await this.runner.findAndCount(User, input);
 const page = await this.runner.findPage(User, { paginate: { first: 25, after: cursor } });
 const meta = this.runner.describe(User); // { fields: {...}, relations: {...} }
+
+// Export: the size is ours, not the client's — so say so.
+const chunk = await this.runner.findAndCount(
+  User,
+  { paginate: { page, size: 10_000 } },
+  { trustedPageSize: true },
+);
 ```
 
 Source: `packages/core/src/runner.ts`
