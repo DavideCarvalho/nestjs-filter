@@ -102,7 +102,8 @@ class UsersController {
 |--------|------|---------|-------------|
 | `inputNormalizer` | `'camelCase' \| 'snakeCase' \| fn` | `'camelCase'` | Normalize input keys. |
 | `dropId` | `boolean` | _set explicitly_ | Strip trailing `Id`/`_id`. Effective default is currently inconsistent in the code — when run through `FilterRunner`/`@ApplyFilter` the suffix is stripped unless you pass `dropId: false`. |
-| `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | Policy for unrecognized keys. |
+| `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | Policy for unrecognized **structured `filter` keys** (no `@FilterFor`, auto-field, relation, computed field or aggregate path). Unknown columns inside a `where[]` clause are governed by `throwOnInvalid` instead. |
+| `throwOnInvalid` | `boolean` | `false` | When `true`, invalid sorts, distinct fields, and unknown `where[]` columns raise a `BadRequestException` instead of being dropped with a warning. Overridable per `@Filterable`. |
 | `validation` | `'auto' \| 'off'` | `'auto'` | Validate with class-validator if installed. |
 
 See the [root README](../../README.md) for full documentation.

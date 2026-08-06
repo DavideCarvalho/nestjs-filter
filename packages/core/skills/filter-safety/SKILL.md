@@ -82,15 +82,31 @@ constrain `where`. Source: `packages/core/src/runner.ts` (`pruneBlacklistedColum
 
 ### 2. `throwOnInvalid` and `onUnknownKey`: fail loud, not silent
 
-By default invalid sorts/distinct/unknown `where` columns are silently dropped and unknown
-keys ignored — fine for tolerant UIs, dangerous for debugging an API contract.
-`throwOnInvalid: true` makes them raise `BadRequestException`; `onUnknownKey: 'throw'` makes
-an unmapped key raise `UnknownFilterKeyException`. Both can be set per `@Filterable`:
+By default invalid sorts/distinct/unknown `where` columns are dropped (with a warning) and
+unknown structured keys ignored — fine for tolerant UIs, dangerous for debugging an API
+contract. `throwOnInvalid: true` makes them raise `BadRequestException`; `onUnknownKey:
+'throw'` makes an unmapped key raise `UnknownFilterKeyException`. `throwOnInvalid` can be set
+per `@Filterable`; `onUnknownKey` is module-level only:
 
 ```typescript
 @Filterable({ entity: User, throwOnInvalid: true })
 export class UserFilter extends MikroOrmFilter<User> {}
 ```
+
+The two knobs do not overlap. `onUnknownKey` governs the **structured `filter` object**,
+whose keys are dispatch targets (`@FilterFor` method, auto-field, relation, computed field,
+aggregate path). `throwOnInvalid` governs things resolved as **entity paths** — `sort`,
+`distinct`, `select`, and every `where[]` clause.
+
+Unknown `where[]` columns are checked against ORM metadata in both the static
+(`@Filterable`) and dynamic (`applyDynamic`) paths, recursing into AND/OR groups: without
+that check `{ field: 'ghostColumn', operator: 'equals', value: 1 }` passes the SQL-safe-name
+grammar and the operator allowlist, then fails inside the ORM — a 500 for the caller, or a
+mid-run failure for a background job. When a clause's own field is unknown but it carries a
+group, only the leaf is dropped; taking the whole clause would drop its children's
+constraints and return rows the client filtered out. Computed aliases, aggregate paths,
+dotted relation paths and JSON sub-paths are resolved by their own routes and unaffected,
+and an adapter with no `getEntityFields` falls back to accepting everything with a warning.
 
 Source: `packages/core/src/runner.ts` (`resolveThrowOnInvalid`, `handleUnknownKey`,
 `validateSorts`, `validateDistinct`, `pruneUnknownColumnFilters`)
