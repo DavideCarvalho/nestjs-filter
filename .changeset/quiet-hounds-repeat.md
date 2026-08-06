@@ -15,3 +15,6 @@ The second is a pure boolean group — `{ OR: [ … ] }`, no field and no operat
 Relaxing `field`/`operator` on `ColumnFilter` would have been the shorter change and the wrong one: it would have stopped TypeScript catching `{ field: 'status', value: 'active' }`, a predicate whose operator was forgotten — by far the more common mistake of the two. The group is a separate member of the union instead, and carries `field?: never`/`operator?: never`/`value?: never` so it cannot absorb that literal either.
 
 Types only — no runtime behaviour changes, and existing code writing `{ field, operator, value }` compiles unchanged.
+
+Also guards `columnFiltersToQueryString` against the shape the new type invites. It emitted `[field]` and `[operator]` for every clause unconditionally, so a hand-composed `{ OR: [...] }` serialized as `where[0][field]=undefined&where[0][operator]=undefined` and the server read a filter on a column literally named "undefined". The keys are now omitted when absent — `!== undefined`, not truthiness, because the builder's own `.or()` emits `field: ''` and that empty string is already on the wire. Shipping the type without this would have been a type that invites a shape its own serializer mangles.
+

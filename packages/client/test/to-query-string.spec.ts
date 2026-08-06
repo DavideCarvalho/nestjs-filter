@@ -171,3 +171,55 @@ describe('FilterQueryBuilder.toQueryString()', () => {
     expect(qs).toContain('search=fleet');
   });
 });
+
+describe('columnFiltersToQueryString: group-only clauses', () => {
+  /**
+   * `ColumnFilterClause` makes `{ OR: [...] }` — a group with no predicate of
+   * its own — expressible. The serializer emitted `[field]` and `[operator]`
+   * for every clause unconditionally, so such a group went out as
+   * `where[0][field]=undefined&where[0][operator]=undefined`, and the server
+   * received a filter on a column literally named "undefined".
+   *
+   * A type that invites a shape its own serializer mangles is worse than no
+   * type at all, which is why this lives with the type change rather than after
+   * it.
+   */
+  it('omits field and operator for a group that has neither', () => {
+    const qs = columnFiltersToQueryString([
+      {
+        OR: [
+          { field: 'a', operator: 'equals', value: 1 },
+          { field: 'b', operator: 'equals', value: 2 },
+        ],
+      },
+    ]);
+
+    expect(qs).not.toContain('undefined');
+    expect(qs).not.toContain('where%5B0%5D%5Bfield%5D');
+    expect(qs).not.toContain('where[0][field]');
+    // The branches still carry the whole meaning of the clause.
+    expect(qs).toContain('where[0][OR][0][field]=a');
+    expect(qs).toContain('where[0][OR][1][field]=b');
+  });
+
+  it('still emits field and operator for an ordinary predicate', () => {
+    const qs = columnFiltersToQueryString([
+      { field: 'status', operator: 'equals', value: 'active' },
+    ]);
+    expect(qs).toContain('where[0][field]=status');
+    expect(qs).toContain('where[0][operator]=equals');
+  });
+
+  it("keeps the builder's own groups working, which carry an empty field", () => {
+    // `filterQuery().or()` emits `{ field: '', operator: 'equals', OR: [...] }`.
+    // An empty string is present, so it must still be serialized — dropping it
+    // would change a shape that is already on the wire.
+    const qs = filterQuery()
+      .or((g) => {
+        g.where('a', 'equals', 1);
+      })
+      .toQueryString();
+    expect(qs).toContain('where[0][field]=');
+    expect(qs).not.toContain('undefined');
+  });
+});
