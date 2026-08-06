@@ -2950,11 +2950,41 @@ export class FilterRunner {
   }
 
   /**
+   * Narrows an already-structured sort element. The `direction` check is the
+   * strict part: an unrecognised direction is dropped rather than coerced,
+   * because guessing `asc` for a client that asked for something else silently
+   * returns the wrong page of a paginated result.
+   */
+  private isSortItem(item: unknown): item is SortItem {
+    if (item == null || typeof item !== 'object') return false;
+    if (!('field' in item) || !('direction' in item)) return false;
+    return (
+      typeof item.field === 'string' && (item.direction === 'asc' || item.direction === 'desc')
+    );
+  }
+
+  /**
+   * Parses one `"-field"` / `"field"` token into a {@link SortItem}, or
+   * `undefined` when there is no field left after trimming (`""`, `"  "`,
+   * a bare `"-"`). Shared by both string shapes so a token means the same
+   * thing whether it arrived inside `"a,-b"` or as `["a", "-b"]`.
+   */
+  private parseSortToken(token: string): SortItem | undefined {
+    const trimmed = token.trim();
+    const desc = trimmed.startsWith('-');
+    const field = desc ? trimmed.substring(1) : trimmed;
+    if (field.length === 0) return undefined;
+    return { field, direction: desc ? 'desc' : 'asc' };
+  }
+
+  /**
    * Parses raw sort input into an array of SortItem objects.
    *
    * Supports:
    * - String: `"-createdAt,name"` → `[{ field: 'createdAt', direction: 'desc' }, { field: 'name', direction: 'asc' }]`
+   * - Array of tokens: `["-createdAt", "name"]` — same token rules as the string form
    * - Array of SortItem objects: passed through as-is
+   * - Arrays mixing the two: each element is read by its own type
    * - Falsy values: returns empty array
    *
    * Minus prefix = desc, no prefix = asc (JSON:API convention).
@@ -2964,24 +2994,22 @@ export class FilterRunner {
     if (typeof raw === 'string') {
       return raw
         .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((token) => {
-          if (token.startsWith('-')) {
-            return { field: token.substring(1), direction: 'desc' as const };
-          }
-          return { field: token, direction: 'asc' as const };
-        })
-        .filter((s) => s.field.length > 0);
+        .map((token) => this.parseSortToken(token))
+        .filter((s): s is SortItem => s !== undefined);
     }
     if (Array.isArray(raw)) {
-      return raw.filter(
-        (item): item is SortItem =>
-          item != null &&
-          typeof item === 'object' &&
-          typeof item.field === 'string' &&
-          (item.direction === 'asc' || item.direction === 'desc'),
-      );
+      return raw.flatMap((item) => {
+        // A `string[]` is what a JSON:API-ish array and a legacy
+        // `orderBy: string[]` both look like. It used to fail the
+        // `typeof item === 'object'` test and get filtered out, so the
+        // ORDER BY disappeared with no error, no warning and no 400 — the
+        // grid just silently stopped sorting. Read it as tokens instead.
+        if (typeof item === 'string') {
+          const parsed = this.parseSortToken(item);
+          return parsed ? [parsed] : [];
+        }
+        return this.isSortItem(item) ? [item] : [];
+      });
     }
     return [];
   }

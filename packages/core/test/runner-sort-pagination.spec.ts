@@ -138,6 +138,32 @@ describe('FilterRunner sort parsing', () => {
     ]);
   });
 
+  it('parseSorts: parses an array of plain strings', async () => {
+    const mod = await makeModule();
+    const runner = mod.get(FilterRunner);
+    expect(runner.parseSorts(['-createdAt', 'name'])).toEqual([
+      { field: 'createdAt', direction: 'desc' },
+      { field: 'name', direction: 'asc' },
+    ]);
+  });
+
+  it('parseSorts: parses an array mixing strings and SortItem objects', async () => {
+    const mod = await makeModule();
+    const runner = mod.get(FilterRunner);
+    expect(runner.parseSorts(['-createdAt', { field: 'name', direction: 'asc' }])).toEqual([
+      { field: 'createdAt', direction: 'desc' },
+      { field: 'name', direction: 'asc' },
+    ]);
+  });
+
+  it('parseSorts: trims and drops blank string entries in an array', async () => {
+    const mod = await makeModule();
+    const runner = mod.get(FilterRunner);
+    expect(runner.parseSorts([' -createdAt ', '', '   ', '-'])).toEqual([
+      { field: 'createdAt', direction: 'desc' },
+    ]);
+  });
+
   it('parseSorts: returns empty for non-string/non-array', async () => {
     const mod = await makeModule();
     const runner = mod.get(FilterRunner);
