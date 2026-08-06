@@ -75,7 +75,7 @@ export class PostsController {
 
 | Field | Meaning |
 | ----- | ------- |
-| `first` | Page size when paging **forward**. Defaults to `25`, capped at `maxPageSize` (default `100`). |
+| `first` | Page size when paging **forward**. Defaults to `25`, capped at `maxPageSize` (default `100`) unless the call passes [`trustedPageSize`](/docs/guides/repositories#trusted-page-sizes-trustedpagesize). |
 | `after` | Opaque cursor — return the page **immediately after** it (forward). |
 | `last` | Page size when paging **backward**. |
 | `before` | Opaque cursor — return the page **immediately before** it (backward). |

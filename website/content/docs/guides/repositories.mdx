@@ -4,6 +4,7 @@ description: How to apply filters programmatically in services using @ApplyFilte
 icon: Database
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
 nestjs-filter provides two primary APIs for applying filters:
@@ -191,6 +192,49 @@ async page<E extends object>(entity: Type<E>, input: Record<string, unknown>) {
 > entity's real columns — unknown `where` columns, sorts, and select fields are
 > dropped (or rejected when `throwOnInvalid` is set), so a malformed client
 > query can never reach the ORM as an invalid column.
+
+### Trusted page sizes (`trustedPageSize`)
+
+`maxPageSize` is a module-level ceiling, and by default it applies to every
+call. That is right for a size that arrived on an HTTP request — it is what
+stops a client asking for a million rows — but wrong for a size your own server
+code wrote: an export, a scheduled report, a batch job. There the cap is not
+protection, it is a silent wrong answer.
+
+```ts
+// maxPageSize: 100. This loop writes a 100-row CSV and reports success:
+// it asks for 10 000, gets 100, reads 100 < 10 000 as "table exhausted".
+const { rows } = await this.runner.findAndCount(entity, {
+  paginate: { page, size: 10_000 },
+});
+```
+
+Pass `trustedPageSize: true` to declare at the call site that the size is
+server-authored, not client input. It lifts the ceiling for that one call and
+changes nothing else:
+
+```ts
+const { rows, total } = await this.runner.findAndCount(
+  entity,
+  { paginate: { page, size: 10_000 } },
+  { trustedPageSize: true }, // server-authored size — not from the request
+);
+```
+
+<Callout type="warn">
+  Only set this where the size is a literal (or otherwise server-derived) value.
+  Forwarding a request field into a `trustedPageSize: true` call hands the
+  client the ceiling you configured `maxPageSize` to enforce.
+</Callout>
+
+The same option is available on
+[`findPage()`](/docs/guides/cursor-pagination) (lifting the cap off
+`first`/`last`) and, for callers building the query themselves, as
+`applyDynamic(entity, input, qb, context, { trustedPageSize: true })`. It is
+deliberately **not** available on `apply()`: that is the filter-class path
+`@ApplyFilter` drives, where the input is the HTTP request by definition. The
+minimum page size of 1 still applies in every case — that is a correctness
+floor, not a safety cap.
 
 For **keyset/cursor** pagination over the same dynamic path, see
 [Cursor pagination](/docs/guides/cursor-pagination) (`FilterRunner.findPage()`).

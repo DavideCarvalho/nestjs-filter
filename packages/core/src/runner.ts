@@ -1446,6 +1446,14 @@ export class FilterRunner {
       skipSortAndPagination?: boolean;
       native?: boolean;
       distinctOrder?: boolean | undefined;
+      /**
+       * Marks `paginate.size` as server-authored, lifting the module-level
+       * `maxPageSize` ceiling for this call only. See
+       * {@link FilterRunner.resolvePageSize}. Dynamic mode has no filter class
+       * and no route decorator, so — like `distinctOrder` — the per-call flag
+       * is the only way in.
+       */
+      trustedPageSize?: boolean;
     } = {},
   ): Promise<Q> {
     const adapter = this.resolveAdapter();
@@ -1590,7 +1598,7 @@ export class FilterRunner {
       }
 
       // Pagination
-      this.applyPagination(qb, rawPaginate, adapter);
+      this.applyPagination(qb, rawPaginate, adapter, internal.trustedPageSize === true);
     }
 
     return qb;
@@ -1608,11 +1616,19 @@ export class FilterRunner {
    *
    * Requires an adapter implementing `getResultAndCount` (and `populate` for
    * to-many includes). `applyDynamic` is unchanged; this is additive.
+   *
+   * `opts.trustedPageSize` declares that `paginate.size` was written by the
+   * server, not received from a client, and lifts the module-level
+   * `maxPageSize` ceiling for this call — see
+   * {@link FilterRunner.resolvePageSize}. This is the entry point exports and
+   * batch jobs use, so it is where the escape hatch is needed; without it they
+   * abandon `paginate` for hand-built `limit`/`offset` and lose everything
+   * else this method does.
    */
   async findAndCount<E>(
     entity: Type<E>,
     input: unknown,
-    opts: { qb?: unknown; context?: FilterContext } = {},
+    opts: { qb?: unknown; context?: FilterContext; trustedPageSize?: boolean } = {},
   ): Promise<{ rows: E[]; total: number }> {
     const adapter = this.resolveAdapter();
     const qb = opts.qb ?? adapter?.createQueryBuilder(entity);
@@ -1644,7 +1660,7 @@ export class FilterRunner {
       },
       qb,
       opts.context,
-      { native: true },
+      { native: true, trustedPageSize: opts.trustedPageSize === true },
     );
 
     if (distinctFields.length > 0) {
@@ -2416,11 +2432,18 @@ export class FilterRunner {
    * Requires an adapter implementing `getResult`, `getPrimaryKey`,
    * `applyKeysetPagination` and `applyKeysetOrderAndLimit`. Additive — does not
    * change `apply`/`applyDynamic`/`findAndCount`.
+   *
+   * `opts.trustedPageSize` lifts the module-level `maxPageSize` ceiling off
+   * `first`/`last` for this call — same meaning as on {@link findAndCount},
+   * and it belongs here for the same reason: keyset paging is the pagination a
+   * long server-side walk SHOULD use (it is stable under concurrent writes),
+   * so capping it would leave the recommended export path as the one that
+   * cannot opt out.
    */
   async findPage<E>(
     entity: Type<E>,
     input: unknown,
-    opts: { qb?: unknown; context?: FilterContext } = {},
+    opts: { qb?: unknown; context?: FilterContext; trustedPageSize?: boolean } = {},
   ): Promise<CursorPage<E>> {
     const adapter = this.resolveAdapter();
     if (
@@ -2447,9 +2470,10 @@ export class FilterRunner {
     const backward = before !== undefined;
     const cursorStr = after ?? before;
 
-    const maxSize = this.options.maxPageSize ?? 100;
-    const requested = backward ? Number(paginate.last) : Number(paginate.first);
-    const limit = Math.min(Math.max(1, requested || 25), maxSize);
+    const limit = this.resolvePageSize(
+      backward ? paginate.last : paginate.first,
+      opts.trustedPageSize === true,
+    );
 
     // Resolve the effective sort (falling back to defaultSort) and validate it
     // against entity metadata, then append the primary key as a tiebreaker.
@@ -3254,20 +3278,54 @@ export class FilterRunner {
   /**
    * Applies offset or cursor pagination to the query builder.
    * Cursor pagination logs a warning (not yet implemented).
+   *
+   * `trusted` bypasses the `maxPageSize` ceiling — see
+   * {@link FilterRunner.resolvePageSize}.
    */
-  private applyPagination<Q>(qb: Q, rawPaginate: unknown, adapter: FilterAdapter | null): void {
+  private applyPagination<Q>(
+    qb: Q,
+    rawPaginate: unknown,
+    adapter: FilterAdapter | null,
+    trusted = false,
+  ): void {
     if (!rawPaginate || typeof rawPaginate !== 'object') return;
 
     const p = rawPaginate as Record<string, unknown>;
 
     if ('page' in p && 'size' in p) {
       if (!adapter?.applyOffsetPagination) return;
-      const maxSize = this.options.maxPageSize ?? 100;
-      const size = Math.min(Math.max(1, Number(p.size) || 25), maxSize);
+      const size = this.resolvePageSize(p.size, trusted);
       const page = Math.max(0, Number(p.page) || 0);
       adapter.applyOffsetPagination(qb as unknown, page, size);
     } else if ('after' in p || 'before' in p) {
       this.logger.warn('Cursor pagination is not yet implemented. Use offset pagination.');
     }
+  }
+
+  /**
+   * Resolves the effective page size from a requested one.
+   *
+   * `maxPageSize` is a MODULE-level ceiling, so one number has to answer two
+   * different questions, and the right answers disagree. For a size that came
+   * off an HTTP request the ceiling is the whole point: it is what stops a
+   * client asking for a million rows. For a size that came from the server's
+   * own code — an export writing a CSV, a scheduled report, a batch job — the
+   * ceiling is not protection, it is a silent wrong answer: the runner is
+   * handed `size: 10_000`, returns 100 rows, and the export loop reads
+   * `100 < 10_000` as "table exhausted" and writes a truncated file with no
+   * error anywhere.
+   *
+   * The runner cannot tell the two apart by looking at the number, so the CALL
+   * SITE says which it is. `trusted` means "this size is server-authored, not
+   * client input" — the one fact the caller knows and the runner never can.
+   *
+   * The minimum of 1 still applies either way: that is not a safety cap but a
+   * correctness one (a `LIMIT 0` or a negative limit is not a page), and
+   * trusting the caller's intent does not make `size: -5` mean anything.
+   */
+  private resolvePageSize(rawSize: unknown, trusted: boolean): number {
+    const requested = Math.max(1, Number(rawSize) || 25);
+    if (trusted) return requested;
+    return Math.min(requested, this.options.maxPageSize ?? 100);
   }
 }
