@@ -5,13 +5,19 @@ export {
 } from './filter-query-builder.js';
 export type {
   FilterQueryResult,
+  UnpagedFilterQuery,
   FilterInput,
   GroupByCountSpec,
   SortItem,
   OffsetPagination,
 } from './filter-query-builder.js';
 export { flatObjectToQueryString, columnFiltersToQueryString } from './to-query-string.js';
-export type { ColumnFilter, FilterOperator } from './types.js';
+export type {
+  ColumnFilter,
+  ColumnFilterClause,
+  ColumnFilterGroup,
+  FilterOperator,
+} from './types.js';
 export { FILTER_OPERATORS } from './types.js';
 export {
   validateOperatorValue,

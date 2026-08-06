@@ -168,6 +168,41 @@ There's also a one-shot `filterQueryFromFilters(filters, opts?)` mirroring `tans
   `fromFilters` is complementary to `applyTanstackTableState`/`tanstackTableToFilterQuery` (see the [React guide](/docs/guides/react#tanstack-table-interop)): those take vanilla TanStack `{ id, value }` state and *infer* the operator, while `fromFilters` is for when the operator is already resolved in application code.
 </Callout>
 
+### Payload types — `UnpagedFilterQuery` and `ColumnFilterClause`
+
+`build()` returns `FilterQueryResult`. For the same query **without** the paging window — a CSV/report export where the server owns the page size, a count-only request, a prefetch, a cache key — annotate it `UnpagedFilterQuery`, the base `FilterQueryResult` extends:
+
+```ts
+import type { UnpagedFilterQuery } from '@dudousxd/nestjs-filter-client';
+
+function exportBody(query: UnpagedFilterQuery) {
+  // the server decides how much it streams
+}
+
+const { paginate, ...unpaged } = filterQuery().contains('name', 'fleet').page(0, 25).build();
+exportBody(unpaged);
+```
+
+<Callout type="warn">
+  Do not write `Omit<FilterQueryResult, 'paginate'>` instead. `FilterQueryResult` carries `[key: string]: unknown` so `set()` extras survive, and `Omit` rebuilds a type from `keyof` — which for an index-signature type is only `string | number`. The Omit therefore collapses to `{ [x: string]: unknown }`: every named key erased, every typo accepted, no compile error to warn you.
+</Callout>
+
+One entry of `filter.where` is a `ColumnFilterClause` — either a `ColumnFilter` predicate or a `ColumnFilterGroup`, a pure boolean group with no column of its own, which is what the runtime already accepts and what you compose when building groups programmatically rather than through `.or()` / `.and()`:
+
+```ts
+import type { ColumnFilterClause } from '@dudousxd/nestjs-filter-client';
+
+const where: ColumnFilterClause[] = [
+  { field: 'status', operator: 'equals', value: 'active' },      // predicate
+  { OR: [                                                        // group — no field, no operator
+    { field: 'name', operator: 'contains', value: 'sync' },
+    { field: 'email', operator: 'contains', value: 'sync' },
+  ] },
+];
+```
+
+`ColumnFilter` still requires `field` and `operator`: the group is a separate member of the union rather than a loosening, so `{ field: 'status', value: 'active' }` — a predicate whose operator was forgotten — remains a compile error.
+
 ---
 
 ## Input formats

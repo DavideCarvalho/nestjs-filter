@@ -7,7 +7,9 @@ description: >
   isNull...), accumulating add() for ranges, or()/and() groups, set()/include()/search()/
   sort()/page() envelope keys, and the .build() result { filter: { where: [...] }, ... } plus
   .toQueryString() / .toFlatObject(). Also covers filterQueryTyped<Fields, Types>() for
-  compile-time field/operator/value checking. Use when constructing a filter payload from a
+  compile-time field/operator/value checking, and the payload types — UnpagedFilterQuery (the
+  query minus paging, for exports/counts/cache keys) and ColumnFilterClause (a predicate or a
+  group-only clause). Use when constructing a filter payload from a
   frontend, serializing to a GET query string, or typing a query against known entity fields.
 metadata:
   type: core
@@ -159,7 +161,60 @@ codegen not knowing, not codegen ruling it out.
 
 Source: `packages/client/src/typed-filter-query-builder.ts`
 
+### 5. `UnpagedFilterQuery` and `ColumnFilterClause` — typing the payload itself
+
+`build()` returns `FilterQueryResult`. When you need the same query **without** the paging
+window — a CSV/report export where the server owns the page size, a count-only request, a
+prefetch, a cache key — annotate it `UnpagedFilterQuery`, the base `FilterQueryResult`
+extends. Every envelope key survives; only `paginate` is absent.
+
+```typescript
+import type { UnpagedFilterQuery } from '@dudousxd/nestjs-filter-client';
+
+function exportBody(query: UnpagedFilterQuery) { /* server decides the slice */ }
+
+const { paginate, ...unpaged } = filterQuery().contains('name', 'fleet').page(0, 25).build();
+exportBody(unpaged);
+```
+
+One entry of `filter.where` is a `ColumnFilterClause`: either a `ColumnFilter` predicate
+(`field` + `operator`, still both required) or a `ColumnFilterGroup` — a pure boolean group
+with no column of its own, which is what you compose when building groups programmatically
+instead of through `.or()` / `.and()`.
+
+```typescript
+import type { ColumnFilterClause } from '@dudousxd/nestjs-filter-client';
+
+const where: ColumnFilterClause[] = [
+  { field: 'status', operator: 'equals', value: 'active' },
+  { OR: [{ field: 'name', operator: 'contains', value: 'sync' }] },
+];
+```
+
+Source: `packages/client/src/filter-query-builder.ts` (`UnpagedFilterQuery`),
+`packages/client/src/types.ts` (`ColumnFilter`, `ColumnFilterGroup`, `ColumnFilterClause`),
+`packages/core/src/operators/validate-column-filter.ts` (the server's group-node branch)
+
 ## Common mistakes
+
+### Writing `Omit<FilterQueryResult, 'paginate'>` for the un-paged query
+
+`FilterQueryResult` ends in `[key: string]: unknown` so `set()` extras survive. `Omit`
+rebuilds a type from `keyof`, which for an index-signature type is just `string | number`,
+so the Omit evaluates to `{ [x: string]: unknown }` — every named key erased, every typo
+accepted, and no error to warn you. Use the exported `UnpagedFilterQuery`.
+
+```typescript
+// Wrong — collapses to { [x: string]: unknown }; `filtre` typechecks
+type ExportBody = Omit<FilterQueryResult, 'paginate'>;
+
+// Correct
+import type { UnpagedFilterQuery } from '@dudousxd/nestjs-filter-client';
+```
+
+Mechanism: `UnpagedFilterQuery` is declared as the base `FilterQueryResult` extends, so a
+new envelope key cannot go missing from it. Source:
+`packages/client/src/filter-query-builder.ts`
 
 ### Expecting `.build()` to return `{ where: [...] }` at the top level
 

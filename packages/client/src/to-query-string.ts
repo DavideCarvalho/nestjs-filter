@@ -1,4 +1,4 @@
-import type { ColumnFilter } from './types.js';
+import type { ColumnFilterClause } from './types.js';
 
 /**
  * Encodes a value for use in a URL query string.
@@ -41,16 +41,20 @@ export function flatObjectToQueryString(obj: Record<string, unknown>): string {
 }
 
 /**
- * Converts a ColumnFilter[] array to a query string using
+ * Converts a clause array to a query string using
  * the `where[i][field]=...&where[i][operator]=...&where[i][value]=...` notation.
+ *
+ * Takes `ColumnFilterClause[]` — a widening, so every existing `ColumnFilter[]`
+ * caller still fits — because that is what `FilterQueryResult['filter']['where']`
+ * now is.
  */
-export function columnFiltersToQueryString(filters: ColumnFilter[]): string {
+export function columnFiltersToQueryString(filters: ColumnFilterClause[]): string {
   const parts: string[] = [];
   serializeFilters(filters, 'where', parts);
   return parts.join('&');
 }
 
-function serializeFilters(filters: ColumnFilter[], prefix: string, parts: string[]): void {
+function serializeFilters(filters: ColumnFilterClause[], prefix: string, parts: string[]): void {
   for (let i = 0; i < filters.length; i++) {
     const filter = filters[i]!;
     const base = `${prefix}[${i}]`;

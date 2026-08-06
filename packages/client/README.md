@@ -114,6 +114,63 @@ const res = await fetch('/api/users', {
 | `toQueryString()` | Returns URL query string |
 | `toFlatObject()` | Returns flat object for auto-fields |
 
+## Types
+
+| Type | What it is |
+|---|---|
+| `FilterQueryResult` | What `build()` returns: the whole envelope, paging included |
+| `UnpagedFilterQuery` | The same envelope **without** `paginate` — `FilterQueryResult` extends it |
+| `ColumnFilter` | One predicate: `field` + `operator` (+ `value`) |
+| `ColumnFilterGroup` | A pure boolean group: `{ OR: [...] }` / `{ AND: [...] }`, no field, no operator |
+| `ColumnFilterClause` | `ColumnFilter \| ColumnFilterGroup` — what one entry of `filter.where` may be |
+
+### `UnpagedFilterQuery` — the query minus the page
+
+An export that hands the paging window to the server (a CSV export, a report), a
+count-only request, a prefetch, or a cache key all want the query that says
+*which rows* without saying *which slice*. That is `UnpagedFilterQuery`:
+
+```typescript
+import type { UnpagedFilterQuery } from '@dudousxd/nestjs-filter-client';
+
+function exportBody(query: UnpagedFilterQuery) {
+  return JSON.stringify(query); // the server decides how much it streams
+}
+
+const { paginate, ...unpaged } = filterQuery().contains('name', 'fleet').page(0, 25).build();
+exportBody(unpaged);
+```
+
+Do **not** reach for `Omit<FilterQueryResult, 'paginate'>` instead. `FilterQueryResult`
+carries `[key: string]: unknown` so `set()` extras survive, and `Omit` rebuilds a type
+from `keyof` — which for an index-signature type is just `string | number`. The Omit
+therefore collapses to `{ [x: string]: unknown }`: every named key gone, every typo
+accepted, and no compile error to tell you. `UnpagedFilterQuery` is declared as the
+base `FilterQueryResult` extends, so the two cannot drift.
+
+### `ColumnFilterClause` — predicates and group-only clauses
+
+A clause is either a predicate or a group that only composes other clauses. Both are
+valid on the wire (the server's validator has an explicit group-node branch), so both
+are typed:
+
+```typescript
+import type { ColumnFilterClause } from '@dudousxd/nestjs-filter-client';
+
+const where: ColumnFilterClause[] = [
+  { field: 'status', operator: 'equals', value: 'active' },   // predicate
+  { OR: [                                                      // group — no field, no operator
+    { field: 'name', operator: 'contains', value: 'sync' },
+    { field: 'email', operator: 'contains', value: 'sync' },
+  ] },
+];
+```
+
+`ColumnFilter` itself is unchanged and still **requires** `field` and `operator`:
+a group is a separate member of the union rather than a loosening, so
+`{ field: 'status', value: 'active' }` — a predicate whose operator was forgotten —
+is still a compile error.
+
 ## License
 
 MIT
