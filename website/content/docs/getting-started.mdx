@@ -419,12 +419,12 @@ export class UsersService {
 | `inputNormalizer` | `InputNormalizer` | none | Normalizes input keys, e.g. `'camelCase'` or `'snakeCase'`. |
 | `inputFormat` | `'native' \| 'spatie'` | `'native'` | The input query format. Set to `'spatie'` to accept spatie-laravel-query-builder / JSON:API style query strings. |
 | `dropId` | `boolean` | `false` | Whether to drop the entity's `id` field from auto-fields/`describe()` output. |
-| `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | Policy for input keys that don't match any `@FilterFor` method or auto-field. |
+| `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | Policy for **structured `filter` keys** that don't match any `@FilterFor` method or auto-field. An unknown column inside a `where[]` clause is not a dispatch key and follows `throwOnInvalid` instead. |
 | `validation` | `'auto' \| 'off'` | `'auto'` | Validation mode. See [Input Validation](/docs/guides/validation). |
 | `stripEmpty` | `boolean` | `true` | Strips `null`, `undefined`, and empty-string values from input before dispatch. |
 | `maxIncludeDepth` | `number` | `3` | Maximum depth for nested `include` paths (e.g. `'posts.comments.author'`). |
 | `maxPageSize` | `number` | `100` | Maximum page size for offset pagination. Applies to every call unless the call site passes [`trustedPageSize`](/docs/guides/repositories#trusted-page-sizes-trustedpagesize). |
-| `throwOnInvalid` | `boolean` | `false` | When `true`, invalid sorts, distinct fields, and unknown `where` columns raise a `BadRequestException` instead of being silently dropped. Overridable per-`@Filterable`. |
+| `throwOnInvalid` | `boolean` | `false` | When `true`, invalid sorts, distinct fields, and unknown `where[]` columns (at any nesting depth) raise a `BadRequestException` instead of being dropped with a warning. Overridable per-`@Filterable`. |
 | `defaultSort` | `string \| SortItem[]` | none | Sort applied when the client sends no `sort`. Overridable per-`@Filterable`. |
 
 ```ts

@@ -75,6 +75,30 @@ describe('FilterRunner.applyDynamic — where field validation', () => {
     expect(applied[0]).toHaveLength(2);
   });
 
+  it('keeps the surviving group of a clause whose own field is unknown', async () => {
+    const applied: ColumnFilter[][] = [];
+    const runner = await makeRunner(makeAdapter(applied));
+    await runner.applyDynamic(
+      FakeEntity,
+      {
+        filter: {
+          where: [
+            {
+              field: 'ghostColumn',
+              operator: 'equals',
+              value: 1,
+              AND: [{ field: 'name', operator: 'equals', value: 'x' }],
+            },
+          ],
+        },
+      },
+      {},
+    );
+    // Only the unknown leaf goes. Taking the whole clause would drop the
+    // `name` constraint with it and return rows the client filtered out.
+    expect(applied).toEqual([[{ AND: [{ field: 'name', operator: 'equals', value: 'x' }] }]]);
+  });
+
   it('does not call applyColumnFilters when all fields are unknown', async () => {
     const applied: ColumnFilter[][] = [];
     const runner = await makeRunner(makeAdapter(applied));

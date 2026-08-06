@@ -39,7 +39,11 @@ import { normalizeInput } from './input/normalizer.js';
 import { parseSpatieInput } from './input/spatie-parser.js';
 import { validateInput } from './input/validator.js';
 import type { ColumnFilter, FilterOperator } from './operators/types.js';
-import { normalizeOperator, validateColumnFilters } from './operators/validate-column-filter.js';
+import {
+  isValidFieldPath,
+  normalizeOperator,
+  validateColumnFilters,
+} from './operators/validate-column-filter.js';
 import {
   buildKeyset,
   decodeCursor,
@@ -647,8 +651,23 @@ export class FilterRunner {
 
         // Apply column filters via adapter before @FilterFor dispatch
         if (plainColumnFilters.length > 0 && adapter?.applyColumnFilters) {
+          // Everything left in `plain` is claimed to be a real column path, so
+          // it has to actually BE one. Runs before the operator allowlist: a
+          // field the entity does not have has no operator policy to violate,
+          // and reporting "operator X is not allowed on ghostColumn" would
+          // name the wrong problem. Needs `entity` to check against — a filter
+          // class without `@Filterable` metadata keeps the pre-fix
+          // pass-through, same as every other metadata-dependent gate here.
+          const knownColumnFilters = filterableMeta?.entity
+            ? this.pruneUnknownColumnFilters(
+                plainColumnFilters,
+                filterableMeta.entity,
+                adapter,
+                throwOnInvalidPolicy,
+              )
+            : plainColumnFilters;
           const opAllowed = this.enforceOperatorAllowlist(
-            plainColumnFilters,
+            knownColumnFilters,
             normalizedAllowed,
             throwOnInvalidPolicy,
           );
@@ -2581,8 +2600,37 @@ export class FilterRunner {
    * Drops `where` column-filter clauses whose field is not a known scalar
    * column, relation, or dotted relation path on the entity — so a client
    * filter on an absent column (e.g. a base-scope `baseId` on a base-less
-   * table) is silently ignored instead of crashing the ORM. Recurses AND/OR.
-   * No-op (pass-through) when the adapter exposes no metadata.
+   * table) is dropped instead of crashing the ORM. Recurses AND/OR.
+   *
+   * The grammar check (`validateColumnFilters` → `isValidFieldPath`) only
+   * proves the field name is SQL-SAFE, not that it EXISTS: `ghostColumn`
+   * satisfies the pattern, sails through the operator allowlist, and blows up
+   * inside the ORM. That surfaces as a 500 for the consumer, and as a mid-run
+   * failure for a background job — both worse than not applying a constraint
+   * the entity cannot express in the first place.
+   *
+   * **Policy knob: `throwOnInvalid`, not `onUnknownKey`.** Three reasons, in
+   * order of weight: (1) `FilterModuleOptions.throwOnInvalid` is already
+   * DOCUMENTED as covering "unknown `where` columns" — static mode was simply
+   * never wired to it; (2) `applyDynamic` already routes this same function
+   * through `throwOnInvalid`, so choosing the other knob would recreate, in a
+   * new place, the very static-vs-dynamic asymmetry this fix closes; (3)
+   * `throwOnInvalid` is overridable per-`@Filterable`, while `onUnknownKey` is
+   * module-global — and whether a stray `where` column is a client bug or a
+   * tolerated legacy payload is a per-endpoint judgement. `onUnknownKey` keeps
+   * its own scope: keys of the STRUCTURED filter object, which are dispatch
+   * targets (`@FilterFor` / auto-field / relation), not column references.
+   *
+   * Default (`throwOnInvalid: false`) is drop-with-a-warning rather than a
+   * 400: it is the change that stops the crash without turning requests that
+   * work today into errors, and the warning names the field so the drop is
+   * observable rather than silent. Mirrors
+   * {@link pruneBlacklistedColumnFilters}, which made the same call.
+   *
+   * Falls back to accept-all (with a warning) when the adapter exposes no
+   * metadata — the same graceful degradation `resolveAutoFields` uses, so an
+   * adapter that cannot introspect keeps its pre-fix behavior instead of
+   * having every `where` clause dropped.
    */
   private pruneUnknownColumnFilters(
     filters: ColumnFilter[],
@@ -2592,35 +2640,94 @@ export class FilterRunner {
   ): ColumnFilter[] {
     const fieldNames = new Set((adapter.getEntityFields?.(entity) ?? []).map((f) => f.name));
     const relationNames = new Set((adapter.getEntityRelations?.(entity) ?? []).map((r) => r.name));
-    if (fieldNames.size === 0 && relationNames.size === 0) return filters;
+    if (fieldNames.size === 0 && relationNames.size === 0) {
+      this.logger.warn(
+        `where[] column filters on ${entity.name} cannot be validated against entity metadata. The adapter does not implement getEntityFields() or returned null. All where columns will be accepted (legacy behavior). Consider upgrading your adapter.`,
+      );
+      return filters;
+    }
 
     // When the adapter can resolve relation paths, validate the full chain
     // (`author.profile.country`) so a bad deep path is dropped instead of
     // reaching the ORM as an unknown column. Both scalar leaves and bare
     // relations (FK / nested constraints) are filterable. Otherwise fall back
-    // to a single-hop check (scalar, bare relation, or `relation.field`).
+    // to a single-hop check on the path's ROOT segment.
+    //
+    // The fallback accepts a dotted path rooted at a scalar column too, not
+    // just at a relation: `metadata.tier` is a JSON sub-path, and an adapter
+    // without `resolveFieldPath` cannot tell a JSON column from any other
+    // scalar. Refusing it would turn "we can't check this" into "this is
+    // wrong" and break JSON filtering on exactly the adapters least able to
+    // defend themselves.
+    //
+    // `[]` is stripped first: it is the JSON-array traversal marker
+    // (`problems.checks[].field`, see `parseFieldPath`), never part of a
+    // column name, so leaving it in would fail every lookup it appears in.
+    const rootOf = (field: string): string => {
+      const dot = field.indexOf('.');
+      const root = dot > 0 ? field.slice(0, dot) : field;
+      return root.endsWith('[]') ? root.slice(0, -2) : root;
+    };
     const isKnown = adapter.resolveFieldPath
-      ? (field: string): boolean => adapter.resolveFieldPath!(entity, field) !== null
+      ? (field: string): boolean =>
+          adapter.resolveFieldPath!(entity, field.replaceAll('[]', '')) !== null
       : (field: string): boolean => {
-          if (fieldNames.has(field) || relationNames.has(field)) return true;
-          const dot = field.indexOf('.');
-          return dot > 0 && relationNames.has(field.slice(0, dot));
+          const root = rootOf(field);
+          return fieldNames.has(root) || relationNames.has(root);
         };
 
+    const warned = new Set<string>();
     const prune = (clauses: ColumnFilter[]): ColumnFilter[] =>
       clauses
-        .filter((clause) => {
-          const known = !clause.field || isKnown(clause.field);
-          if (!known && throwOnInvalid) {
+        .map((clause) => {
+          const AND = clause.AND ? prune(clause.AND) : undefined;
+          const OR = clause.OR ? prune(clause.OR) : undefined;
+          const withGroups = {
+            ...clause,
+            ...(AND ? { AND } : {}),
+            ...(OR ? { OR } : {}),
+          };
+          // A MALFORMED path (`visits.$notafn`, anything outside the SQL-safe
+          // grammar) is deliberately passed through untouched, not dropped:
+          // `validateColumnFilters` downstream rejects it loudly, and that
+          // rejection is a safety guarantee. Quietly swallowing SQL-unsafe
+          // input here would trade a hard error for silence — this prune
+          // answers "does this column exist", never "is this path legal".
+          if (!clause.field || !isValidFieldPath(clause.field) || isKnown(clause.field)) {
+            return withGroups;
+          }
+
+          if (throwOnInvalid) {
             throw new BadRequestException(`Unknown filter column: "${clause.field}".`);
           }
-          return known;
+          if (!warned.has(clause.field)) {
+            warned.add(clause.field);
+            this.logger.warn(
+              `Column filter (where) on unknown column "${clause.field}" ignored — it is not a field or relation of ${entity.name}.`,
+            );
+          }
+          // The unknown LEAF goes; a group the clause carried stays. Dropping
+          // the clause wholesale would take its children's constraints with
+          // it, WIDENING the query — returning rows the client filtered out is
+          // a worse failure than the 500 this replaces.
+          if (AND?.length || OR?.length) {
+            return {
+              ...(AND?.length ? { AND } : {}),
+              ...(OR?.length ? { OR } : {}),
+            } as ColumnFilter;
+          }
+          return null;
         })
-        .map((clause) => ({
-          ...clause,
-          ...(clause.AND && { AND: prune(clause.AND) }),
-          ...(clause.OR && { OR: prune(clause.OR) }),
-        }));
+        .filter((clause): clause is ColumnFilter => clause !== null)
+        // Collapse group nodes (no field of their own) emptied by pruning —
+        // an empty `{ OR: [] }` reaching the adapter is a condition with no
+        // operands, which each ORM renders differently and none usefully.
+        .filter(
+          (clause) =>
+            Boolean(clause.field) ||
+            Boolean(clause.AND && clause.AND.length > 0) ||
+            Boolean(clause.OR && clause.OR.length > 0),
+        );
 
     return prune(filters);
   }

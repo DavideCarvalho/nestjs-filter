@@ -126,7 +126,7 @@ To disable auto-fields entirely, set `autoFields: false`:
 @Filterable({ entity: User, autoFields: false })
 ```
 
-With this setting, only keys with `@FilterFor` methods are dispatched. Unknown keys are handled by the `onUnknownKey` policy.
+With this setting, only keys with `@FilterFor` methods are dispatched. Unknown keys are handled by the `onUnknownKey` policy. That policy governs **structured `filter` keys** only — a `where[]` clause names a column rather than a dispatch target, so an unknown column there is dropped (or rejected) per `throwOnInvalid`.
 
 ### Mixing auto-fields with `@FilterFor`
 
@@ -373,7 +373,7 @@ The `@Filterable()` class decorator associates the filter with an entity and opt
 | `allowed` | `readonly AllowedFieldEntry[]` | Whitelist of input keys. Each entry is either a field name (all operators allowed on that field) or `{ field, operators }`, restricting which operators are accepted for that field. |
 | `blocked` | `readonly string[]` | Blacklist of input keys. These keys are never dispatched. |
 | `autoFields` | `boolean \| readonly string[]` | Controls auto-field behavior for declared fields without `@FilterFor`. Defaults to `true`. See [Auto-fields](#auto-fields). |
-| `throwOnInvalid` | `boolean` | When `true`, invalid sorts, distinct fields, and unknown `where` columns raise a `BadRequestException` instead of being silently dropped. Overrides the module-level `throwOnInvalid`. Defaults to the module option (then `false`). |
+| `throwOnInvalid` | `boolean` | When `true`, invalid sorts, distinct fields, and unknown `where[]` columns (at any nesting depth) raise a `BadRequestException` instead of being dropped with a warning. Overrides the module-level `throwOnInvalid`. Defaults to the module option (then `false`). |
 | `defaultSort` | `string \| SortItem[]` | Sort applied when the client sends no `sort`, for stable ordering. Accepts the same shapes as the request `sort` (e.g. `"-createdAt"`). Overrides the module-level `defaultSort`. |
 | `computed` | `Record<string, string>` | Declares virtual/computed fields — a map of alias to a dev-provided SQL expression. The alias becomes filterable and sortable as if it were a real column. |
 | `aliases` | `Record<string, string>` | Declarative field-name remapping — maps a client-supplied field name to the real entity path (column, relation path, dotted relation field, or JSON sub-path) it should resolve to. |

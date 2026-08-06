@@ -237,14 +237,29 @@ Registers the core filter infrastructure globally.
 | `inputNormalizer` | `'camelCase' \| 'snakeCase' \| (key: string) => string` | `'camelCase'` | How to normalize input keys before dispatch. |
 | `inputFormat` | `'native' \| 'spatie'` | `'native'` | Input query format. `'native'` is the library's structured model. `'spatie'` opts into spatie-laravel-query-builder / JSON:API style query strings (`filter[field]=…`, `filter[field][op]=…`, `sort=-a,b`, `include=a,b`, `fields[resource]=a,b`, `page[number]`/`page[after]`). Parsed into the native model first, so allowlist / operator-allowlist / `throwOnInvalid` safety still applies. |
 | `dropId` | `boolean` | _set explicitly_ | Strip trailing `Id` / `_id` from keys (e.g. `companyId` -> `company`). The effective default is currently inconsistent in the code — when run through `FilterRunner`/`@ApplyFilter` the suffix is stripped unless you pass `dropId: false`. Set this explicitly to be safe. |
-| `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | What to do when an input key has no matching `@FilterFor`. |
+| `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | What to do when a **structured `filter` key** has no matching `@FilterFor`, auto-field, relation, computed field or aggregate path. Scoped to dispatch targets — an unknown column inside a `where[]` clause is governed by `throwOnInvalid` instead. |
 | `validation` | `'auto' \| 'off'` | `'auto'` | `'auto'` uses class-validator if installed. `'off'` skips validation. |
-| `throwOnInvalid` | `boolean` | `false` | When `true`, invalid sorts, distinct fields, and unknown `where` columns raise a `BadRequestException` instead of being silently dropped. Overridable per `@Filterable`. |
+| `throwOnInvalid` | `boolean` | `false` | When `true`, invalid sorts, distinct fields, and unknown `where` columns raise a `BadRequestException` instead of being dropped with a warning. Overridable per `@Filterable`. |
 | `defaultSort` | `string \| SortItem[]` | – | Sort applied when the client provides no `sort` (stable ordering). Accepts a JSON:API string (`'-createdAt'`) or `SortItem[]`. Overridable per `@Filterable`. |
 
 Both `throwOnInvalid` and `defaultSort` can also be set per filter class via
 `@Filterable({ entity, throwOnInvalid: true, defaultSort: '-createdAt' })`, which
 takes precedence over the module-level option.
+
+> **Unknown `where[]` columns.** Every `where[]` clause — nested AND/OR groups
+> included — is checked against the entity's real columns and relations (read
+> from the ORM via the adapter's `getEntityFields`/`getEntityRelations`), in
+> both the static (`@Filterable`) and dynamic (`applyDynamic`) paths. A clause
+> on a column the entity does not have is dropped with a warning naming the
+> field, or rejected with a `BadRequestException` under `throwOnInvalid` —
+> rather than reaching the ORM and surfacing as a 500. When a clause's own
+> field is unknown but it carries an AND/OR group, only the leaf is dropped and
+> the group survives: taking the whole clause would remove its children's
+> constraints and return rows the client filtered out. Computed aliases,
+> to-many aggregate paths (`posts.$max.publishedAt`), dotted relation paths
+> (`base.name`) and JSON sub-paths are unaffected — they are resolved by their
+> own routes, not as plain columns. Adapters that cannot introspect entity
+> metadata fall back to accepting everything, with a warning.
 
 > **Full-text search (Postgres).** The TypeORM adapter's vector search uses
 > `websearch_to_tsquery`, so arbitrary multi-word input (e.g. `"foo bar"`) is
@@ -316,7 +331,7 @@ Response shape:
 |--------|------|---------|-------------|
 | `inputNormalizer` | `'camelCase' \| 'snakeCase' \| (key: string) => string` | `'camelCase'` | Normalize input keys before dispatch. |
 | `dropId` | `boolean` | _set explicitly_ | Strip trailing `Id` / `_id` from keys. Effective default is currently inconsistent in the code — when run through `FilterRunner`/`@ApplyFilter` the suffix is stripped unless you pass `dropId: false`. |
-| `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | Policy for unrecognized input keys. |
+| `onUnknownKey` | `'ignore' \| 'warn' \| 'throw'` | `'ignore'` | Policy for unrecognized **structured `filter` keys**. Unknown `where[]` columns follow `throwOnInvalid`. |
 | `validation` | `'auto' \| 'off'` | `'auto'` | `'auto'` validates with class-validator if installed; `'off'` skips. |
 
 ## Edge Cases
