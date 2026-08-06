@@ -1,5 +1,33 @@
 # @dudousxd/nestjs-filter
 
+## 1.27.0
+
+### Minor Changes
+
+- [#99](https://github.com/DavideCarvalho/nestjs-filter/pull/99) [`28db30a`](https://github.com/DavideCarvalho/nestjs-filter/commit/28db30a4adf21c68d8e8912bcda026292d070b2e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Let a trusted server-side call opt out of `maxPageSize`.
+
+  `maxPageSize` is configured once, on the module, and then has to answer two questions that want different answers. For a `size` that arrived on an HTTP request the cap is the whole point — it is what stops a client asking for a million rows. For a `size` the server itself wrote, it is not protection but a silent wrong answer: an export asks for 10 000 rows, is handed 100, reads `100 < 10 000` as "the table is exhausted", and writes a truncated CSV with nothing logged and nothing thrown. The runner cannot tell the two apart by looking at the number, so the only consumer that could opt out — trusted code — was the one that could not.
+
+  `findAndCount(entity, input, { trustedPageSize: true })` is the escape hatch, with the same option on `findPage` (lifting the cap off `first`/`last`) and on `applyDynamic`'s per-call `internal` bag for callers that build the query themselves. Nothing changes when it is not passed: the global cap still applies everywhere, which is the behaviour every existing call keeps.
+
+  It is a boolean, not a numeric per-call `maxPageSize`, because a number does not solve the problem it looks like it solves. The caller would have to invent a second ceiling that must be at least as large as the size it is already passing, and guessing it low reproduces the exact silent truncation the option exists to remove — one call site, two numbers that must agree, no error when they don't. The fact the call site actually holds is not a better ceiling; it is _this size did not come from a client_, which is one bit. `trustedPageSize: true` also reads as what it is at a glance, where `maxPageSize: 10_000` sitting in an options object reads like ordinary config and could as easily be tightening the cap as lifting it.
+
+  Deliberately absent from `apply()`: that is the filter-class path `@ApplyFilter` drives, where the input is the HTTP request by definition, and a trust flag travelling next to route-bound client input is the confusion this is trying to prevent. The minimum page size of 1 still applies to trusted calls — that one is a correctness floor (`LIMIT 0` is not a page), not a safety cap.
+
+### Patch Changes
+
+- [#98](https://github.com/DavideCarvalho/nestjs-filter/pull/98) [`272fc75`](https://github.com/DavideCarvalho/nestjs-filter/commit/272fc75e8de5cbadf34495256672963f19df9051) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Accept a `string[]` sort, which used to be dropped without a word.
+
+  `parseSorts` read two shapes: the comma-joined string `"-createdAt,name"`, and an array of `SortItem` objects. An array of plain strings — `["-createdAt", "name"]` — matched neither. It reached the array branch, failed the `typeof item === 'object'` test every element was measured against, and was filtered away.
+
+  Nothing said so. No throw, no warning, not even a 400 with `throwOnInvalid` on: the request was well-formed, the parse produced an empty list, and an empty list is exactly what "the client sent no sort" looks like. So the query fell through to `defaultSort` or to no ORDER BY at all, and the only symptom was a grid that had quietly stopped sorting.
+
+  That shape is not exotic. `["-year", "nsn"]` is the array spelling of the JSON:API convention this parser already implements, and it is what a legacy `orderBy: string[]` hands over verbatim.
+
+  Each element is now read by its own type: a string goes through the same token rules as the comma form (leading `-` means desc, trimmed, blanks dropped), an object is validated as a `SortItem` as before. Mixed arrays work for the same reason — `["-a", { field: 'b', direction: 'asc' }]` parses.
+
+  Purely additive. A `string[]` produced nothing before, so no existing behaviour depended on the old result; the string and `SortItem[]` shapes are untouched, and an element that is neither is still discarded.
+
 ## 1.25.0
 
 ### Minor Changes
