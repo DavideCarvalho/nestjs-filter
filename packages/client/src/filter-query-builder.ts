@@ -1,6 +1,6 @@
 import { columnFiltersToQueryString, flatObjectToQueryString } from './to-query-string.js';
 import { FILTER_OPERATORS } from './types.js';
-import type { ColumnFilter, FilterOperator } from './types.js';
+import type { ColumnFilter, ColumnFilterClause, FilterOperator } from './types.js';
 import {
   UNARY_OPERATORS,
   validateAddOperator,
@@ -62,13 +62,26 @@ interface Group {
 }
 
 /**
- * The result shape returned by `build()`.
+ * A whole filter query **except** the paging window: everything that defines
+ * which rows the request is about, with nothing that says which slice of them
+ * to return. The shape a CSV/report export (the server owns the page size), a
+ * count-only request, a prefetch, or a cache key wants.
  *
- * Uses the structured input format: `{ filter, include, search, sort, paginate }`.
+ * This is the base {@link FilterQueryResult} extends, and NOT
+ * `Omit<FilterQueryResult, 'paginate'>` — do not "simplify" it back to one.
+ * `FilterQueryResult` ends in `[key: string]: unknown`, and `Omit` rebuilds a
+ * type from `keyof`, which for an index-signature type is just `string |
+ * number`. So the Omit silently evaluates to `{ [x: string]: unknown }`: every
+ * named key gone, every typo accepted, no compile error to warn you. Deriving
+ * the other way round — declare the un-paged keys here, add `paginate` in the
+ * subtype — cannot lose a key, because the keys only ever exist here.
+ *
+ * Add new envelope keys to THIS interface; `FilterQueryResult` should stay the
+ * one-line "…plus paging" extension.
  */
-export interface FilterQueryResult {
+export interface UnpagedFilterQuery {
   filter: {
-    where: ColumnFilter[];
+    where: ColumnFilterClause[];
     [key: string]: unknown;
   };
   include?: string[];
@@ -92,8 +105,17 @@ export interface FilterQueryResult {
    * the extent describes the same rows, so a route is free to answer with both.
    */
   extent?: string[];
-  paginate?: OffsetPagination;
   [key: string]: unknown;
+}
+
+/**
+ * The result shape returned by `build()`: an {@link UnpagedFilterQuery} plus
+ * the paging window.
+ *
+ * Uses the structured input format: `{ filter, include, search, sort, paginate }`.
+ */
+export interface FilterQueryResult extends UnpagedFilterQuery {
+  paginate?: OffsetPagination;
 }
 
 /**
