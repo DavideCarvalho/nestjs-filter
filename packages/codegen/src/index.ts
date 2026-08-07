@@ -10,9 +10,11 @@ import {
   isDateColumnType,
 } from '@dudousxd/nestjs-filter/aggregate';
 import {
+  type CallExpression,
   type ClassDeclaration,
   type Decorator,
   type FunctionDeclaration,
+  type Identifier,
   type MethodDeclaration,
   Node,
   Project,
@@ -367,6 +369,111 @@ function resolveMixinFactory(
   return addSourceFile(project, mixin.factoryFilePath)?.getFunction(mixin.factoryName);
 }
 
+/** One class in a factory-produced base's heritage chain, plus the name of the
+ * factory it was reached through (absent for the head, and for a plain class base). */
+interface FactoryChainLink {
+  cls: ClassDeclaration;
+  viaFactory?: string;
+}
+
+/** The declaration's name where the callee resolves to one — an aliased import's
+ * call-site text names nothing a mixin binding ever recorded. */
+function calleeFactoryName(callee: Identifier): string {
+  const decl = callee
+    .getDefinitions()
+    .map((d) => d.getDeclarationNode())
+    .find((n): n is FunctionDeclaration => n !== undefined && Node.isFunctionDeclaration(n));
+  return decl?.getName() ?? callee.getText();
+}
+
+/** The class a `someFactory(Entity)` call hands back, resolved through the callee's
+ * own declaration — which may live in another file. */
+function resolveCalledFactoryClass(call: CallExpression): FactoryChainLink | undefined {
+  const callee = call.getExpression();
+  if (!Node.isIdentifier(callee)) return undefined;
+
+  const factory = callee
+    .getDefinitions()
+    .map((d) => d.getDeclarationNode())
+    .find((n): n is FunctionDeclaration => n !== undefined && Node.isFunctionDeclaration(n));
+  const cls = factory && resolveReturnedClass(factory);
+  return cls ? { cls, viaFactory: calleeFactoryName(callee) } : undefined;
+}
+
+/** The class a factory-produced class itself extends, when the base is one this
+ * pass can name: another factory call (written inline, or through the const the
+ * factory bound it to so its own routes can reach the inner statics), or an
+ * ordinary class declaration. */
+function resolveBaseLink(cls: ClassDeclaration): FactoryChainLink | undefined {
+  const heritage = cls.getExtends()?.getExpression();
+  if (!heritage) return undefined;
+  const expr = unwrapExpression(heritage);
+
+  if (Node.isCallExpression(expr)) return resolveCalledFactoryClass(expr);
+  if (!Node.isIdentifier(expr)) return undefined;
+
+  for (const decl of expr.getDefinitions().map((d) => d.getDeclarationNode())) {
+    if (decl === undefined) continue;
+    if (Node.isClassDeclaration(decl)) return { cls: decl };
+    if (!Node.isVariableDeclaration(decl)) continue;
+
+    const init = decl.getInitializer();
+    const call = init && unwrapExpression(init);
+    if (call && Node.isCallExpression(call)) return resolveCalledFactoryClass(call);
+  }
+  return undefined;
+}
+
+/**
+ * A factory-produced class and every class it extends, nearest first.
+ *
+ * A factory that WRAPS another — `createExportableTableController` returning a
+ * class that extends `createTableController(...)` — is how only SOME controllers
+ * gain an extra route while the rest keep the shared factory's: the
+ * conditionality becomes which factory you extend. Nest mounts the whole
+ * prototype chain, so every level's routes are served; reading only the outer
+ * factory's returned class finds none of the routes the inner one declares, and
+ * this extension then resolves no filter class for them and silently skips every
+ * augmentation — the table quietly loses its computed and aggregate paths while
+ * the server still accepts them.
+ */
+function* factoryClassChain(head: ClassDeclaration): Generator<FactoryChainLink> {
+  const seen = new Set<ClassDeclaration>();
+  let link: FactoryChainLink | undefined = { cls: head };
+  while (link && !seen.has(link.cls)) {
+    seen.add(link.cls);
+    yield link;
+    link = resolveBaseLink(link.cls);
+  }
+}
+
+/** The first thing `pick` finds anywhere in the chain: nearest declaration wins,
+ * so a wrapper overriding an inner route resolves off the wrapper's copy. */
+function findInFactoryChain<T>(
+  head: ClassDeclaration,
+  pick: (cls: ClassDeclaration) => T | undefined,
+): T | undefined {
+  for (const { cls } of factoryClassChain(head)) {
+    const found = pick(cls);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** Every factory a route's base was built by, the outer one first. */
+function factoryNamesInChain(mixin: MixinBindingLike, project: Project): Set<string> {
+  const names = new Set<string>([mixin.factoryName]);
+
+  const factory = resolveMixinFactory(mixin, project);
+  const head = factory && resolveReturnedClass(factory);
+  if (!head) return names;
+
+  for (const link of factoryClassChain(head)) {
+    if (link.viaFactory) names.add(link.viaFactory);
+  }
+  return names;
+}
+
 /**
  * Whether `<Const>` in `@ApplyFilter(<Const>.filter)` is demonstrably bound to a
  * call of a DIFFERENT factory than the one this route inherits from. Such a
@@ -375,8 +482,12 @@ function resolveMixinFactory(
  * bails out. Anything unreadable (no variable declaration, an initializer this
  * can't parse) is trusted instead: the mixin binding already proved the
  * controller extends this factory.
+ *
+ * "Different" means different from every factory in the chain, not just the
+ * outermost: inside a WRAPPING factory the const is bound to the inner factory's
+ * call, which is the one that owns the statics an override names.
  */
-function referencesForeignFactory(base: Node, mixin: MixinBindingLike): boolean {
+function referencesForeignFactory(base: Node, mixin: MixinBindingLike, project: Project): boolean {
   if (!Node.isIdentifier(base)) return false;
 
   const decl = base
@@ -392,7 +503,7 @@ function referencesForeignFactory(base: Node, mixin: MixinBindingLike): boolean 
   const callee = call.getExpression();
   if (!Node.isIdentifier(callee)) return false;
 
-  return callee.getText() !== mixin.factoryName;
+  return !factoryNamesInChain(mixin, project).has(calleeFactoryName(callee));
 }
 
 /**
@@ -412,15 +523,17 @@ function resolveFactoryStaticClass(
   project: Project,
 ): ClassDeclaration | undefined {
   if (!mixin || !Node.isPropertyAccessExpression(node)) return undefined;
-  if (referencesForeignFactory(node.getExpression(), mixin)) return undefined;
+  if (referencesForeignFactory(node.getExpression(), mixin, project)) return undefined;
 
   const factory = resolveMixinFactory(mixin, project);
   const returnedClass = factory && resolveReturnedClass(factory);
   if (!returnedClass) return undefined;
 
-  const staticProp = returnedClass
-    .getStaticProperties()
-    .find((p) => p.getName() === node.getName());
+  // The static lives on whichever level of the chain generated the filter — a
+  // wrapping factory adds routes, not a filter of its own.
+  const staticProp = findInFactoryChain(returnedClass, (cls) =>
+    cls.getStaticProperties().find((p) => p.getName() === node.getName()),
+  );
   if (!staticProp || !Node.isPropertyDeclaration(staticProp)) return undefined;
 
   const init = staticProp.getInitializer();
@@ -589,16 +702,21 @@ function resolveFilterClassFromControllerRef(
   const controllerClass = sourceFile.getClass(controllerRef.className);
   const ownMethod = controllerClass?.getMethod(controllerRef.methodName);
 
-  // The method carrying the route's `@ApplyFilter`, and the file it lives in:
-  // the controller's for an override, the factory's for a route inherited
-  // verbatim (no such method exists on the controller at all).
+  // The method carrying the route's `@ApplyFilter`: the controller's for an
+  // override, otherwise the factory's — anywhere in the base's heritage chain,
+  // since a wrapping factory's returned class declares only the routes it adds.
   const factory = ownMethod ? undefined : resolveMixinFactory(controllerRef.mixin, project);
-  const baseMethod = factory
-    ? resolveReturnedClass(factory)?.getMethod(controllerRef.methodName)
+  const factoryClass = factory && resolveReturnedClass(factory);
+  const baseMethod = factoryClass
+    ? findInFactoryChain(factoryClass, (cls) => cls.getMethod(controllerRef.methodName))
     : undefined;
   const method = ownMethod ?? baseMethod;
-  const methodFile = ownMethod ? sourceFile : factory?.getSourceFile();
-  if (!method || !methodFile) return undefined;
+  if (!method) return undefined;
+
+  // Resolve the method's `@ApplyFilter` target in the file that DECLARES the
+  // method, which for a chain is the level that declared it rather than the
+  // factory the controller names.
+  const methodFile = method.getSourceFile();
 
   const applyFilterArg = findApplyFilterArgument(method);
   // No `@ApplyFilter` anywhere on this route: it is not a filtered route, and
