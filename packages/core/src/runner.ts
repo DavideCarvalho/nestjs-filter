@@ -871,6 +871,44 @@ export class FilterRunner {
               }
             }
           }
+          // A JSON sub-path (`searchAttributes.name`). Not a member of the
+          // auto-field set — that set is built from real scalar columns, and the
+          // sub-path is not one — and not a relation either, so both branches above
+          // decline it and it used to fall straight into `handleUnknownKey`: dropped
+          // in silence under the default `throwOnInvalid: false`.
+          //
+          // `where[]` has always resolved the very same path, because
+          // `applyColumnFilters` takes the entity and can ask whether the head
+          // segment is a JSON column. So one predicate filtered through one request
+          // shape and was ignored through the other — and the ignoring shape returns
+          // a complete, unfiltered result set, which reads exactly like a successful
+          // query. Route it to the capability that already understands it.
+          //
+          // `resolveFieldPath` gates this: only a head segment the adapter confirms
+          // is a JSON column qualifies. `status.name` over a string column stays
+          // unknown rather than becoming an extract, so this widens what resolves,
+          // never what is invented.
+          if (
+            key.includes('.') &&
+            filterableMeta &&
+            adapter?.resolveFieldPath &&
+            adapter?.applyColumnFilters &&
+            adapter.resolveFieldPath(filterableMeta.entity, key) === 'json'
+          ) {
+            const jsonFilters = this.enforceOperatorAllowlist(
+              this.valueToColumnFilters(key, value),
+              normalizedAllowed,
+              throwOnInvalidPolicy,
+            );
+            if (jsonFilters.length > 0) {
+              // Same three gates, in the same order, as the `where[]` path above:
+              // operator allowlist, then the SQL-safe field-path grammar, then the
+              // adapter. A sub-path must not be a way around either policy.
+              validateColumnFilters(jsonFilters);
+              adapter.applyColumnFilters(qb as unknown, jsonFilters, filterableMeta.entity);
+            }
+            continue;
+          }
           this.handleUnknownKey(key);
         }
         // Apply relation constraints in batch per relation
@@ -1526,6 +1564,7 @@ export class FilterRunner {
             const dotIndex = key.indexOf('.');
             const relName = key.substring(0, dotIndex);
             const fieldName = key.substring(dotIndex + 1);
+            let handled = false;
             if (
               fieldName.length > 0 &&
               adapter.getEntityRelations &&
@@ -1534,8 +1573,27 @@ export class FilterRunner {
               const rels = adapter.getEntityRelations(entity);
               if (rels?.some((r) => r.name === relName)) {
                 adapter.applyAutoRelationField(qb as unknown, relName, fieldName, value);
+                handled = true;
               }
-              // Unknown relation: silently skipped
+              // Unknown relation: falls through to the JSON check below
+            }
+            // A JSON sub-path (`searchAttributes.name`), which is neither a plain
+            // column nor a relation. `where[]` resolves it through
+            // `applyColumnFilters`; without this the structured form skipped it in
+            // silence and answered with an unfiltered result set that is
+            // indistinguishable from a successful query. Mirrors the same branch in
+            // `apply()` — the two request paths must not disagree about what a path
+            // means. Gated on the adapter confirming the head segment is JSON, so
+            // `status.name` over a string column stays unhandled.
+            if (
+              !handled &&
+              adapter.resolveFieldPath &&
+              adapter.applyColumnFilters &&
+              adapter.resolveFieldPath(entity, key) === 'json'
+            ) {
+              const jsonFilters = this.valueToColumnFilters(key, value);
+              validateColumnFilters(jsonFilters);
+              adapter.applyColumnFilters(qb as unknown, jsonFilters, entity);
             }
           } else if (fieldNames.has(key)) {
             adapter.applyAutoField(qb as unknown, key, value);
