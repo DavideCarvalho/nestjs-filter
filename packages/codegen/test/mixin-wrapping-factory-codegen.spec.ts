@@ -178,7 +178,11 @@ const inlineWrapperSource = `
   }
 `;
 
-function projectWithWrappingFactory(wrapperSource: string = constWrapperSource) {
+function projectWithWrappingFactory(sources: { wrapper?: string; inner?: string } = {}): {
+  project: Project;
+  mixin: MixinFixture;
+  ref: (methodName: string) => ControllerRefFixture;
+} {
   const project = inMemoryProject();
 
   project.createSourceFile(
@@ -208,8 +212,8 @@ function projectWithWrappingFactory(wrapperSource: string = constWrapperSource) 
     `,
   );
 
-  project.createSourceFile(innerFactoryPath, innerFactorySource);
-  project.createSourceFile(wrapperPath, wrapperSource);
+  project.createSourceFile(innerFactoryPath, sources.inner ?? innerFactorySource);
+  project.createSourceFile(wrapperPath, sources.wrapper ?? constWrapperSource);
 
   project.createSourceFile(
     controllerPath,
@@ -308,7 +312,7 @@ describe('nestjsFilterCodegen transformRoutes (a factory wrapping a factory)', (
   }
 
   it('resolves an inner route through a wrapper that extends the inner call inline', () => {
-    const fixture = projectWithWrappingFactory(inlineWrapperSource);
+    const fixture = projectWithWrappingFactory({ wrapper: inlineWrapperSource });
     const fields = filterFieldsOf(runRoute(fixture.ref('search'), fixture.project)) ?? [];
     expect(fields).toContain('visitCount');
     expect(fields).toContain('visits.$count');
@@ -356,6 +360,76 @@ describe('nestjsFilterCodegen transformRoutes (a factory wrapping a factory)', (
     }
   });
 
+  it("resolves an inherited route's @ApplyFilter in the file that DECLARES the method", () => {
+    // The name is written in the inner factory's file, and only that file says
+    // which `TableFilter` it means. Resolving it against the factory the
+    // controller names — the wrapper's file, which has a `TableFilter` of its
+    // own — types the route off a filter it never mentions.
+    const sharedFilterPath = '/virtual/table.filter.ts';
+    const innerWithImportedFilter = `
+      import { TableFilter } from './table.filter';
+
+      export function createTableController(entity, options = {}) {
+        @Injectable()
+        class GeneratedTableController {
+          static readonly filter = TableFilter;
+
+          @Post()
+          async search(@ApplyFilter(TableFilter, { source: 'body' }) queryBuilder) {
+            return null;
+          }
+        }
+
+        return GeneratedTableController;
+      }
+    `;
+    const wrapperWithOwnFilter = `
+      import { createTableController } from './create-table-controller';
+
+      @Filterable({ autoFields: true })
+      class TableFilter {
+        @Computed('wrapperAlias', { type: 'number' })
+        wrapperAlias(qb) {
+          return qb;
+        }
+      }
+
+      export function createExportableTableController(entity, options = {}) {
+        const Base = createTableController(entity, options);
+
+        class ExportableTableController extends Base {
+          @Post('export')
+          async export(@ApplyFilter(TableFilter, { source: 'body' }) queryBuilder) {
+            return null;
+          }
+        }
+
+        return ExportableTableController;
+      }
+    `;
+
+    const fixture = projectWithWrappingFactory({
+      inner: innerWithImportedFilter,
+      wrapper: wrapperWithOwnFilter,
+    });
+    fixture.project.createSourceFile(
+      sharedFilterPath,
+      `
+      @Filterable({ autoFields: true })
+      export class TableFilter {
+        @Computed('innerAlias', { type: 'number' })
+        innerAlias(qb) {
+          return qb;
+        }
+      }
+      `,
+    );
+
+    const fields = filterFieldsOf(runRoute(fixture.ref('search'), fixture.project)) ?? [];
+    expect(fields).toContain('innerAlias');
+    expect(fields).not.toContain('wrapperAlias');
+  });
+
   it("resolves an inner route the wrapper OVERRIDES off the WRAPPER's filter", () => {
     // Nearest declaration wins: the wrapper's copy of `search` is the one Nest
     // serves, so the route is typed off the filter that copy names.
@@ -386,7 +460,7 @@ describe('nestjsFilterCodegen transformRoutes (a factory wrapping a factory)', (
         return ExportableTableController;
       }
     `;
-    const fixture = projectWithWrappingFactory(overridingWrapper);
+    const fixture = projectWithWrappingFactory({ wrapper: overridingWrapper });
     const fields = filterFieldsOf(runRoute(fixture.ref('search'), fixture.project)) ?? [];
 
     expect(fields).toContain('exportCount');
@@ -415,7 +489,7 @@ describe('nestjsFilterCodegen transformRoutes (a factory wrapping a factory)', (
         return ExportableTableController;
       }
     `;
-    const fixture = projectWithWrappingFactory(foreignConstWrapper);
+    const fixture = projectWithWrappingFactory({ wrapper: foreignConstWrapper });
     fixture.project.createSourceFile(
       '/virtual/create-other-controller.ts',
       `
