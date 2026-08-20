@@ -579,6 +579,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     if (aliases.size > 0) this.distinctProjectionAliases.set(qb as object, aliases);
 
     queryBuilder.select(projection, true);
+    this.pageTheProjectionNotTheRootRows(qb);
 
     // `getCount(fields, true)` cannot count a dotted path either — same
     // unjoined-alias problem, one layer down. Mark the builder so the total
@@ -1356,6 +1357,35 @@ export class MikroOrmAdapter implements FilterAdapter {
       queryBuilder.addSelect(expr);
     }
     this.subqueryCountDistinctBuilders.add(qb as object);
+    this.pageTheProjectionNotTheRootRows(qb);
+  }
+
+  /**
+   * Makes `limit`/`offset` bound the VALUES a DISTINCT projection returns,
+   * rather than the root rows those values were collected from.
+   *
+   * `finalize()` sets `QueryFlag.PAGINATE` for any builder carrying a to-many
+   * join and no GROUP BY, and a limited PAGINATE builder is wrapped in
+   * `where <pk> in (select <pk> … order by … limit …)`. On a full-row SELECT
+   * that wrapper is exactly right — it stops a to-many join from spending the
+   * page on duplicates of one entity. On a DISTINCT projection it is the wrong
+   * question twice over:
+   *
+   * - The page ends up bounding ROOT ROWS, so a dropdown over a filtered table
+   *   answers with the values belonging to the first N entities and silently
+   *   omits the rest. Nothing errors; the list is just short.
+   * - The wrapper copies the ORDER BY into a subquery whose select list is the
+   *   primary key alone, while a projected relation path is ordered by its
+   *   SELECT ALIAS (see {@link applySort}). That alias exists only in the outer
+   *   query, so MySQL rejects the statement outright — "Unknown column
+   *   'base.name' in 'order clause'". SQLite tolerates it, which is why only
+   *   the silent half of this shows up in a SQLite suite.
+   *
+   * Same reasoning, same flag as the extent probe, which creates the condition
+   * for its own reasons a few methods up.
+   */
+  private pageTheProjectionNotTheRootRows(qb: unknown): void {
+    (qb as { setFlag: (flag: QueryFlag) => unknown }).setFlag(QueryFlag.DISABLE_PAGINATE);
   }
 
   /**
