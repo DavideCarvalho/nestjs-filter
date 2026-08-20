@@ -110,17 +110,20 @@ export class ApplyFilterInterceptor implements NestInterceptor {
       const qb = adapter.createQueryBuilder(filterableMeta.entity);
       const source = entry.options.source ?? 'auto';
       const rawInput = resolveInputFromRequest(req, source);
-      // `distinctOrder` travels from the DECORATOR, not from the resolved
-      // filter class: a route that swaps its class per request (`resolve`)
-      // must keep the answer its own declaration gave. Passing it through
-      // undefined is the "route said nothing" case, which falls back to the
-      // filter class.
+      // `distinctOrder` and `defaultSort` travel from the DECORATOR, not from
+      // the resolved filter class: a route that swaps its class per request
+      // (`resolve`) must keep the answer its own declaration gave. Passing
+      // either through undefined is the "route said nothing" case, which falls
+      // back to the filter class.
       await runner.apply(
         FilterClass as Type<object>,
         rawInput,
         qb,
         { req },
-        { distinctOrder: entry.options.distinctOrder },
+        {
+          distinctOrder: entry.options.distinctOrder,
+          defaultSort: entry.options.defaultSort,
+        },
       );
       slot[entry.paramIndex] = qb;
     }

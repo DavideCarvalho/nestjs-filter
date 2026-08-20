@@ -425,7 +425,7 @@ export class UsersService {
 | `maxIncludeDepth` | `number` | `3` | Maximum depth for nested `include` paths (e.g. `'posts.comments.author'`). |
 | `maxPageSize` | `number` | `100` | Maximum page size for offset pagination. Applies to every call unless the call site passes [`trustedPageSize`](/docs/guides/repositories#trusted-page-sizes-trustedpagesize). |
 | `throwOnInvalid` | `boolean` | `false` | When `true`, invalid sorts, distinct fields, and unknown `where[]` columns (at any nesting depth) raise a `BadRequestException` instead of being dropped with a warning. Overridable per-`@Filterable`. |
-| `defaultSort` | `string \| SortItem[]` | none | Sort applied when the client sends no `sort`. Overridable per-`@Filterable`. |
+| `defaultSort` | `string \| SortItem[]` | none | Sort applied when the client sends no `sort`. Overridable per-`@Filterable`, and per-route via `@ApplyFilter`. |
 
 ```ts
 FilterModule.forRoot({

@@ -124,6 +124,47 @@ When `resolve` is provided, the first argument (`UserFilter` in this example) ac
 | `source` | `'auto' \| 'query' \| 'body' \| string \| (req) => Record` | `'auto'` | Where to read input from. Strings with dots (e.g. `'body.filters'`) traverse the request object. |
 | `dto` | `Type<unknown>` | -- | Override the DTO class used for validation. |
 | `resolve` | `(req) => Type` | -- | Dynamically select a filter class per request. |
+| `defaultSort` | `string \| SortItem[]` | -- | Sort applied when the client sends no `sort`. Wins over `@Filterable({ defaultSort })` and the module option; a client `sort` replaces it. |
+| `distinctOrder` | `boolean` | `false` | Order a `distinct` request that carries no `sort` ascending by the columns it projected. Wins over `@Filterable({ distinctOrder })`. |
+
+### Ordering belongs to the route, not to the filter class
+
+`defaultSort` and `distinctOrder` both exist at `@Filterable` level too, and both are
+usually better declared here. One filter class typically serves two routes that want
+opposite things:
+
+```ts
+@Controller('users')
+export class UsersController {
+  // Rows: a TOTAL order, so `LIMIT`/`OFFSET` partitions the result set instead of
+  // slicing an undefined one — otherwise page 2 can repeat a row page 1 showed.
+  @Post('search')
+  search(
+    @ApplyFilter(UserFilter, {
+      source: 'body',
+      defaultSort: [{ field: 'name', direction: 'asc' }, { field: 'id', direction: 'asc' }],
+    })
+    qb: QueryBuilder<User>,
+  ) {}
+
+  // Dropdown values: ordered by what the projection KEPT, which is the only ORDER BY
+  // a single-column `SELECT DISTINCT` can legally carry.
+  @Post('distinct')
+  distinct(
+    @ApplyFilter(UserFilter, { source: 'body', distinctOrder: true })
+    qb: QueryBuilder<User>,
+  ) {}
+}
+```
+
+Declaring the rows route's order on the filter class instead puts it on the `distinct`
+route as well, where it names columns the projection did not select. MySQL rejects that
+outright — error 3065, `Expression #1 of ORDER BY clause is not in SELECT list ... this
+is incompatible with DISTINCT` — so every filter dropdown the class serves returns 500.
+On a server whose `sql_mode` omits `ONLY_FULL_GROUP_BY` the query is accepted and answers
+in an arbitrary order instead, which for a paged dropdown is the same partition bug the
+default was added to fix. `defaultSort` also outranks `distinctOrder`, so the fallback
+built for this case never runs.
 
 ---
 
