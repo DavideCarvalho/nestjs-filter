@@ -551,7 +551,11 @@ export class FilterRunner {
     input: unknown,
     qb: Q,
     context: FilterContext = {},
-    internal: { native?: boolean; distinctOrder?: boolean | undefined } = {},
+    internal: {
+      native?: boolean;
+      distinctOrder?: boolean | undefined;
+      defaultSort?: string | SortItem[] | undefined;
+    } = {},
   ): Promise<Q> {
     const filter = await this.resolveFilter(FilterClass);
     const adapter = this.resolveAdapter();
@@ -1038,7 +1042,7 @@ export class FilterRunner {
         const sorts =
           parsedSorts.length > 0
             ? parsedSorts
-            : this.parseSorts(this.resolveDefaultSort(FilterClass));
+            : this.parseSorts(this.resolveDefaultSort(FilterClass, internal.defaultSort));
         // Opt-in last fallback (`distinctOrder`), for a DISTINCT projection
         // nothing else ordered: sort ascending by what was projected. Off
         // unless asked for — see `FilterableOptions.distinctOrder` for why the
@@ -3094,10 +3098,22 @@ export class FilterRunner {
   }
 
   /**
-   * Resolves the effective `defaultSort`: per-@Filterable wins over the module
-   * option. Returns undefined when neither is set.
+   * Resolves the effective `defaultSort`: the ROUTE's own
+   * `@ApplyFilter({ defaultSort })` wins over `@Filterable({ defaultSort })`,
+   * which wins over the module option. Returns undefined when none is set.
+   *
+   * The route level exists because a default order is a property of the
+   * endpoint, not of the filter class: one class typically serves a rows route,
+   * which wants a total order so `LIMIT`/`OFFSET` partitions the result set,
+   * and a `distinct` route, where the same ORDER BY names columns the
+   * projection did not select and MySQL refuses the query outright (error
+   * 3065). See {@link ApplyFilterOptions.defaultSort}.
    */
-  private resolveDefaultSort(FilterClass?: Function): string | SortItem[] | undefined {
+  private resolveDefaultSort(
+    FilterClass?: Function,
+    perCall?: string | SortItem[],
+  ): string | SortItem[] | undefined {
+    if (perCall !== undefined) return perCall;
     if (FilterClass) {
       const meta = getFilterableMetadata(FilterClass);
       if (meta?.defaultSort !== undefined) return meta.defaultSort;

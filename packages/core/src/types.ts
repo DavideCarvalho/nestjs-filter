@@ -85,9 +85,18 @@ export interface FilterableOptions {
    */
   throwOnInvalid?: boolean;
   /**
-   * Sort applied when the client provides no `sort`, for stable ordering.
-   * Accepts the same shapes as the request `sort` (a JSON:API string like
-   * `"-createdAt"` or a `SortItem[]`). Overrides the module-level `defaultSort`.
+   * Sort applied when the client provides no `sort`, for stable ordering, on
+   * EVERY route this filter serves. Accepts the same shapes as the request
+   * `sort` (a JSON:API string like `"-createdAt"` or a `SortItem[]`). Overrides
+   * the module-level `defaultSort`.
+   *
+   * Prefer {@link ApplyFilterOptions.defaultSort} on the route itself unless
+   * every route on this filter wants the same order. "Every route" is a
+   * stronger claim than it looks: a class serving a rows route and a `distinct`
+   * route cannot satisfy both from here, because the ORDER BY that makes the
+   * rows page a partition names columns a single-column projection did not
+   * select, and MySQL refuses that query outright (error 3065). It also
+   * outranks {@link distinctOrder}.
    */
   defaultSort?: string | SortItem[];
   /**
@@ -499,6 +508,30 @@ export interface ApplyFilterOptions {
   source?: InputSource;
   dto?: Type<unknown>;
   resolve?: (req: unknown) => Type<unknown>;
+  /**
+   * Sort applied when the client provides no `sort` — declared on the ROUTE
+   * that runs the query. Accepts the same shapes as the request `sort` (a
+   * JSON:API string like `"-createdAt"` or a `SortItem[]`).
+   *
+   * Prefer this over {@link FilterableOptions.defaultSort} whenever the filter
+   * class serves more than one route, which is the usual case. A default order
+   * is a property of the endpoint: a ROWS route wants a total one, so that
+   * `LIMIT`/`OFFSET` is a partition of the result set rather than a slice of an
+   * undefined order, while a `distinct` route on the same class projects a
+   * single column and cannot carry that ORDER BY at all — MySQL rejects an
+   * `ORDER BY` term outside a `SELECT DISTINCT`'s select list outright (error
+   * 3065, a failed query rather than a warning). A `@Filterable`-level default
+   * reaches both and has no way to tell them apart; it also outranks
+   * {@link distinctOrder}, so the dropdown loses its own ordering even where
+   * the server's `sql_mode` is lenient enough not to fail the query.
+   *
+   * Like {@link distinctOrder} it survives {@link resolve}: a route that swaps
+   * its filter class per request keeps the order its own declaration gave.
+   *
+   * Wins over the `@Filterable` option and the module option when set. A
+   * client-sent `sort` replaces it outright, which is what makes it a default.
+   */
+  defaultSort?: string | SortItem[];
   /**
    * Orders a `distinct` request that carries no `sort` of its own ascending by
    * the columns it projected — declared on the ROUTE that runs the query. See
