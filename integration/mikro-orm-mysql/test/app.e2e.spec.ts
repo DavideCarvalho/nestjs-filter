@@ -194,6 +194,44 @@ describe('MikroORM + MySQL integration', () => {
     ).toEqual(['Alice', 'Bob']);
     expect(total).toBe(2);
   });
+  it('DISTINCT over a relation path survives a page beside a to-many join', async () => {
+    await seed();
+    const runner = mod.get(FilterRunner);
+
+    // MikroORM turns its PAGINATE flag on by itself for any builder carrying a
+    // to-many join and no GROUP BY, then wraps a LIMITed query in
+    // `where id in (select id … order by … limit …)`. The projected path is
+    // ordered by its SELECT ALIAS, which exists only in the outer query, so on
+    // MySQL that wrapper does not merely skew the page — the statement is
+    // rejected: "Unknown column 'posts.title' in 'order clause'". SQLite
+    // accepts it, so this case is only visible on a real engine.
+    const { rows, total } = await runner.findAndCount(User, {
+      filter: {},
+      distinct: 'posts.title',
+      sort: 'posts.title',
+      paginate: { page: 0, size: 100 },
+    });
+
+    // Charlie has no posts and the projection joins LEFT, so the value set
+    // carries a null alongside the three titles — MySQL sorts it first.
+    expect(
+      (rows as unknown as Array<Record<string, unknown>>).map((row) => row['posts.title']),
+    ).toEqual([null, 'Bob writes', 'Draft Post', 'Hello World']);
+    expect(total).toBe(4);
+
+    // And the page bounds the VALUES: bounding the root rows instead would
+    // spend a page of 2 on Alice and Bob and answer with their titles only.
+    const page = await runner.findAndCount(User, {
+      filter: {},
+      distinct: 'posts.title',
+      sort: 'posts.title',
+      paginate: { page: 1, size: 2 },
+    });
+    expect(
+      (page.rows as unknown as Array<Record<string, unknown>>).map((row) => row['posts.title']),
+    ).toEqual(['Draft Post', 'Hello World']);
+  });
+
   it('DISTINCT over a JSON sub-path projects the attribute as a bare value', async () => {
     await seed();
     const runner = mod.get(FilterRunner);
