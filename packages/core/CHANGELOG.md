@@ -1,5 +1,58 @@
 # @dudousxd/nestjs-filter
 
+## 1.31.0
+
+### Minor Changes
+
+- [`fc10518`](https://github.com/DavideCarvalho/nestjs-filter/commit/fc10518711dae46f08a97dcf3638b5760b171ec0) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Give `FILTER_ADAPTER` a single owner, and accept the adapter as config
+
+  `FilterModule.forRoot()` registered `{ provide: FILTER_ADAPTER, useValue: null }`
+  as the no-adapter default, and the adapter modules registered the real adapter for
+  the _same_ token. Both are global, so two providers competed and the winner came
+  down to container resolution order. That order changed in NestJS 12: constructor
+  injection began resolving to the `null` default while `app.get(FILTER_ADAPTER)`
+  still returned the real adapter, so every `@Inject(FILTER_ADAPTER)` consumer
+  silently received `null` and failed at request time with
+  `Cannot read properties of null`. NestJS 11 happened to pick the real adapter,
+  but neither version ever promised an order.
+
+  The adapter modules now register a new internal token, `FILTER_ADAPTER_IMPL`, and
+  `FilterModule` is the only module that provides `FILTER_ADAPTER` — resolving it
+  from that token, or `null` when no adapter is installed. One provider, nothing to
+  disambiguate.
+
+  `FilterModule.forRoot()` also accepts the adapter directly now:
+
+  ```ts
+  import { mikroOrmAdapter } from "@dudousxd/nestjs-filter-mikro-orm";
+
+  FilterModule.forRoot({ adapter: mikroOrmAdapter });
+  ```
+
+  `typeOrmAdapter(dataSourceName?)` is the TypeORM equivalent. This is the preferred
+  form — one module instead of two — and it makes registering two adapters for one
+  token impossible by construction.
+
+  Not breaking: `MikroOrmFilterModule` / `TypeOrmFilterModule` keep working unchanged,
+  and `FILTER_ADAPTER` still resolves to `null` when no adapter is installed. Upgrade
+  core and the adapter package together — an older adapter package still registers
+  the public token itself, which reintroduces the ambiguity this release removes.
+
+### Patch Changes
+
+- [`43f582e`](https://github.com/DavideCarvalho/nestjs-filter/commit/43f582eb28d713fabe4776420b0426f86ca04116) - Verify support for NestJS 12.
+
+  The peer ranges already read `>=10.0.0`, so NestJS 12 was admitted without a change; what moves
+  here is the dev dependencies, which now sit on the 12.x line so the suite actually runs against
+  NestJS 12 rather than only claiming to support it. `@nestjs/typeorm` follows onto its own 12.x
+  release.
+
+  No source change was needed. NestJS 12 ships its core packages as pure ESM and these packages are
+  already `"type": "module"`; none of them implements a `PipeTransform`, so the `ArgumentMetadata`
+  generic added in v12 does not reach this code, and none subclasses `ConsoleLogger`. The example and
+  integration apps move to 12 alongside the packages, so a single copy of `@nestjs/core` stays in the
+  tree and `ModuleRef` resolves to the class the container registered.
+
 ## 1.30.0
 
 ### Minor Changes
