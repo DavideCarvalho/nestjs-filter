@@ -73,19 +73,18 @@ export class UserFilter extends MikroOrmFilter<User> {
 </Step>
 <Step>
 
-Register the module — wire the core, the adapter, and your filters:
+Register the module — wire the core with its adapter, plus your filters:
 
 ```ts title="app.module.ts"
 import { Module } from '@nestjs/common';
 import { FilterModule } from '@dudousxd/nestjs-filter';
-import { MikroOrmFilterModule } from '@dudousxd/nestjs-filter-mikro-orm';
+import { mikroOrmAdapter } from '@dudousxd/nestjs-filter-mikro-orm';
 import { UserFilter } from './user.filter.js';
 import { UsersController } from './users.controller.js';
 
 @Module({
   imports: [
-    FilterModule.forRoot({ inputNormalizer: 'camelCase' }),
-    MikroOrmFilterModule.forRoot(),
+    FilterModule.forRoot({ inputNormalizer: 'camelCase', adapter: mikroOrmAdapter }),
     FilterModule.forFeature([UserFilter]),
   ],
   controllers: [UsersController],

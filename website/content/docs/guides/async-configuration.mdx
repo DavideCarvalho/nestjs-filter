@@ -141,7 +141,8 @@ interface FilterModuleOptionsFactory {
 
 <Callout type="warn">
   `forRootAsync` configures the **core** module. Your ORM adapter module
-  (`TypeOrmFilterModule` / `MikroOrmFilterModule`) and per-feature filter
+  (`adapter: mikroOrmAdapter` / `typeOrmAdapter()`, or the legacy
+  `MikroOrmFilterModule` / `TypeOrmFilterModule`) and per-feature filter
   registration (`FilterModule.forFeature([...])`) are still registered
   separately, exactly as with `forRoot`.
 </Callout>

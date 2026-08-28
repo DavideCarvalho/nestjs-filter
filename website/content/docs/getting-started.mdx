@@ -142,15 +142,14 @@ A filter is a regular NestJS injectable class that extends `MikroOrmFilter` or `
     // src/app.module.ts
     import { Module } from '@nestjs/common';
     import { FilterModule } from '@dudousxd/nestjs-filter';
-    import { MikroOrmFilterModule } from '@dudousxd/nestjs-filter-mikro-orm';
+    import { mikroOrmAdapter } from '@dudousxd/nestjs-filter-mikro-orm';
     import { UserFilter } from './user.filter.js';
     import { UsersController } from './users.controller.js';
 
     @Module({
       imports: [
         // ... your MikroOrmModule.forRoot() config ...
-        FilterModule.forRoot({ inputNormalizer: 'camelCase' }),
-        MikroOrmFilterModule.forRoot(),
+        FilterModule.forRoot({ inputNormalizer: 'camelCase', adapter: mikroOrmAdapter }),
         FilterModule.forFeature([UserFilter]),
       ],
       controllers: [UsersController],
@@ -163,15 +162,14 @@ A filter is a regular NestJS injectable class that extends `MikroOrmFilter` or `
     // src/app.module.ts
     import { Module } from '@nestjs/common';
     import { FilterModule } from '@dudousxd/nestjs-filter';
-    import { TypeOrmFilterModule } from '@dudousxd/nestjs-filter-typeorm';
+    import { typeOrmAdapter } from '@dudousxd/nestjs-filter-typeorm';
     import { UserFilter } from './user.filter.js';
     import { UsersController } from './users.controller.js';
 
     @Module({
       imports: [
         // ... your TypeOrmModule.forRoot() config ...
-        FilterModule.forRoot({ inputNormalizer: 'camelCase' }),
-        TypeOrmFilterModule.forRoot(),
+        FilterModule.forRoot({ inputNormalizer: 'camelCase', adapter: typeOrmAdapter() }),
         FilterModule.forFeature([UserFilter]),
       ],
       controllers: [UsersController],
