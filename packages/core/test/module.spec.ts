@@ -49,6 +49,21 @@ describe('FilterModule', () => {
     expect(options).toMatchObject({ inputNormalizer: 'snakeCase' });
   });
 
+  it('resolves FILTER_ADAPTER from an adapter passed through the options', async () => {
+    const adapter = { tag: 'from-options' };
+    const mod = await Test.createTestingModule({
+      imports: [
+        FilterModule.forRoot({
+          validation: 'off',
+          adapter: { useFactory: () => adapter },
+        }),
+      ],
+    }).compile();
+    // One provider owns the token, so there is nothing to disambiguate: the
+    // adapter wins over the no-adapter default without depending on import order.
+    expect(mod.get(FILTER_ADAPTER)).toBe(adapter);
+  });
+
   it('FILTER_ADAPTER defaults to null when not provided by adapter module', async () => {
     const mod = await Test.createTestingModule({
       imports: [FilterModule.forRoot({ validation: 'off' })],

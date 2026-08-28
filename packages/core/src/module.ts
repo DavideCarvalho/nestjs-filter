@@ -2,7 +2,7 @@ import { type DynamicModule, Module, type Provider, type Type } from '@nestjs/co
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ApplyFilterInterceptor } from './interceptor/apply-filter.interceptor.js';
 import { FilterRunner } from './runner.js';
-import { FILTER_ADAPTER, FILTER_MODULE_OPTIONS } from './tokens.js';
+import { FILTER_ADAPTER, FILTER_ADAPTER_IMPL, FILTER_MODULE_OPTIONS } from './tokens.js';
 import type {
   FilterModuleAsyncOptions,
   FilterModuleOptions,
@@ -20,7 +20,23 @@ export class FilterModule {
   static forRoot(options: FilterModuleOptions = {}): DynamicModule {
     const providers: Provider[] = [
       { provide: FILTER_MODULE_OPTIONS, useValue: options },
-      { provide: FILTER_ADAPTER, useValue: null },
+      // Only registered when the adapter came through the options. An adapter
+      // module registers the same token itself; the two are alternatives, and
+      // supplying both is what this indirection exists to make impossible.
+      ...(options.adapter
+        ? [
+            {
+              provide: FILTER_ADAPTER_IMPL,
+              useFactory: options.adapter.useFactory,
+              inject: [...(options.adapter.inject ?? [])],
+            } as Provider,
+          ]
+        : []),
+      {
+        provide: FILTER_ADAPTER,
+        useFactory: (impl?: unknown) => impl ?? null,
+        inject: [{ token: FILTER_ADAPTER_IMPL, optional: true }],
+      },
       FilterRunner,
       ApplyFilterInterceptor,
       { provide: APP_INTERCEPTOR, useExisting: ApplyFilterInterceptor },
@@ -38,7 +54,11 @@ export class FilterModule {
     const asyncProviders = Array.isArray(asyncProvider) ? asyncProvider : [asyncProvider];
     const providers: Provider[] = [
       ...asyncProviders,
-      { provide: FILTER_ADAPTER, useValue: null },
+      {
+        provide: FILTER_ADAPTER,
+        useFactory: (impl?: unknown) => impl ?? null,
+        inject: [{ token: FILTER_ADAPTER_IMPL, optional: true }],
+      },
       FilterRunner,
       ApplyFilterInterceptor,
       { provide: APP_INTERCEPTOR, useExisting: ApplyFilterInterceptor },

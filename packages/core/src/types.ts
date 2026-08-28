@@ -220,7 +220,27 @@ export type ValidationMode = 'auto' | 'off';
  */
 export type InputFormat = 'native' | 'spatie';
 
+/**
+ * How an ORM adapter package hands its adapter to `FilterModule.forRoot`.
+ *
+ * A descriptor rather than a module, so the adapter lives in the one place that
+ * owns it and core stays ORM-agnostic — it never sees the ORM's tokens, only a
+ * factory and the tokens to feed it.
+ */
+export interface FilterAdapterDescriptor {
+  useFactory: (...args: never[]) => unknown;
+  /** `readonly` so an adapter package can export the descriptor `as const`. */
+  inject?: readonly unknown[];
+}
+
 export interface FilterModuleOptions {
+  /**
+   * The ORM adapter, e.g. `mikroOrmAdapter` from
+   * `@dudousxd/nestjs-filter-mikro-orm`. Preferred over importing the adapter's
+   * own module: it keeps a single provider for the adapter token, so there is
+   * nothing for the container to disambiguate.
+   */
+  adapter?: FilterAdapterDescriptor;
   inputNormalizer?: InputNormalizer;
   /**
    * The input query format. Defaults to `'native'` (the library's structured

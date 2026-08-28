@@ -1,5 +1,12 @@
 export const FILTER_MODULE_OPTIONS = Symbol.for('@dudousxd/nestjs-filter:options');
 export const FILTER_ADAPTER = Symbol.for('@dudousxd/nestjs-filter:adapter');
+/**
+ * What an ORM adapter package registers. `FILTER_ADAPTER` is resolved FROM this
+ * by `FilterModule`, so exactly one module owns the public token: two global
+ * providers for it resolve by container order, which changed in NestJS 12 and
+ * silently handed consumers the no-adapter placeholder.
+ */
+export const FILTER_ADAPTER_IMPL = Symbol.for('@dudousxd/nestjs-filter:adapter-impl');
 
 export const FILTERABLE_METADATA = 'nestjs-filter:filterable';
 export const FILTER_FOR_METADATA = 'nestjs-filter:filter-for';
