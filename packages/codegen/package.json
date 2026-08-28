@@ -27,17 +27,17 @@
   },
   "peerDependencies": {
     "@dudousxd/nestjs-codegen": ">=0.18.0",
-    "@dudousxd/nestjs-filter-client": ">=1.25.0",
-    "@dudousxd/nestjs-filter": ">=1.19.0"
+    "@dudousxd/nestjs-filter": ">=1.19.0",
+    "@dudousxd/nestjs-filter-client": ">=1.25.0"
   },
   "dependencies": {
     "ts-morph": "28.0.0"
   },
   "devDependencies": {
-    "@dudousxd/nestjs-codegen": "0.2.1",
-    "typescript": "^5.4.0",
-    "vitest": "^3.0.0",
-    "@dudousxd/nestjs-filter": "workspace:*"
+    "@dudousxd/nestjs-codegen": "0.25.0",
+    "@dudousxd/nestjs-filter": "workspace:*",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=20"
