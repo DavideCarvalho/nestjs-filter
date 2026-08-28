@@ -40,9 +40,9 @@
     }
   },
   "devDependencies": {
-    "@tanstack/table-core": "^8.20.0",
-    "typescript": "^5.4.0",
-    "vitest": "^3.0.0"
+    "@tanstack/table-core": "^9.2.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=20"
