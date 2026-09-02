@@ -37,11 +37,13 @@ export interface FilterInput {
 
 /**
  * Terminal group-by-count specification: the grouping column, plus an optional
- * positive numeric bucket width for the histogram/distribution variant.
+ * positive numeric bucket width for the histogram/distribution variant and an
+ * optional positive integer `limit` for the top-N-by-count form.
  */
 export interface GroupByCountSpec {
   field: string;
   bucket?: number;
+  limit?: number;
 }
 
 /**
@@ -621,14 +623,21 @@ export class FilterQueryBuilder {
    * histogram variant `{ bucketStart, bucketEnd, count }[]`
    * (`bucketStart = FLOOR(col / bucket) * bucket`).
    *
+   * `limit` asks for the **top N groups by count** instead of every group — what
+   * a value picker over a column whose distinct values grow with the data (tags,
+   * external ids, a free-text label) actually wants, since it renders a handful
+   * and the unbounded answer is a listing wearing an aggregate's shape.
+   *
    * @example
    * filterQuery().where('base.id', 'in', baseIds).groupByCount('workOrderStatusCode')
    * filterQuery().where('base.id', 'in', baseIds).groupByCount('totalActualCost', { bucket: 1000 })
+   * filterQuery().groupByCount('tag', { limit: 20 })
    */
-  groupByCount(field: string, opts?: { bucket?: number }): this {
+  groupByCount(field: string, opts?: { bucket?: number; limit?: number }): this {
     this.groupByCountSpec = {
       field,
       ...(opts?.bucket !== undefined && { bucket: opts.bucket }),
+      ...(opts?.limit !== undefined && { limit: opts.limit }),
     };
     this.notify();
     return this;

@@ -16,7 +16,7 @@ const fields: EntityFieldInfo[] = [
 
 interface Calls {
   columnFilters: ColumnFilter[][];
-  groupByCount: Array<{ field: string; opts?: { bucket?: number } }>;
+  groupByCount: Array<{ field: string; opts?: { bucket?: number; limit?: number } }>;
 }
 
 function makeAdapter(
@@ -143,5 +143,50 @@ describe('FilterRunner.groupByCount', () => {
     // bucket 0 dropped → adapter called without opts → { value, count } response
     expect(calls.groupByCount).toEqual([{ field: 'status' }]);
     expect(result[0]).toHaveProperty('value');
+  });
+
+  it('forwards a positive integer limit to the adapter as the top-N bound', async () => {
+    const calls: Calls = { columnFilters: [], groupByCount: [] };
+    const runner = await makeRunner(makeAdapter(calls));
+
+    await runner.groupByCount(FakeEntity, { groupByCount: { field: 'status', limit: 20 } });
+
+    expect(calls.groupByCount).toEqual([{ field: 'status', opts: { limit: 20 } }]);
+  });
+
+  it('coerces a numeric-string limit, which is how a GET route carries one', async () => {
+    const calls: Calls = { columnFilters: [], groupByCount: [] };
+    const runner = await makeRunner(makeAdapter(calls));
+
+    await runner.groupByCount(FakeEntity, {
+      groupByCount: { field: 'status', limit: '20' as unknown as number },
+    });
+
+    expect(calls.groupByCount).toEqual([{ field: 'status', opts: { limit: 20 } }]);
+  });
+
+  it.each([0, -5, 2.5, Number.NaN, 'many' as unknown as number])(
+    'degrades an unusable limit (%s) to the unbounded form',
+    async (limit) => {
+      const calls: Calls = { columnFilters: [], groupByCount: [] };
+      const runner = await makeRunner(makeAdapter(calls));
+
+      await runner.groupByCount(FakeEntity, { groupByCount: { field: 'status', limit } });
+
+      expect(calls.groupByCount).toEqual([{ field: 'status' }]);
+    },
+  );
+
+  it('carries bucket and limit together — a bounded histogram is one question', async () => {
+    const calls: Calls = { columnFilters: [], groupByCount: [] };
+    const runner = await makeRunner(makeAdapter(calls));
+
+    await runner.groupByCount(FakeEntity, {
+      groupByCount: { field: 'totalActualCost', bucket: 1000, limit: 5 },
+    });
+
+    expect(calls.groupByCount).toEqual([
+      { field: 'totalActualCost', opts: { bucket: 1000, limit: 5 } },
+    ]);
   });
 });

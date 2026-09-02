@@ -13,6 +13,7 @@ export function Filterable(options: FilterableOptions): ClassDecorator {
     }
     const meta: FilterMetadata = {
       entity: options.entity,
+      ...(options.adapter !== undefined && { adapter: options.adapter }),
       ...(options.allowed !== undefined && { allowed: options.allowed }),
       ...(options.blocked !== undefined && { blocked: options.blocked }),
       autoFields: options.autoFields ?? true,

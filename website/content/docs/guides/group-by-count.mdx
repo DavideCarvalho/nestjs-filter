@@ -26,6 +26,19 @@ GROUP BY FLOOR(<col> / :bucket) * :bucket
 
 It is **mutually exclusive with entity-row output** — a request carrying `groupByCount` is answered with the aggregation, never rows. This makes a root-level `GROUP BY` safe: aggregation output *replaces* rows rather than multiplying them, so the "never GROUP BY on the outer query" invariant that guards entity-row queries (and the to-many aggregate subqueries) doesn't apply here.
 
+It also takes a **`limit`** — the top N groups by count:
+
+```sql
+SELECT <col> AS value, COUNT(*) AS count
+FROM <entity>
+WHERE <normal filter clauses>
+GROUP BY <col>
+ORDER BY COUNT(*) DESC
+LIMIT :limit
+```
+
+A grouping column whose distinct values grow with the data — tags, external ids, a free-text label — answers the unbounded aggregate with one row per value, which is a listing wearing an aggregate's shape. The caller that wants it most, a value picker, renders a handful. Ordering only becomes part of the contract once rows are being dropped: **without** a limit you get every group, in whatever order the database returns, exactly as before.
+
 <Callout type="info">
   Scope: `COUNT(*)` only, a **single** grouping column, and a **numeric** `bucket`. `HAVING`, multi-column grouping, aggregates other than count, and date truncation are intentionally out of this first cut.
 </Callout>
@@ -49,6 +62,11 @@ const costHistogram = filterQueryTyped<WorkOrderFields>()
   .where('base.id', 'in', baseIds)
   .groupByCount('totalActualCost', { bucket: 1000 })
   .build();
+
+// Top-N: what a value picker over an unbounded column asks for
+const topTags = filterQueryTyped<WorkOrderFields>()
+  .groupByCount('tag', { limit: 20 })
+  .build();
 ```
 
 On the [codegen](/docs/guides/codegen) per-route typed builder, `field` is constrained to that route's filter fields, so grouping by an unknown column is a **compile error** — matching the server-side allowlist validation.
@@ -58,7 +76,7 @@ The wire body extends the structured input shape:
 ```jsonc
 {
   "filter": { "where": [ /* ... */ ] },
-  "groupByCount": { "field": "totalActualCost", "bucket": 1000 }
+  "groupByCount": { "field": "totalActualCost", "bucket": 1000, "limit": 20 }
 }
 ```
 
@@ -98,8 +116,10 @@ groupByCount?(
   qb: unknown,
   field: string,          // already validated against entity metadata
   entity: Type<unknown>,
-  opts?: { bucket?: number },
+  opts?: { bucket?: number; limit?: number },
 ): Promise<Array<{ value: unknown; count: number }>>;
 ```
+
+An adapter that cannot bound the aggregate may return every group; a caller must not assume the bound was applied. A `limit` that is not a positive integer degrades to the unbounded form rather than failing the request, the way a non-positive `bucket` already does — and numeric strings are coerced, so `?groupByCount[limit]=20` works on a GET route.
 
 Identifiers are resolved from ORM metadata (never client text) and the bucket width is bound as a parameter. The runner shapes the returned `{ value, count }` rows into the final response — deriving `bucketEnd` for the bucketed variant.

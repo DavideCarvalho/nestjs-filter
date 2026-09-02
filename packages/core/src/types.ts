@@ -1,4 +1,4 @@
-import type { Type } from '@nestjs/common';
+import type { InjectionToken, Type } from '@nestjs/common';
 import type { FilterFieldTypeHint } from './decorator/filter-for.decorator.js';
 import type { FilterOperator } from './operators/types.js';
 
@@ -57,6 +57,29 @@ export type ComputedMap = Record<string, ComputedEntry>;
 
 export interface FilterableOptions {
   entity: Type<unknown>;
+  /**
+   * The DI token of the {@link FilterAdapter} that answers for this filter,
+   * when it is NOT the application-wide one.
+   *
+   * `FilterModule.forRoot`'s adapter is global, which is right for an app whose
+   * filterable data all lives behind one ORM. It stops being right the moment a
+   * second filterable backend shares the process — a library that ships its own
+   * console over its own read model, a second data source, an adapter over an
+   * HTTP service. Registering two global adapters does not compose: whichever
+   * one DI hands over first answers for every filter in the app, including the
+   * ones written against the other.
+   *
+   * Naming a token here scopes the choice to this filter class: its routes,
+   * its `groupByCount`, its `findAndCount`. Filters that name nothing keep
+   * using the global adapter, so an app with one backend is unaffected.
+   *
+   * The token must resolve from the module graph the filter is used in (a
+   * provider anywhere reachable — the lookup is non-strict), and it is an error
+   * for it to be absent: a filter declaring which adapter it needs, then
+   * silently running on another one, is the failure this option exists to
+   * prevent.
+   */
+  adapter?: InjectionToken;
   /**
    * Allowlist of filterable field keys. Each entry is either a plain field
    * name (allows all operators on that field — backward-compatible) or an
@@ -356,13 +379,21 @@ export interface CursorPage<E> {
 
 /**
  * Terminal `groupByCount` specification carried on structured input:
- * `{ field, bucket? }`. `field` is the grouping column (validated against the
- * entity's filterable columns before it reaches SQL); `bucket`, when a positive
- * number, switches to the numeric-bucketed histogram variant.
+ * `{ field, bucket?, limit? }`. `field` is the grouping column (validated
+ * against the entity's filterable columns before it reaches SQL); `bucket`,
+ * when a positive number, switches to the numeric-bucketed histogram variant.
+ *
+ * `limit`, when a positive integer, asks for the **top N groups by count**
+ * rather than every group. A column whose cardinality grows with the data —
+ * tags, external ids, a free-text label — otherwise answers a value picker with
+ * one row per distinct value, which is a listing wearing an aggregate's shape.
+ * Ordering only becomes part of the contract when a limit is asked for: without
+ * one the caller receives every group and can order them itself.
  */
 export interface GroupByCountSpec {
   field: string;
   bucket?: number;
+  limit?: number;
 }
 
 /**
@@ -575,6 +606,8 @@ export interface ApplyFilterOptions {
 
 export interface FilterMetadata {
   entity: Type<unknown>;
+  /** See {@link FilterableOptions.adapter}. Absent = the global adapter. */
+  adapter?: InjectionToken;
   allowed?: readonly AllowedFieldEntry[];
   blocked?: readonly string[];
   autoFields?: boolean | readonly string[];

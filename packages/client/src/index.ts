@@ -11,7 +11,11 @@ export type {
   SortItem,
   OffsetPagination,
 } from './filter-query-builder.js';
-export { flatObjectToQueryString, columnFiltersToQueryString } from './to-query-string.js';
+export {
+  flatObjectToQueryString,
+  columnFiltersToQueryString,
+  filterQueryToQueryString,
+} from './to-query-string.js';
 export type {
   ColumnFilter,
   ColumnFilterClause,

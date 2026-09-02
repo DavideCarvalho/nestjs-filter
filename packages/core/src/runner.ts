@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  type InjectionToken,
   Logger,
   Optional,
   type Type,
@@ -165,7 +166,13 @@ export function buildComputedRegistry(
 export class FilterRunner {
   private readonly logger = new Logger(FilterRunner.name);
 
-  private adapter: FilterAdapter | null;
+  /** The application-wide adapter (`FilterModule.forRoot`'s), used by every filter that does not
+   *  name its own — see {@link FilterableOptions.adapter}. */
+  private defaultAdapter: FilterAdapter | null;
+
+  /** Adapters resolved from a filter-declared token, memoized per token: they are application-scoped
+   *  providers, so re-resolving them per request is pure overhead. */
+  private readonly scopedAdapters = new Map<InjectionToken, FilterAdapter>();
 
   /** Per-entity metadata cache for `describe()`. Metadata is static at runtime. */
   private readonly descriptionCache = new WeakMap<object, EntityDescription>();
@@ -178,7 +185,7 @@ export class FilterRunner {
     @Inject(CONTEXT_ACCESSOR)
     private readonly contextAccessor?: ContextAccessor,
   ) {
-    this.adapter = injectedAdapter;
+    this.defaultAdapter = injectedAdapter;
   }
 
   /**
@@ -231,14 +238,45 @@ export class FilterRunner {
     adapter.applyAutoField(qb as unknown, field, tenantId);
   }
 
-  private resolveAdapter(): FilterAdapter | null {
-    if (this.adapter) return this.adapter;
+  /**
+   * The adapter that answers for a request, given the classes it is made against.
+   *
+   * The FIRST source declaring `@Filterable({ adapter })` wins (a filter class before the entity it
+   * targets, since the class is the more specific declaration), and everything else falls through to
+   * the application-wide adapter. Sources are passed as they are known at the call site; `undefined`
+   * entries are skipped, so a dynamic call with no filter class behaves exactly as before.
+   *
+   * A declared token that does not resolve THROWS rather than falling back: a filter naming the
+   * adapter it needs, then quietly running on a different backend's, would answer with rows from the
+   * wrong data source — a failure that looks like a successful query.
+   */
+  private resolveAdapter(...sources: Array<Type<unknown> | undefined>): FilterAdapter | null {
+    for (const source of sources) {
+      const token = source ? getFilterableMetadata(source)?.adapter : undefined;
+      if (token === undefined) continue;
+      const cached = this.scopedAdapters.get(token);
+      if (cached) return cached;
+      let resolved: FilterAdapter | null = null;
+      try {
+        resolved = this.moduleRef.get<FilterAdapter>(token, { strict: false });
+      } catch {
+        resolved = null;
+      }
+      if (!resolved) {
+        throw new Error(
+          `@Filterable on ${source?.name} names an adapter token that is not registered. Provide it in a module reachable from this one.`,
+        );
+      }
+      this.scopedAdapters.set(token, resolved);
+      return resolved;
+    }
+    if (this.defaultAdapter) return this.defaultAdapter;
     try {
       const resolved = this.moduleRef.get(FILTER_ADAPTER, { strict: false });
       if (resolved) {
-        this.adapter = resolved;
+        this.defaultAdapter = resolved;
       }
-      return this.adapter;
+      return this.defaultAdapter;
     } catch {
       return null;
     }
@@ -330,7 +368,7 @@ export class FilterRunner {
     const cached = this.descriptionCache.get(entity);
     if (cached) return cached;
 
-    const adapter = this.resolveAdapter();
+    const adapter = this.resolveAdapter(entity);
     const fields: Record<string, FieldMeta> = {};
     const relations: Record<string, RelationMeta> = {};
 
@@ -558,11 +596,11 @@ export class FilterRunner {
     } = {},
   ): Promise<Q> {
     const filter = await this.resolveFilter(FilterClass);
-    const adapter = this.resolveAdapter();
     // Resolved once and reused for every alias choke point below (column
     // filters, structured filter keys, sort, distinct, select) as well as
     // the computed-field/entity lookups further down.
     const filterableMeta = getFilterableMetadata(FilterClass);
+    const adapter = this.resolveAdapter(FilterClass, filterableMeta?.entity);
     // Merges the inline `computed` map and `@Computed` methods into one
     // alias → source registry, resolved once per apply() call.
     const computedRegistry = buildComputedRegistry(FilterClass, filter);
@@ -1133,7 +1171,10 @@ export class FilterRunner {
     entries: Array<[string, unknown]>,
     context: FilterContext,
   ): Promise<void> {
-    if (!this.adapter?.applyRelationConstraint) {
+    // The RELATED filter's adapter, not the outer one: a relation is constrained through the class
+    // that declares it, and that class may name its own backend.
+    const adapter = this.resolveAdapter(RelatedFilterClass);
+    if (!adapter?.applyRelationConstraint) {
       this.warnUnsupported(`Relation "${relationName}" provided`, 'applyRelationConstraint');
       return;
     }
@@ -1141,7 +1182,7 @@ export class FilterRunner {
     for (const [key, value] of entries) {
       inputObj[key] = value;
     }
-    await this.adapter.applyRelationConstraint(qb, relationName, async (relationQb: unknown) => {
+    await adapter.applyRelationConstraint(qb, relationName, async (relationQb: unknown) => {
       await this.apply(RelatedFilterClass, { filter: inputObj }, relationQb, context, {
         native: true,
       });
@@ -1305,7 +1346,7 @@ export class FilterRunner {
       }
 
       // Introspect entity metadata to restrict auto-fields to real columns
-      const adapter = this.resolveAdapter();
+      const adapter = this.resolveAdapter(FilterClass as Type<unknown>, meta.entity);
       if (adapter?.getEntityFields) {
         const entityFields = adapter.getEntityFields(meta.entity);
         if (entityFields) {
@@ -1515,9 +1556,17 @@ export class FilterRunner {
        * is the only way in.
        */
       trustedPageSize?: boolean;
+      /**
+       * The filter class this dynamic pass runs on behalf of, when there is one — the aggregate
+       * modes ({@link groupByCount}, {@link fieldExtent}, {@link fieldHistogram}) apply their WHERE
+       * through here while still being scoped to a class. It selects the ADAPTER (see
+       * {@link FilterableOptions.adapter}); without it, a class whose entity is backed by a
+       * non-global adapter would have its predicates applied to a builder from a different backend.
+       */
+      filterClass?: Type<object> | undefined;
     } = {},
   ): Promise<Q> {
-    const adapter = this.resolveAdapter();
+    const adapter = this.resolveAdapter(internal.filterClass, entity);
     // Dynamic mode has no FilterClass — an entity class can still carry
     // `@Filterable` metadata (declared directly on the entity, decorating
     // itself) purely to supply `aliases` for endpoints that query it
@@ -1711,7 +1760,7 @@ export class FilterRunner {
     input: unknown,
     opts: { qb?: unknown; context?: FilterContext; trustedPageSize?: boolean } = {},
   ): Promise<{ rows: E[]; total: number }> {
-    const adapter = this.resolveAdapter();
+    const adapter = this.resolveAdapter(entity);
     const qb = opts.qb ?? adapter?.createQueryBuilder(entity);
 
     const structured = this.extractStructuredInput(input);
@@ -1841,7 +1890,7 @@ export class FilterRunner {
     input: unknown,
     opts: { qb?: unknown; context?: FilterContext; filterClass?: Type<object> } = {},
   ): Promise<GroupByCountResult> {
-    const adapter = this.resolveAdapter();
+    const adapter = this.resolveAdapter(opts.filterClass, entity);
     const structured = this.extractStructuredInput(input);
 
     const spec = this.parseGroupByCount(structured.groupByCount);
@@ -1898,16 +1947,14 @@ export class FilterRunner {
       { filter: structured.filter, search: structured.search },
       qb,
       opts.context,
-      { skipSortAndPagination: true, native: true },
+      { skipSortAndPagination: true, native: true, filterClass: opts.filterClass },
     );
 
     const bucket = spec.bucket;
-    const rows = await adapter.groupByCount(
-      qb,
-      groupField,
-      entity,
-      bucket ? { bucket } : undefined,
-    );
+    const limit = spec.limit;
+    const aggregateOpts =
+      bucket || limit ? { ...(bucket && { bucket }), ...(limit && { limit }) } : undefined;
+    const rows = await adapter.groupByCount(qb, groupField, entity, aggregateOpts);
 
     if (bucket) {
       return rows.map((r): GroupByCountBucket => {
@@ -1920,20 +1967,35 @@ export class FilterRunner {
 
   /**
    * Parses and validates the raw `groupByCount` structured-input block into a
-   * canonical `{ field, bucket? }`. Returns `null` when no usable `field` is
-   * present. `bucket` is kept only when it is a finite positive number — a
-   * zero/negative/NaN/non-number bucket degrades to the plain (non-bucketed)
-   * group-by-count rather than emitting a divide-by-zero or nonsensical width.
+   * canonical `{ field, bucket?, limit? }`. Returns `null` when no usable
+   * `field` is present. `bucket` is kept only when it is a finite positive
+   * number — a zero/negative/NaN/non-number bucket degrades to the plain
+   * (non-bucketed) group-by-count rather than emitting a divide-by-zero or
+   * nonsensical width. `limit` is kept on the same terms and must additionally
+   * be an integer; anything else degrades to the unbounded form, since a
+   * fractional or negative row count is not a narrower question, just a
+   * malformed one.
+   *
+   * Both arrive over the wire as strings on a GET route (`?groupByCount[limit]=20`),
+   * so numeric strings are coerced before those checks — otherwise the bound a
+   * caller asked for would be silently dropped by the shape test alone.
    */
   private parseGroupByCount(raw: unknown): GroupByCountSpec | null {
     if (!raw || typeof raw !== 'object') return null;
     const obj = raw as Record<string, unknown>;
     if (typeof obj.field !== 'string' || obj.field.length === 0) return null;
-    const bucket =
-      typeof obj.bucket === 'number' && Number.isFinite(obj.bucket) && obj.bucket > 0
-        ? obj.bucket
-        : undefined;
-    return { field: obj.field, ...(bucket !== undefined && { bucket }) };
+    const numeric = (value: unknown): number | undefined => {
+      const n = typeof value === 'string' ? Number(value) : value;
+      return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    const bucket = numeric(obj.bucket);
+    const limitValue = numeric(obj.limit);
+    const limit = limitValue !== undefined && Number.isInteger(limitValue) ? limitValue : undefined;
+    return {
+      field: obj.field,
+      ...(bucket !== undefined && { bucket }),
+      ...(limit !== undefined && { limit }),
+    };
   }
 
   /**
@@ -2004,7 +2066,7 @@ export class FilterRunner {
     // alongside its rows read and get nothing back when nobody asked.
     if (requested.length === 0) return {};
 
-    const adapter = this.resolveAdapter();
+    const adapter = this.resolveAdapter(opts.filterClass, entity);
     if (!adapter?.fieldExtent) {
       throw new Error(
         'extent is not supported by the active adapter (it does not implement fieldExtent()).',
@@ -2058,7 +2120,7 @@ export class FilterRunner {
       { filter: structured.filter, search: structured.search },
       qb,
       opts.context,
-      { skipSortAndPagination: true, native: true },
+      { skipSortAndPagination: true, native: true, filterClass: opts.filterClass },
     );
 
     return adapter.fieldExtent(qb, targets, entity);
@@ -2107,6 +2169,7 @@ export class FilterRunner {
     structured: { filter: unknown; search: unknown },
     adapter: FilterAdapter,
     context: FilterContext | undefined,
+    filterClass?: Type<object>,
   ): Promise<unknown> {
     const qb: unknown = adapter.createQueryBuilder(entity);
     await this.applyDynamic(
@@ -2114,7 +2177,7 @@ export class FilterRunner {
       { filter: structured.filter, search: structured.search },
       qb,
       context,
-      { skipSortAndPagination: true, native: true },
+      { skipSortAndPagination: true, native: true, filterClass },
     );
     return qb;
   }
@@ -2204,7 +2267,7 @@ export class FilterRunner {
       );
     }
 
-    const adapter = this.resolveAdapter();
+    const adapter = this.resolveAdapter(opts.filterClass, entity);
     // Named separately: an adapter can plausibly have one and not the other,
     // and "histogram is unsupported" would send its author looking for a method
     // by that name, which does not and will not exist.
@@ -2246,7 +2309,13 @@ export class FilterRunner {
     this.assertBucketable(target, entity, adapter);
 
     // ── pass 1: where do the endpoints sit ───────────────────────────────────
-    const extentQb = await this.buildFilteredQb(entity, structured, adapter, opts.context);
+    const extentQb = await this.buildFilteredQb(
+      entity,
+      structured,
+      adapter,
+      opts.context,
+      opts.filterClass,
+    );
     const measured = await adapter.fieldExtent(extentQb, [target], entity);
     const key = typeof target === 'string' ? target : target.alias;
     const bounds = measured[key];
@@ -2271,7 +2340,13 @@ export class FilterRunner {
     }
 
     // ── pass 2: how are the rows distributed across them ─────────────────────
-    const countQb = await this.buildFilteredQb(entity, structured, adapter, opts.context);
+    const countQb = await this.buildFilteredQb(
+      entity,
+      structured,
+      adapter,
+      opts.context,
+      opts.filterClass,
+    );
 
     // Degenerate span: one row, or many rows sharing one value. A width of
     // (max - min) / n is 0, and `FLOOR(col / 0)` is a null group on MySQL and a
@@ -2526,7 +2601,7 @@ export class FilterRunner {
     input: unknown,
     opts: { qb?: unknown; context?: FilterContext; trustedPageSize?: boolean } = {},
   ): Promise<CursorPage<E>> {
-    const adapter = this.resolveAdapter();
+    const adapter = this.resolveAdapter(entity);
     if (
       !adapter?.getResult ||
       !adapter.getPrimaryKey ||

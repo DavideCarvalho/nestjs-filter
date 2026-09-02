@@ -281,7 +281,7 @@ export class TypeOrmAdapter implements FilterAdapter {
     qb: unknown,
     field: GroupByCountField,
     entity: Type<unknown>,
-    opts?: { bucket?: number },
+    opts?: { bucket?: number; limit?: number },
   ): Promise<Array<{ value: unknown; count: number }>> {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const expression =
@@ -299,6 +299,15 @@ export class TypeOrmAdapter implements FilterAdapter {
         .setParameter('groupByCountBucket', bucket);
     } else {
       queryBuilder.select(expression, 'value').addSelect('COUNT(*)', 'count').groupBy(expression);
+    }
+
+    // Top-N: order by the aggregate, then bound. `limit()` (not `take()`) — the
+    // latter is the entity-row pagination path, which wraps the query in a
+    // DISTINCT-id subquery that a grouped SELECT has no id column for. The
+    // ORDER BY repeats `COUNT(*)` rather than naming the `count` alias, which
+    // Postgres allows but MySQL only sometimes does.
+    if (opts?.limit !== undefined && opts.limit > 0) {
+      queryBuilder.orderBy('COUNT(*)', 'DESC').limit(opts.limit);
     }
 
     const rows = await queryBuilder.getRawMany<Record<string, unknown>>();

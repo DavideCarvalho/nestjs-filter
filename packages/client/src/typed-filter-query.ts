@@ -16,6 +16,6 @@ export type TypedFilterQuery<
   /** Fields to measure the extent (`MIN`/`MAX`) of over the filtered set. */
   extent?: Fields[];
   /** Terminal group-by-count aggregation; `field` narrowed to this route's `Fields`. */
-  groupByCount?: { field: Fields; bucket?: number };
+  groupByCount?: { field: Fields; bucket?: number; limit?: number };
   paginate?: { page: number; size: number };
 };

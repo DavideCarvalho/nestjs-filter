@@ -643,6 +643,20 @@ describe('TypeORM computed projection / distinct / groupByCount', () => {
     await mod.close();
   });
 
+  it('groupByCount honors a limit, returning the top N groups by count', async () => {
+    const mod = await createModule();
+    await seed();
+
+    const result = await runner.groupByCount(Person, {
+      groupByCount: { field: 'first', limit: 1 },
+    });
+
+    // Both first names exist; the bound keeps only the bigger group, which is
+    // also what makes the ordering observable.
+    expect(result).toEqual([{ value: 'Ada', count: 3 }]);
+    await mod.close();
+  });
+
   it('groupByCount honors the numeric bucket (bound, not inlined as client text)', async () => {
     const mod = await createModule();
     await seed();

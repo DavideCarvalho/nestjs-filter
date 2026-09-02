@@ -333,7 +333,20 @@ export interface FilterAdapter {
    * @param field - The already-validated grouping column (property name), or
    *   the `{ alias, source }` pair of a computed/virtual grouping field.
    * @param entity - The root entity class.
-   * @param opts - Optional numeric bucket width for the bucketed variant.
+   * `opts.limit`, when present, asks for the **top N groups by count**: order by
+   * `COUNT(*)` descending and return at most that many rows. It exists because a
+   * grouping column whose cardinality grows with the data (tags, external ids, a
+   * free-text label) makes the unbounded form a listing rather than an
+   * aggregate, and the caller that needs it most — a value picker — only ever
+   * renders a handful. Adapters that cannot bound the aggregate may return every
+   * group; a caller must not assume the bound was applied.
+   *
+   * Ordering is otherwise unspecified, and deliberately so: it only becomes
+   * meaningful once rows are being dropped, and pinning it unconditionally would
+   * add a sort to every existing caller that reads the whole result anyway.
+   *
+   * @param opts - Optional numeric bucket width for the bucketed variant, and an
+   *   optional positive `limit` for the top-N form.
    * @returns One `{ value, count }` per group (`value` is the bucket start when
    *   bucketed); `count` is the `COUNT(*)` for that group.
    */
@@ -341,7 +354,7 @@ export interface FilterAdapter {
     qb: unknown,
     field: GroupByCountField,
     entity: Type<unknown>,
-    opts?: { bucket?: number },
+    opts?: { bucket?: number; limit?: number },
   ): Promise<Array<{ value: unknown; count: number }>>;
 
   /**

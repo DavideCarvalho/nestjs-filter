@@ -377,10 +377,44 @@ The `@Filterable()` class decorator associates the filter with an entity and opt
 | `defaultSort` | `string \| SortItem[]` | Sort applied when the client sends no `sort`, for stable ordering, on EVERY route this filter serves. Accepts the same shapes as the request `sort` (e.g. `"-createdAt"`). Overrides the module-level `defaultSort`. Prefer [`@ApplyFilter({ defaultSort })`](/docs/guides/controllers) unless every route wants the same order — a class serving a rows route and a `distinct` route cannot satisfy both from here. |
 | `computed` | `Record<string, string>` | Declares virtual/computed fields — a map of alias to a dev-provided SQL expression. The alias becomes filterable and sortable as if it were a real column. |
 | `aliases` | `Record<string, string>` | Declarative field-name remapping — maps a client-supplied field name to the real entity path (column, relation path, dotted relation field, or JSON sub-path) it should resolve to. |
+| `adapter` | `InjectionToken` | The DI token of the adapter that answers for THIS filter, when it is not the application-wide one. See [Two backends in one app](#two-backends-in-one-app). |
 | `codegen` | `{ maxDepth?: number }` | Codegen-only hint, read statically by `@dudousxd/nestjs-filter-codegen`; the runtime ignores it. See [Typed Client](/docs/guides/codegen). |
 
 <Callout type="warn">
   You cannot specify both `allowed` and `blocked` on the same filter. The decorator throws an error if both are set.
+</Callout>
+
+---
+
+## Two backends in one app
+
+`FilterModule.forRoot`'s adapter is global, which is right for an app whose filterable data all lives behind one ORM. It stops being right the moment a second filterable backend shares the process — a library that ships its own console over its own read model, a second data source, an adapter over an HTTP service. Registering two global adapters does not compose: whichever one DI hands over first answers for every filter in the app, including the ones written against the other.
+
+A filter can name the adapter it needs:
+
+```ts
+export const RUN_QUERY_ADAPTER = Symbol('RUN_QUERY_ADAPTER');
+
+@Injectable()
+@Filterable({ entity: DurableRun, adapter: RUN_QUERY_ADAPTER })
+export class RunFilter extends BaseFilter<RunQueryDraft> {}
+```
+
+```ts
+@Module({
+  providers: [
+    RunQueryAdapter,
+    { provide: RUN_QUERY_ADAPTER, useExisting: RunQueryAdapter },
+    RunFilter,
+  ],
+})
+export class RunConsoleModule {}
+```
+
+The token is resolved per filter class — for its routes, its `groupByCount`, its `findAndCount`, its `fieldExtent`/`fieldHistogram` — while filters that name nothing keep using the global adapter. An app with a single backend is unaffected and needs no change.
+
+<Callout type="warn">
+  A declared token that does not resolve **throws**, rather than falling back to the global adapter. A filter that names the backend it needs and then quietly runs on another one answers with rows from the wrong data source — a failure that looks like a successful query.
 </Callout>
 
 ---

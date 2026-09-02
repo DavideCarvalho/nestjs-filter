@@ -869,12 +869,14 @@ export class MikroOrmAdapter implements FilterAdapter {
     qb: unknown,
     field: GroupByCountField,
     entity: Type<unknown>,
-    opts?: { bucket?: number },
+    opts?: { bucket?: number; limit?: number },
   ): Promise<Array<{ value: unknown; count: number }>> {
     const queryBuilder = qb as {
       alias: string;
       select: (fields: unknown) => unknown;
       groupBy: (fields: unknown) => unknown;
+      orderBy: (order: Record<string, string>) => unknown;
+      limit: (n: number) => unknown;
       execute: (method: 'all') => Promise<Record<string, unknown>[]>;
     };
     const expr =
@@ -896,6 +898,16 @@ export class MikroOrmAdapter implements FilterAdapter {
     } else {
       queryBuilder.select([raw(`${expr} as value`), raw('count(*) as count')]);
       queryBuilder.groupBy(raw(expr));
+    }
+
+    // Top-N: order by the aggregate, then bound. The ORDER BY repeats `count(*)`
+    // instead of naming the `count` alias, which Postgres allows but MySQL only
+    // sometimes does. A `raw()` fragment as the KEY is how MikroORM carries an
+    // expression into `orderBy` — passed as the whole argument it is read as a
+    // criteria object and looked up as a property named `sql`.
+    if (opts?.limit !== undefined && opts.limit > 0) {
+      queryBuilder.orderBy({ [raw('count(*)') as unknown as string]: 'desc' });
+      queryBuilder.limit(opts.limit);
     }
 
     const rows = await queryBuilder.execute('all');

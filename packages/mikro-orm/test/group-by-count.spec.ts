@@ -115,6 +115,46 @@ describe('FilterRunner.groupByCount (MikroORM adapter)', () => {
     expect(byStart).toEqual({ 0: 2, 1000: 1 });
   });
 
+  it('(c2) a limit returns the top N groups by count, biggest first', async () => {
+    await createModule();
+    await seed();
+
+    const rows = (await runner.groupByCount(Cost, {
+      groupByCount: { field: 'status', limit: 1 },
+    })) as GroupByCountItem[];
+
+    // Both statuses exist; only the bigger group survives the bound, and the bound
+    // is what makes the ordering observable at all.
+    expect(rows).toEqual([{ value: 'open', count: 3 }]);
+  });
+
+  it('(c3) a limit at or above the group count leaves every group in place', async () => {
+    await createModule();
+    await seed();
+
+    const rows = (await runner.groupByCount(Cost, {
+      groupByCount: { field: 'status', limit: 10 },
+    })) as GroupByCountItem[];
+
+    expect(Object.fromEntries(rows.map((r) => [r.value as string, r.count]))).toEqual({
+      open: 3,
+      closed: 2,
+    });
+  });
+
+  it('(c4) a limit narrows the set the WHERE already selected, not the whole table', async () => {
+    await createModule();
+    await seed();
+
+    const rows = (await runner.groupByCount(Cost, {
+      filter: { where: [{ field: 'status', operator: 'equals', value: 'closed' }] },
+      groupByCount: { field: 'status', limit: 1 },
+    })) as GroupByCountItem[];
+
+    // `open` is the larger group overall and would win an unfiltered top-1.
+    expect(rows).toEqual([{ value: 'closed', count: 2 }]);
+  });
+
   it('(d) an unvalidated / unknown grouping field is rejected (never reaches SQL)', async () => {
     await createModule();
     await seed();
