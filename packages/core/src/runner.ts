@@ -35,6 +35,7 @@ import {
   FilterNotRegisteredException,
   UnknownFilterKeyException,
 } from './errors/exceptions.js';
+import { expandBracketKeys } from './input/bracket-keys.js';
 import { resolveDispatchTarget } from './input/dispatcher.js';
 import { normalizeInput } from './input/normalizer.js';
 import { parseSpatieInput } from './input/spatie-parser.js';
@@ -1211,11 +1212,21 @@ export class FilterRunner {
     histogram: unknown;
     paginate: unknown;
   } {
+    // Bracket-encoded flat keys first (`filter[where][0][field]`), which is what a GET carries on a
+    // host whose query parser did not expand them — Express 5's default. A no-op for everything
+    // else, and it has to run before the structured-key detection below: unexpanded, `filter` is not
+    // a key at all, the whole bag reads as a bare filter, and every predicate is silently dropped.
+    const expanded =
+      input && typeof input === 'object' && !Array.isArray(input)
+        ? expandBracketKeys(input as Record<string, unknown>)
+        : input;
     // Opt-in spatie / JSON:API input format. Internal re-dispatch calls
     // (relation constraints, findPage/findAndCount forwards) pass already-native
     // structured input and set `internal.native` to bypass re-parsing.
     const source =
-      !internal.native && this.options.inputFormat === 'spatie' ? parseSpatieInput(input) : input;
+      !internal.native && this.options.inputFormat === 'spatie'
+        ? parseSpatieInput(expanded)
+        : expanded;
     if (source == null || typeof source !== 'object') {
       return {
         filter: source,
