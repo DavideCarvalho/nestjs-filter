@@ -1,5 +1,51 @@
 # @dudousxd/nestjs-filter
 
+## 1.32.0
+
+### Minor Changes
+
+- [`0e2e58b`](https://github.com/DavideCarvalho/nestjs-filter/commit/0e2e58b0e06f96bd94cbd15c1da380787098b381) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `groupByCount` takes a `limit` — the top N groups by count
+
+  A grouping column whose distinct values grow with the data — tags, external ids, a free-text
+  label — answers the unbounded aggregate with one row per value, which is a listing wearing an
+  aggregate's shape. The caller that wants it most, a value picker, renders a handful.
+
+  ```ts
+  filterQuery()
+    .where("base.id", "in", baseIds)
+    .groupByCount("tag", { limit: 20 });
+  ```
+
+  The adapter seam gains `opts.limit` alongside `opts.bucket`, and the MikroORM and TypeORM adapters
+  implement it as `ORDER BY COUNT(*) DESC LIMIT n`. Ordering only becomes part of the contract once
+  rows are being dropped: without a limit the caller still receives every group in whatever order the
+  database returns, exactly as before.
+
+  A limit that is not a positive integer degrades to the unbounded form rather than failing the
+  request, matching how `bucket` already treats a non-positive width. Numeric strings are coerced, so
+  `?groupByCount[limit]=20` on a GET route works.
+
+- [`0e2e58b`](https://github.com/DavideCarvalho/nestjs-filter/commit/0e2e58b0e06f96bd94cbd15c1da380787098b381) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - A filter can name its own adapter, so one app can host two filterable backends
+
+  `FilterModule.forRoot`'s adapter is global, which is right for an app whose filterable data all
+  lives behind one ORM. It stops being right the moment a second filterable backend shares the
+  process — a library that ships its own console over its own read model, a second data source, an
+  adapter over an HTTP service. Registering two global adapters does not compose: whichever one DI
+  hands over first answers for every filter in the app, including the ones written against the other.
+
+  ```ts
+  @Filterable({ entity: DurableRun, adapter: RUN_QUERY_ADAPTER })
+  export class RunFilter extends BaseFilter<RunQueryDraft> {}
+  ```
+
+  The token is resolved per filter class, for its routes, its `groupByCount`, its `findAndCount` and
+  its `fieldExtent`/`fieldHistogram`. Filters that name nothing keep using the global adapter, so an
+  app with one backend is unaffected.
+
+  A declared token that does not resolve throws, rather than falling back: a filter that names the
+  adapter it needs and then quietly runs on a different backend's would answer with rows from the
+  wrong data source — a failure that looks like a successful query.
+
 ## 1.31.0
 
 ### Minor Changes

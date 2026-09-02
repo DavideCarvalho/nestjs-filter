@@ -1,5 +1,48 @@
 # @dudousxd/nestjs-filter-client
 
+## 1.32.0
+
+### Minor Changes
+
+- [`0e2e58b`](https://github.com/DavideCarvalho/nestjs-filter/commit/0e2e58b0e06f96bd94cbd15c1da380787098b381) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `filterQueryToQueryString` — a whole built query as a GET query string
+
+  `build()` produces a nested envelope (`{ filter: { where }, sort, paginate, groupByCount, … }`) and
+  a GET carries it as bracket notation. Callers were assembling that by hand from
+  `columnFiltersToQueryString` plus their own concatenation, which is easy to get subtly wrong in a
+  way that fails OPEN: a mis-nested key is simply not read, and the server answers with an unfiltered
+  result set that looks like a successful query.
+
+  ```ts
+  const url = `/runs?${filterQueryToQueryString(
+    filterQuery().where("tag", "in", ["etl"]).build()
+  )}`;
+  ```
+
+  `columnFiltersToQueryString` gains a `prefix` option (`filter[where]` instead of `where`), and
+  `flatObjectToQueryString` gains one too, so a key nested under an envelope keeps its brackets
+  readable instead of percent-encoding them.
+
+- [`0e2e58b`](https://github.com/DavideCarvalho/nestjs-filter/commit/0e2e58b0e06f96bd94cbd15c1da380787098b381) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `groupByCount` takes a `limit` — the top N groups by count
+
+  A grouping column whose distinct values grow with the data — tags, external ids, a free-text
+  label — answers the unbounded aggregate with one row per value, which is a listing wearing an
+  aggregate's shape. The caller that wants it most, a value picker, renders a handful.
+
+  ```ts
+  filterQuery()
+    .where("base.id", "in", baseIds)
+    .groupByCount("tag", { limit: 20 });
+  ```
+
+  The adapter seam gains `opts.limit` alongside `opts.bucket`, and the MikroORM and TypeORM adapters
+  implement it as `ORDER BY COUNT(*) DESC LIMIT n`. Ordering only becomes part of the contract once
+  rows are being dropped: without a limit the caller still receives every group in whatever order the
+  database returns, exactly as before.
+
+  A limit that is not a positive integer degrades to the unbounded form rather than failing the
+  request, matching how `bucket` already treats a non-positive width. Numeric strings are coerced, so
+  `?groupByCount[limit]=20` on a GET route works.
+
 ## 1.27.0
 
 ### Minor Changes
