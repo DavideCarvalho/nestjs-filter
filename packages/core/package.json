@@ -1,6 +1,6 @@
 {
   "name": "@dudousxd/nestjs-filter",
-  "version": "1.32.1",
+  "version": "1.33.0",
   "description": "NestJS filter library — core abstractions, runner, decorators.",
   "license": "MIT",
   "repository": {
