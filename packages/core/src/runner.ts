@@ -1963,8 +1963,17 @@ export class FilterRunner {
 
     const bucket = spec.bucket;
     const limit = spec.limit;
+    const offset = spec.offset;
+    const search = spec.search;
     const aggregateOpts =
-      bucket || limit ? { ...(bucket && { bucket }), ...(limit && { limit }) } : undefined;
+      bucket || limit || offset || search
+        ? {
+            ...(bucket && { bucket }),
+            ...(limit && { limit }),
+            ...(offset && { offset }),
+            ...(search && { search }),
+          }
+        : undefined;
     const rows = await adapter.groupByCount(qb, groupField, entity, aggregateOpts);
 
     if (bucket) {
@@ -2002,10 +2011,20 @@ export class FilterRunner {
     const bucket = numeric(obj.bucket);
     const limitValue = numeric(obj.limit);
     const limit = limitValue !== undefined && Number.isInteger(limitValue) ? limitValue : undefined;
+    // `offset` admits zero (the first page states itself), so it cannot ride `numeric`, which
+    // rejects it along with the negatives.
+    const rawOffset = typeof obj.offset === 'string' ? Number(obj.offset) : obj.offset;
+    const offset =
+      typeof rawOffset === 'number' && Number.isInteger(rawOffset) && rawOffset > 0
+        ? rawOffset
+        : undefined;
+    const search = typeof obj.search === 'string' && obj.search.trim() ? obj.search : undefined;
     return {
       field: obj.field,
       ...(bucket !== undefined && { bucket }),
       ...(limit !== undefined && { limit }),
+      ...(offset !== undefined && { offset }),
+      ...(search !== undefined && { search }),
     };
   }
 

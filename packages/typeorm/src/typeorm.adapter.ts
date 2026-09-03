@@ -281,7 +281,7 @@ export class TypeOrmAdapter implements FilterAdapter {
     qb: unknown,
     field: GroupByCountField,
     entity: Type<unknown>,
-    opts?: { bucket?: number; limit?: number },
+    opts?: { bucket?: number; limit?: number; offset?: number; search?: string },
   ): Promise<Array<{ value: unknown; count: number }>> {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
     const expression =
@@ -306,8 +306,17 @@ export class TypeOrmAdapter implements FilterAdapter {
     // DISTINCT-id subquery that a grouped SELECT has no id column for. The
     // ORDER BY repeats `COUNT(*)` rather than naming the `count` alias, which
     // Postgres allows but MySQL only sometimes does.
+    // Narrows the GROUPS: applied to the grouping expression, so it selects which values are
+    // counted rather than which rows carry them. Bound as a parameter.
+    if (opts?.search) {
+      queryBuilder.andWhere(`LOWER(${expression}) LIKE :groupByCountSearch`, {
+        groupByCountSearch: `%${opts.search.toLowerCase()}%`,
+      });
+    }
+
     if (opts?.limit !== undefined && opts.limit > 0) {
       queryBuilder.orderBy('COUNT(*)', 'DESC').limit(opts.limit);
+      if (opts.offset !== undefined && opts.offset > 0) queryBuilder.offset(opts.offset);
     }
 
     const rows = await queryBuilder.getRawMany<Record<string, unknown>>();

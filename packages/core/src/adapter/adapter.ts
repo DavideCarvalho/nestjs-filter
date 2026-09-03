@@ -341,6 +341,12 @@ export interface FilterAdapter {
    * renders a handful. Adapters that cannot bound the aggregate may return every
    * group; a caller must not assume the bound was applied.
    *
+   * `opts.offset` continues that bounded answer — the next page of the same
+   * ordering, for a picker that loads as it scrolls. `opts.search` narrows to
+   * groups whose VALUE contains the text, which a `where` clause cannot express:
+   * `where` selects rows, and grouping rows selected by their grouping column
+   * still returns every value those rows carry.
+   *
    * Ordering is otherwise unspecified, and deliberately so: it only becomes
    * meaningful once rows are being dropped, and pinning it unconditionally would
    * add a sort to every existing caller that reads the whole result anyway.
@@ -354,7 +360,7 @@ export interface FilterAdapter {
     qb: unknown,
     field: GroupByCountField,
     entity: Type<unknown>,
-    opts?: { bucket?: number; limit?: number },
+    opts?: { bucket?: number; limit?: number; offset?: number; search?: string },
   ): Promise<Array<{ value: unknown; count: number }>>;
 
   /**

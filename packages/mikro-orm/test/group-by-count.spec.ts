@@ -155,6 +155,45 @@ describe('FilterRunner.groupByCount (MikroORM adapter)', () => {
     expect(rows).toEqual([{ value: 'closed', count: 2 }]);
   });
 
+  it('(c5) offset continues the bounded answer instead of repeating it', async () => {
+    await createModule();
+    await seed();
+
+    const first = (await runner.groupByCount(Cost, {
+      groupByCount: { field: 'status', limit: 1 },
+    })) as GroupByCountItem[];
+    const second = (await runner.groupByCount(Cost, {
+      groupByCount: { field: 'status', limit: 1, offset: 1 },
+    })) as GroupByCountItem[];
+
+    expect(first).toEqual([{ value: 'open', count: 3 }]);
+    expect(second).toEqual([{ value: 'closed', count: 2 }]);
+  });
+
+  it('(c6) search narrows the GROUPS, not the rows', async () => {
+    await createModule();
+    await seed();
+
+    const rows = (await runner.groupByCount(Cost, {
+      groupByCount: { field: 'status', search: 'clos' },
+    })) as GroupByCountItem[];
+
+    expect(rows).toEqual([{ value: 'closed', count: 2 }]);
+  });
+
+  it('(c7) search runs BEFORE the bound, so a rare value stays reachable', async () => {
+    await createModule();
+    await seed();
+
+    // `open` owns the only slot unsearched; searching has to reach past that cut, or the bound
+    // makes everything it excluded permanently invisible.
+    const rows = (await runner.groupByCount(Cost, {
+      groupByCount: { field: 'status', limit: 1, search: 'closed' },
+    })) as GroupByCountItem[];
+
+    expect(rows).toEqual([{ value: 'closed', count: 2 }]);
+  });
+
   it('(d) an unvalidated / unknown grouping field is rejected (never reaches SQL)', async () => {
     await createModule();
     await seed();

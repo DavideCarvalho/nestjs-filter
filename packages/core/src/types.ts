@@ -394,6 +394,25 @@ export interface GroupByCountSpec {
   field: string;
   bucket?: number;
   limit?: number;
+  /**
+   * How many groups to skip — the second page of a bounded aggregate, for a value picker that loads
+   * as it scrolls. Only meaningful alongside `limit`, whose ordering (`COUNT(*)` descending) is what
+   * makes one page continue another instead of re-shuffling the same rows.
+   */
+  offset?: number;
+  /**
+   * Narrow to groups whose VALUE contains this text, case-insensitively.
+   *
+   * Not expressible as a `where` clause, and the difference is not pedantic: `where` selects ROWS,
+   * so filtering rows by the grouping column and then grouping them answers a different question —
+   * on a to-many or JSON-expanded grouping it returns every value carried by the matching rows,
+   * including the ones that did not match. This narrows the GROUPS.
+   *
+   * Server-side because the alternative cannot work: a picker that searches its fetched page can
+   * only find what a top-N bound already let through, and the values it excluded are exactly the
+   * ones an operator resorts to typing.
+   */
+  search?: string;
 }
 
 /**

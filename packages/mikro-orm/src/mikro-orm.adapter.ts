@@ -869,14 +869,15 @@ export class MikroOrmAdapter implements FilterAdapter {
     qb: unknown,
     field: GroupByCountField,
     entity: Type<unknown>,
-    opts?: { bucket?: number; limit?: number },
+    opts?: { bucket?: number; limit?: number; offset?: number; search?: string },
   ): Promise<Array<{ value: unknown; count: number }>> {
     const queryBuilder = qb as {
       alias: string;
       select: (fields: unknown) => unknown;
       groupBy: (fields: unknown) => unknown;
       orderBy: (order: Record<string, string>) => unknown;
-      limit: (n: number) => unknown;
+      limit: (n: number, offset?: number) => unknown;
+      andWhere: (condition: string, params?: unknown[]) => unknown;
       execute: (method: 'all') => Promise<Record<string, unknown>[]>;
     };
     const expr =
@@ -900,6 +901,13 @@ export class MikroOrmAdapter implements FilterAdapter {
       queryBuilder.groupBy(raw(expr));
     }
 
+    // Narrowing the GROUPS, not the rows: applied to the grouping expression before the aggregate,
+    // so it selects which values are counted rather than which rows carry them. Bound as a
+    // parameter — this is the one part of this method that is client text.
+    if (opts?.search) {
+      queryBuilder.andWhere(`lower(${expr}) like ?`, [`%${opts.search.toLowerCase()}%`]);
+    }
+
     // Top-N: order by the aggregate, then bound. The ORDER BY repeats `count(*)`
     // instead of naming the `count` alias, which Postgres allows but MySQL only
     // sometimes does. A `raw()` fragment as the KEY is how MikroORM carries an
@@ -907,7 +915,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     // criteria object and looked up as a property named `sql`.
     if (opts?.limit !== undefined && opts.limit > 0) {
       queryBuilder.orderBy({ [raw('count(*)') as unknown as string]: 'desc' });
-      queryBuilder.limit(opts.limit);
+      queryBuilder.limit(opts.limit, opts.offset);
     }
 
     const rows = await queryBuilder.execute('all');

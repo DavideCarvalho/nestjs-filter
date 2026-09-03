@@ -197,7 +197,10 @@ export interface TypedFilterQueryBuilder<
    * or bucketed `{ bucketStart, bucketEnd, count }[]`) flows through the
    * generated client for the route.
    */
-  groupByCount(field: Fields, opts?: { bucket?: number; limit?: number }): this;
+  groupByCount(
+    field: Fields,
+    opts?: { bucket?: number; limit?: number; offset?: number; search?: string },
+  ): this;
 
   // ─── Non-field methods (passthrough) ────────────────────────────────────
 

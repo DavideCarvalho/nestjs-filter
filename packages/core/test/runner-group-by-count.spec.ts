@@ -16,7 +16,10 @@ const fields: EntityFieldInfo[] = [
 
 interface Calls {
   columnFilters: ColumnFilter[][];
-  groupByCount: Array<{ field: string; opts?: { bucket?: number; limit?: number } }>;
+  groupByCount: Array<{
+    field: string;
+    opts?: { bucket?: number; limit?: number; offset?: number; search?: string };
+  }>;
 }
 
 function makeAdapter(
@@ -176,6 +179,30 @@ describe('FilterRunner.groupByCount', () => {
       expect(calls.groupByCount).toEqual([{ field: 'status' }]);
     },
   );
+
+  it('forwards offset and search, the two halves of a usable bounded picker', async () => {
+    const calls: Calls = { columnFilters: [], groupByCount: [] };
+    const runner = await makeRunner(makeAdapter(calls));
+
+    await runner.groupByCount(FakeEntity, {
+      groupByCount: { field: 'status', limit: 20, offset: 20, search: 'fail' },
+    });
+
+    expect(calls.groupByCount).toEqual([
+      { field: 'status', opts: { limit: 20, offset: 20, search: 'fail' } },
+    ]);
+  });
+
+  it('coerces a numeric-string offset and drops a blank search', async () => {
+    const calls: Calls = { columnFilters: [], groupByCount: [] };
+    const runner = await makeRunner(makeAdapter(calls));
+
+    await runner.groupByCount(FakeEntity, {
+      groupByCount: { field: 'status', offset: '40' as unknown as number, search: '   ' },
+    });
+
+    expect(calls.groupByCount).toEqual([{ field: 'status', opts: { offset: 40 } }]);
+  });
 
   it('carries bucket and limit together — a bounded histogram is one question', async () => {
     const calls: Calls = { columnFilters: [], groupByCount: [] };

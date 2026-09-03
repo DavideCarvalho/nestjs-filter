@@ -44,6 +44,8 @@ export interface GroupByCountSpec {
   field: string;
   bucket?: number;
   limit?: number;
+  offset?: number;
+  search?: string;
 }
 
 /**
@@ -627,17 +629,25 @@ export class FilterQueryBuilder {
    * a value picker over a column whose distinct values grow with the data (tags,
    * external ids, a free-text label) actually wants, since it renders a handful
    * and the unbounded answer is a listing wearing an aggregate's shape.
+   * `offset` continues that answer as the picker scrolls, and `search` narrows to
+   * groups whose VALUE contains the text — which a `where` clause cannot express,
+   * since that selects rows rather than groups.
    *
    * @example
    * filterQuery().where('base.id', 'in', baseIds).groupByCount('workOrderStatusCode')
    * filterQuery().where('base.id', 'in', baseIds).groupByCount('totalActualCost', { bucket: 1000 })
    * filterQuery().groupByCount('tag', { limit: 20 })
    */
-  groupByCount(field: string, opts?: { bucket?: number; limit?: number }): this {
+  groupByCount(
+    field: string,
+    opts?: { bucket?: number; limit?: number; offset?: number; search?: string },
+  ): this {
     this.groupByCountSpec = {
       field,
       ...(opts?.bucket !== undefined && { bucket: opts.bucket }),
       ...(opts?.limit !== undefined && { limit: opts.limit }),
+      ...(opts?.offset !== undefined && { offset: opts.offset }),
+      ...(opts?.search !== undefined && { search: opts.search }),
     };
     this.notify();
     return this;
