@@ -35,8 +35,8 @@
   },
   "devDependencies": {
     "@dudousxd/nestjs-codegen": "0.2.1",
-    "typescript": "^5.4.0",
-    "vitest": "^3.2.4",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4",
     "@dudousxd/nestjs-filter": "workspace:*"
   },
   "engines": {

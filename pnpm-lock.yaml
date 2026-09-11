@@ -9,28 +9,28 @@ importers:
   .:
     devDependencies:
       '@biomejs/biome':
-        specifier: ^1.9.0
+        specifier: 1.9.4
         version: 1.9.4
       '@changesets/changelog-github':
-        specifier: ^0.7.0
+        specifier: 0.7.0
         version: 0.7.0(encoding@0.1.13)
       '@changesets/cli':
-        specifier: ^2.31.0
+        specifier: 2.31.0
         version: 2.31.0(@types/node@25.9.1)
       '@swc/core':
-        specifier: ^1.15.40
+        specifier: 1.15.40
         version: 1.15.40(@swc/helpers@0.5.15)
       turbo:
-        specifier: ^2.0.0
+        specifier: 2.9.14
         version: 2.9.14
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       unplugin-swc:
-        specifier: ^1.5.9
+        specifier: 1.5.9
         version: 1.5.9(@swc/core@1.15.40(@swc/helpers@0.5.15))(rollup@4.60.4)
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.9.1)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   examples/mikro-orm-app:
@@ -42,65 +42,65 @@ importers:
         specifier: workspace:*
         version: link:../../packages/mikro-orm
       '@mikro-orm/core':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(dataloader@2.2.3)
       '@mikro-orm/decorators':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))(reflect-metadata@0.2.2)
       '@mikro-orm/nestjs':
-        specifier: ^7.0.0
+        specifier: 7.0.2
         version: 7.0.2(@mikro-orm/core@7.1.1(dataloader@2.2.3))(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)
       '@mikro-orm/sql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@mikro-orm/sqlite':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@nestjs/common':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/platform-express':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1)
       class-transformer:
-        specifier: ^0.5.1
+        specifier: 0.5.1
         version: 0.5.1
       class-validator:
-        specifier: ^0.14.1
+        specifier: 0.14.4
         version: 0.14.4
       reflect-metadata:
-        specifier: ^0.2.2
+        specifier: 0.2.2
         version: 0.2.2
       rxjs:
-        specifier: ^7.8.1
+        specifier: 7.8.2
         version: 7.8.2
     devDependencies:
       '@nestjs/testing':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@types/express':
-        specifier: ^4.17.21
+        specifier: 4.17.25
         version: 4.17.25
       '@types/node':
-        specifier: ^20.19.41
+        specifier: 20.19.41
         version: 20.19.41
       '@types/supertest':
-        specifier: ^6.0.2
+        specifier: 6.0.3
         version: 6.0.3
       express:
-        specifier: ^4.19.2
+        specifier: 4.22.2
         version: 4.22.2
       supertest:
-        specifier: ^7.0.0
+        specifier: 7.2.2
         version: 7.2.2
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   examples/typeorm-app:
@@ -112,59 +112,59 @@ importers:
         specifier: workspace:*
         version: link:../../packages/typeorm
       '@nestjs/common':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/platform-express':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1)
       '@nestjs/typeorm':
-        specifier: ^12.0.0
+        specifier: 12.0.0
         version: 12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7))
       better-sqlite3:
-        specifier: ^11.0.0
+        specifier: 11.10.0
         version: 11.10.0
       class-transformer:
-        specifier: ^0.5.1
+        specifier: 0.5.1
         version: 0.5.1
       class-validator:
-        specifier: ^0.14.1
+        specifier: 0.14.4
         version: 0.14.4
       reflect-metadata:
-        specifier: ^0.2.2
+        specifier: 0.2.2
         version: 0.2.2
       rxjs:
-        specifier: ^7.8.1
+        specifier: 7.8.2
         version: 7.8.2
       typeorm:
-        specifier: ^0.3.20
+        specifier: 0.3.30
         version: 0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7)
     devDependencies:
       '@nestjs/testing':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@types/express':
-        specifier: ^4.17.21
+        specifier: 4.17.25
         version: 4.17.25
       '@types/node':
-        specifier: ^20.19.41
+        specifier: 20.19.41
         version: 20.19.41
       '@types/supertest':
-        specifier: ^6.0.2
+        specifier: 6.0.3
         version: 6.0.3
       express:
-        specifier: ^4.19.2
+        specifier: 4.22.2
         version: 4.22.2
       supertest:
-        specifier: ^7.0.0
+        specifier: 7.2.2
         version: 7.2.2
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   integration/contract:
@@ -179,80 +179,80 @@ importers:
         specifier: workspace:*
         version: link:../../packages/typeorm
       '@mikro-orm/core':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(dataloader@2.2.3)
       '@mikro-orm/decorators':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))(reflect-metadata@0.2.2)
       '@mikro-orm/mysql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))(@types/node@20.19.41)
       '@mikro-orm/nestjs':
-        specifier: ^7.0.0
+        specifier: 7.0.2
         version: 7.0.2(@mikro-orm/core@7.1.1(dataloader@2.2.3))(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)
       '@mikro-orm/postgresql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@mikro-orm/sql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@mikro-orm/sqlite':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@nestjs/common':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/typeorm':
-        specifier: ^12.0.0
+        specifier: 12.0.0
         version: 12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7))
       better-sqlite3:
-        specifier: ^11.0.0
+        specifier: 11.10.0
         version: 11.10.0
       mysql2:
-        specifier: ^3.11.0
+        specifier: 3.22.3
         version: 3.22.3(@types/node@20.19.41)
       pg:
-        specifier: ^8.12.0
+        specifier: 8.21.0
         version: 8.21.0
       reflect-metadata:
-        specifier: ^0.2.2
+        specifier: 0.2.2
         version: 0.2.2
       rxjs:
-        specifier: ^7.8.1
+        specifier: 7.8.2
         version: 7.8.2
       typeorm:
-        specifier: ^0.3.20
+        specifier: 0.3.30
         version: 0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7)
     devDependencies:
       '@nestjs/testing':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@testcontainers/mysql':
-        specifier: ^10.13.0
+        specifier: 10.28.0
         version: 10.28.0
       '@testcontainers/postgresql':
-        specifier: ^10.13.0
+        specifier: 10.28.0
         version: 10.28.0
       '@types/node':
-        specifier: ^20.19.41
+        specifier: 20.19.41
         version: 20.19.41
       '@types/pg':
-        specifier: ^8.11.0
+        specifier: 8.20.0
         version: 8.20.0
       testcontainers:
-        specifier: ^10.13.0
+        specifier: 10.28.0
         version: 10.28.0
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       unplugin-swc:
-        specifier: ^1.5.9
+        specifier: 1.5.9
         version: 1.5.9(@swc/core@1.15.40(@swc/helpers@0.5.15))(rollup@4.60.4)
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   integration/mikro-orm-mysql:
@@ -264,65 +264,65 @@ importers:
         specifier: workspace:*
         version: link:../../packages/mikro-orm
       '@mikro-orm/core':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(dataloader@2.2.3)
       '@mikro-orm/decorators':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))(reflect-metadata@0.2.2)
       '@mikro-orm/mysql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))(@types/node@20.19.41)
       '@mikro-orm/nestjs':
-        specifier: ^7.0.0
+        specifier: 7.0.2
         version: 7.0.2(@mikro-orm/core@7.1.1(dataloader@2.2.3))(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)
       '@mikro-orm/sql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@nestjs/common':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/platform-express':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1)
       class-transformer:
-        specifier: ^0.5.1
+        specifier: 0.5.1
         version: 0.5.1
       class-validator:
-        specifier: ^0.14.1
+        specifier: 0.14.4
         version: 0.14.4
       reflect-metadata:
-        specifier: ^0.2.2
+        specifier: 0.2.2
         version: 0.2.2
       rxjs:
-        specifier: ^7.8.1
+        specifier: 7.8.2
         version: 7.8.2
     devDependencies:
       '@nestjs/testing':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@types/express':
-        specifier: ^4.17.21
+        specifier: 4.17.25
         version: 4.17.25
       '@types/node':
-        specifier: ^20.19.41
+        specifier: 20.19.41
         version: 20.19.41
       '@types/supertest':
-        specifier: ^6.0.2
+        specifier: 6.0.3
         version: 6.0.3
       express:
-        specifier: ^4.19.2
+        specifier: 4.22.2
         version: 4.22.2
       supertest:
-        specifier: ^7.0.0
+        specifier: 7.2.2
         version: 7.2.2
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   integration/mikro-orm-postgres:
@@ -334,65 +334,65 @@ importers:
         specifier: workspace:*
         version: link:../../packages/mikro-orm
       '@mikro-orm/core':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(dataloader@2.2.3)
       '@mikro-orm/decorators':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))(reflect-metadata@0.2.2)
       '@mikro-orm/nestjs':
-        specifier: ^7.0.0
+        specifier: 7.0.2
         version: 7.0.2(@mikro-orm/core@7.1.1(dataloader@2.2.3))(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)
       '@mikro-orm/postgresql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@mikro-orm/sql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@nestjs/common':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/platform-express':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1)
       class-transformer:
-        specifier: ^0.5.1
+        specifier: 0.5.1
         version: 0.5.1
       class-validator:
-        specifier: ^0.14.1
+        specifier: 0.14.4
         version: 0.14.4
       reflect-metadata:
-        specifier: ^0.2.2
+        specifier: 0.2.2
         version: 0.2.2
       rxjs:
-        specifier: ^7.8.1
+        specifier: 7.8.2
         version: 7.8.2
     devDependencies:
       '@nestjs/testing':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@types/express':
-        specifier: ^4.17.21
+        specifier: 4.17.25
         version: 4.17.25
       '@types/node':
-        specifier: ^20.19.41
+        specifier: 20.19.41
         version: 20.19.41
       '@types/supertest':
-        specifier: ^6.0.2
+        specifier: 6.0.3
         version: 6.0.3
       express:
-        specifier: ^4.19.2
+        specifier: 4.22.2
         version: 4.22.2
       supertest:
-        specifier: ^7.0.0
+        specifier: 7.2.2
         version: 7.2.2
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   integration/typeorm-mysql:
@@ -404,59 +404,59 @@ importers:
         specifier: workspace:*
         version: link:../../packages/typeorm
       '@nestjs/common':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/platform-express':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1)
       '@nestjs/typeorm':
-        specifier: ^12.0.0
+        specifier: 12.0.0
         version: 12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7))
       class-transformer:
-        specifier: ^0.5.1
+        specifier: 0.5.1
         version: 0.5.1
       class-validator:
-        specifier: ^0.14.1
+        specifier: 0.14.4
         version: 0.14.4
       mysql2:
-        specifier: ^3.11.0
+        specifier: 3.22.3
         version: 3.22.3(@types/node@20.19.41)
       reflect-metadata:
-        specifier: ^0.2.2
+        specifier: 0.2.2
         version: 0.2.2
       rxjs:
-        specifier: ^7.8.1
+        specifier: 7.8.2
         version: 7.8.2
       typeorm:
-        specifier: ^0.3.20
+        specifier: 0.3.30
         version: 0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7)
     devDependencies:
       '@nestjs/testing':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@types/express':
-        specifier: ^4.17.21
+        specifier: 4.17.25
         version: 4.17.25
       '@types/node':
-        specifier: ^20.19.41
+        specifier: 20.19.41
         version: 20.19.41
       '@types/supertest':
-        specifier: ^6.0.2
+        specifier: 6.0.3
         version: 6.0.3
       express:
-        specifier: ^4.19.2
+        specifier: 4.22.2
         version: 4.22.2
       supertest:
-        specifier: ^7.0.0
+        specifier: 7.2.2
         version: 7.2.2
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   integration/typeorm-postgres:
@@ -468,71 +468,71 @@ importers:
         specifier: workspace:*
         version: link:../../packages/typeorm
       '@nestjs/common':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/platform-express':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1)
       '@nestjs/typeorm':
-        specifier: ^12.0.0
+        specifier: 12.0.0
         version: 12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7))
       class-transformer:
-        specifier: ^0.5.1
+        specifier: 0.5.1
         version: 0.5.1
       class-validator:
-        specifier: ^0.14.1
+        specifier: 0.14.4
         version: 0.14.4
       pg:
-        specifier: ^8.12.0
+        specifier: 8.21.0
         version: 8.21.0
       reflect-metadata:
-        specifier: ^0.2.2
+        specifier: 0.2.2
         version: 0.2.2
       rxjs:
-        specifier: ^7.8.1
+        specifier: 7.8.2
         version: 7.8.2
       typeorm:
-        specifier: ^0.3.20
+        specifier: 0.3.30
         version: 0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7)
     devDependencies:
       '@nestjs/testing':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@types/express':
-        specifier: ^4.17.21
+        specifier: 4.17.25
         version: 4.17.25
       '@types/node':
-        specifier: ^20.19.41
+        specifier: 20.19.41
         version: 20.19.41
       '@types/supertest':
-        specifier: ^6.0.2
+        specifier: 6.0.3
         version: 6.0.3
       express:
-        specifier: ^4.19.2
+        specifier: 4.22.2
         version: 4.22.2
       supertest:
-        specifier: ^7.0.0
+        specifier: 7.2.2
         version: 7.2.2
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   packages/client:
     devDependencies:
       '@tanstack/table-core':
-        specifier: ^8.20.0
+        specifier: 8.21.3
         version: 8.21.3
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.9.1)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   packages/codegen:
@@ -551,10 +551,10 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.9.1)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   packages/core:
@@ -564,52 +564,52 @@ importers:
         version: 0.1.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)
     devDependencies:
       '@dudousxd/nestjs-diagnostics':
-        specifier: ^0.5.0
+        specifier: 0.5.0
         version: 0.5.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)
       '@nestjs/common':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/platform-express':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1)
       '@nestjs/testing':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@types/express':
-        specifier: ^4.17.21
+        specifier: 4.17.25
         version: 4.17.25
       '@types/node':
-        specifier: ^20.19.41
+        specifier: 20.19.41
         version: 20.19.41
       '@types/supertest':
-        specifier: ^6.0.2
+        specifier: 6.0.3
         version: 6.0.3
       class-transformer:
-        specifier: ^0.5.1
+        specifier: 0.5.1
         version: 0.5.1
       class-validator:
-        specifier: ^0.14.1
+        specifier: 0.14.4
         version: 0.14.4
       express:
-        specifier: ^4.19.2
+        specifier: 4.22.2
         version: 4.22.2
       reflect-metadata:
-        specifier: ^0.2.2
+        specifier: 0.2.2
         version: 0.2.2
       rxjs:
-        specifier: ^7.8.1
+        specifier: 7.8.2
         version: 7.8.2
       supertest:
-        specifier: ^7.0.0
+        specifier: 7.2.2
         version: 7.2.2
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   packages/mikro-orm:
@@ -618,49 +618,49 @@ importers:
         specifier: workspace:*
         version: link:../core
       '@mikro-orm/core':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(dataloader@2.2.3)
       '@mikro-orm/decorators':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))(reflect-metadata@0.2.2)
       '@mikro-orm/mysql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))(@types/node@20.19.41)
       '@mikro-orm/nestjs':
-        specifier: ^7.0.0
+        specifier: 7.0.2
         version: 7.0.2(@mikro-orm/core@7.1.1(dataloader@2.2.3))(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)
       '@mikro-orm/postgresql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@mikro-orm/sql':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@mikro-orm/sqlite':
-        specifier: ^7.0.0
+        specifier: 7.1.1
         version: 7.1.1(@mikro-orm/core@7.1.1(dataloader@2.2.3))
       '@nestjs/common':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/testing':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@types/node':
-        specifier: ^20.19.41
+        specifier: 20.19.41
         version: 20.19.41
       reflect-metadata:
-        specifier: ^0.2.2
+        specifier: 0.2.2
         version: 0.2.2
       rxjs:
-        specifier: ^7.8.1
+        specifier: 7.8.2
         version: 7.8.2
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   packages/react:
@@ -669,7 +669,7 @@ importers:
         specifier: workspace:*
         version: link:../client
       '@testing-library/react':
-        specifier: ^16.3.2
+        specifier: 16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.31
@@ -678,22 +678,22 @@ importers:
         specifier: 18.3.7
         version: 18.3.7(@types/react@18.3.31)
       jsdom:
-        specifier: ^25.0.0
+        specifier: 25.0.1
         version: 25.0.1
       nuqs:
-        specifier: ^2.4.0
+        specifier: 2.8.9
         version: 2.8.9(next@16.2.7(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
       react:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.9.1)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   packages/typeorm:
@@ -702,77 +702,77 @@ importers:
         specifier: workspace:*
         version: link:../core
       '@nestjs/common':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/testing':
-        specifier: ^12.0.0
+        specifier: 12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@nestjs/typeorm':
-        specifier: ^12.0.0
+        specifier: 12.0.0
         version: 12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7))
       '@types/node':
-        specifier: ^20.19.41
+        specifier: 20.19.41
         version: 20.19.41
       better-sqlite3:
-        specifier: ^11.0.0
+        specifier: 11.10.0
         version: 11.10.0
       reflect-metadata:
-        specifier: ^0.2.2
+        specifier: 0.2.2
         version: 0.2.2
       rxjs:
-        specifier: ^7.8.1
+        specifier: 7.8.2
         version: 7.8.2
       typeorm:
-        specifier: ^0.3.20
+        specifier: 0.3.30
         version: 0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7)
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.41)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
 
   website:
     dependencies:
       '@orama/orama':
-        specifier: ^3.1.18
+        specifier: 3.1.18
         version: 3.1.18
       fumadocs-core:
-        specifier: ^16.9.3
+        specifier: 16.9.3
         version: 16.9.3(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.17.0(react@19.3.0))(next@16.2.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.4.3)
       fumadocs-mdx:
-        specifier: ^15.0.10
+        specifier: 15.0.11
         version: 15.0.11(@types/mdast@4.0.4)(@types/mdx@2.0.13)(@types/react@19.2.17)(fumadocs-core@16.9.3(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.17.0(react@19.3.0))(next@16.2.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.4.3))(mdast-util-directive@3.1.0)(next@16.2.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(vite@7.3.3(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))
       fumadocs-ui:
-        specifier: ^16.9.3
+        specifier: 16.9.3
         version: 16.9.3(@tailwindcss/oxide@4.3.0)(@types/mdx@2.0.13)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(fumadocs-core@16.9.3(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.17.0(react@19.3.0))(next@16.2.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.4.3))(next@16.2.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.0)
       lucide-react:
-        specifier: ^1.17.0
+        specifier: 1.17.0
         version: 1.17.0(react@19.3.0)
       next:
-        specifier: ^16.2.7
+        specifier: 16.2.7
         version: 16.2.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react:
-        specifier: ^19.3.0
+        specifier: 19.3.0
         version: 19.3.0
       react-dom:
-        specifier: ^19.3.0
+        specifier: 19.3.0
         version: 19.3.0(react@19.3.0)
       tailwind-merge:
-        specifier: ^3.6.0
+        specifier: 3.6.0
         version: 3.6.0
     devDependencies:
       '@tailwindcss/postcss':
-        specifier: ^4.3.0
+        specifier: 4.3.0
         version: 4.3.0
       '@types/mdx':
-        specifier: ^2.0.13
+        specifier: 2.0.13
         version: 2.0.13
       '@types/node':
-        specifier: ^25.9.1
+        specifier: 25.9.1
         version: 25.9.1
       '@types/react':
         specifier: 19.2.17
@@ -781,16 +781,16 @@ importers:
         specifier: 19.2.3
         version: 19.2.3(@types/react@19.2.17)
       postcss:
-        specifier: ^8.5.15
+        specifier: 8.5.15
         version: 8.5.15
       serve:
-        specifier: ^14.2.6
+        specifier: 14.2.6
         version: 14.2.6
       tailwindcss:
-        specifier: ^4.3.0
+        specifier: 4.3.0
         version: 4.3.0
       typescript:
-        specifier: ^5.4.0
+        specifier: 5.9.3
         version: 5.9.3
 
 packages:
@@ -4110,10 +4110,6 @@ packages:
     resolution: {integrity: sha512-PMSmkqxr106Xa156c2M265Z+FTrPl+oxd/rgOQy2tijQeK5TxQ43psO1ZCwhVOSdnn+RzkzlRz/eY4BgJBYVpg==}
     hasBin: true
 
-  js-yaml@4.1.1:
-    resolution: {integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==}
-    hasBin: true
-
   js-yaml@4.2.0:
     resolution: {integrity: sha512-ePWsvanv0DWuDRsW8dnt+R4jQ31SCRCQ7hhNcPXZPsoBZiemuZNYGf7adZdqX2D86j6rvKp3RpCxVTSb8WQlOw==}
     hasBin: true
@@ -5535,10 +5531,6 @@ packages:
   tinyexec@1.2.4:
     resolution: {integrity: sha512-SHf/r48b7vOrjve9PxJo3MN5v5yuyjHvdUcrQffT3WXMUfnGmHDVbC4k3sHJaJTgZCwpUplIaAo5ANtMyp3YHg==}
     engines: {node: '>=18'}
-
-  tinyglobby@0.2.16:
-    resolution: {integrity: sha512-pn99VhoACYR8nFHhxqix+uvsbXineAasWm5ojXoN8xEwK5Kd3/TrhNn1wByuD52UxWRLy8pu+kRMniEi6Eq9Zg==}
-    engines: {node: '>=12.0.0'}
 
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
@@ -8853,7 +8845,7 @@ snapshots:
       github-slugger: 2.0.0
       hast-util-to-estree: 3.1.3
       hast-util-to-jsx-runtime: 2.3.6
-      js-yaml: 4.1.1
+      js-yaml: 4.2.0
       mdast-util-mdx: 3.0.0
       mdast-util-to-markdown: 2.1.2
       remark: 15.0.1
@@ -8861,7 +8853,7 @@ snapshots:
       remark-rehype: 11.1.2
       scroll-into-view-if-needed: 3.1.0
       shiki: 4.1.0
-      tinyglobby: 0.2.16
+      tinyglobby: 0.2.17
       unified: 11.0.5
       unist-util-visit: 5.1.0
       vfile: 6.0.3
@@ -9337,10 +9329,6 @@ snapshots:
     dependencies:
       argparse: 1.0.10
       esprima: 4.0.1
-
-  js-yaml@4.1.1:
-    dependencies:
-      argparse: 2.0.1
 
   js-yaml@4.2.0:
     dependencies:
@@ -11276,11 +11264,6 @@ snapshots:
   tinyexec@0.3.2: {}
 
   tinyexec@1.2.4: {}
-
-  tinyglobby@0.2.16:
-    dependencies:
-      fdir: 6.5.0(picomatch@4.0.4)
-      picomatch: 4.0.4
 
   tinyglobby@0.2.17:
     dependencies:
