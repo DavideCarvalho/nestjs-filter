@@ -15,7 +15,7 @@ importers:
         specifier: ^0.7.0
         version: 0.7.0(encoding@0.1.13)
       '@changesets/cli':
-        specifier: ^2.27.0
+        specifier: ^2.31.0
         version: 2.31.0(@types/node@25.9.1)
       '@swc/core':
         specifier: ^1.15.40
@@ -6194,7 +6194,7 @@ snapshots:
   '@changesets/parse@0.4.3':
     dependencies:
       '@changesets/types': 6.1.0
-      js-yaml: 4.1.1
+      js-yaml: 4.2.0
 
   '@changesets/pre@2.0.2':
     dependencies:
