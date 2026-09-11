@@ -85,7 +85,7 @@ importers:
         specifier: ^4.17.21
         version: 4.17.25
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.41
         version: 20.19.41
       '@types/supertest':
         specifier: ^6.0.2
@@ -149,7 +149,7 @@ importers:
         specifier: ^4.17.21
         version: 4.17.25
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.41
         version: 20.19.41
       '@types/supertest':
         specifier: ^6.0.2
@@ -237,7 +237,7 @@ importers:
         specifier: ^10.13.0
         version: 10.28.0
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.41
         version: 20.19.41
       '@types/pg':
         specifier: ^8.11.0
@@ -307,7 +307,7 @@ importers:
         specifier: ^4.17.21
         version: 4.17.25
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.41
         version: 20.19.41
       '@types/supertest':
         specifier: ^6.0.2
@@ -377,7 +377,7 @@ importers:
         specifier: ^4.17.21
         version: 4.17.25
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.41
         version: 20.19.41
       '@types/supertest':
         specifier: ^6.0.2
@@ -441,7 +441,7 @@ importers:
         specifier: ^4.17.21
         version: 4.17.25
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.41
         version: 20.19.41
       '@types/supertest':
         specifier: ^6.0.2
@@ -505,7 +505,7 @@ importers:
         specifier: ^4.17.21
         version: 4.17.25
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.41
         version: 20.19.41
       '@types/supertest':
         specifier: ^6.0.2
@@ -582,7 +582,7 @@ importers:
         specifier: ^4.17.21
         version: 4.17.25
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.41
         version: 20.19.41
       '@types/supertest':
         specifier: ^6.0.2
@@ -648,7 +648,7 @@ importers:
         specifier: ^12.0.0
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1))
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.41
         version: 20.19.41
       reflect-metadata:
         specifier: ^0.2.2
@@ -714,7 +714,7 @@ importers:
         specifier: ^12.0.0
         version: 12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.30(better-sqlite3@11.10.0)(mysql2@3.22.3(@types/node@20.19.41))(pg@8.21.0)(sqlite3@5.1.7))
       '@types/node':
-        specifier: ^20.0.0
+        specifier: ^20.19.41
         version: 20.19.41
       better-sqlite3:
         specifier: ^11.0.0
