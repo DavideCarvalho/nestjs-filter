@@ -42,6 +42,6 @@
     "@types/pg": "^8.11.0",
     "typescript": "^5.4.0",
     "unplugin-swc": "^1.5.9",
-    "vitest": "^3.0.0"
+    "vitest": "^3.2.4"
   }
 }
