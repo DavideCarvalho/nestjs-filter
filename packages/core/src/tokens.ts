@@ -27,6 +27,8 @@ export const TENANT_SCOPED_METADATA = 'nestjs-filter:tenant-scoped';
  *
  * `Symbol.for(key)` uses the global symbol registry, so this resolves to the
  * SAME symbol instance as nestjs-context's `tokens.ts` without any import.
- * The key MUST stay byte-identical with nestjs-context's export.
+ * The key MUST stay byte-identical with nestjs-context's export. `test/capability-naming.spec.ts`
+ * pins it against `capability('context', 'accessor')` from `@dudousxd/nestjs-diagnostics` — the
+ * shared naming rule both libraries derive the key from — so editing this string fails the suite.
  */
 export const CONTEXT_ACCESSOR = Symbol.for('@dudousxd/nestjs-context:accessor');
