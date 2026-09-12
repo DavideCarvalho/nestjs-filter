@@ -47,7 +47,7 @@
   "devDependencies": {
     "@tanstack/table-core": "8.21.3",
     "typescript": "5.9.3",
-    "vitest": "3.2.4"
+    "vitest": "3.2.7"
   },
   "engines": {
     "node": ">=20"
