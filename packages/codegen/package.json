@@ -12,12 +12,7 @@
   "bugs": {
     "url": "https://github.com/DavideCarvalho/nestjs-filter/issues"
   },
-  "keywords": [
-    "nestjs",
-    "filter",
-    "codegen",
-    "extension"
-  ],
+  "keywords": ["nestjs", "filter", "codegen", "extension"],
   "author": "Davi Carvalho <davi@goflip.ai>",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,9 +24,7 @@
       "default": "./dist/index.js"
     }
   },
-  "files": [
-    "dist/"
-  ],
+  "files": ["dist/"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
