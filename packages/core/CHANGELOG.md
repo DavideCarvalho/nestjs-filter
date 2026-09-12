@@ -1,5 +1,17 @@
 # @dudousxd/nestjs-filter
 
+## 1.33.1
+
+### Patch Changes
+
+- [`dcfe899`](https://github.com/DavideCarvalho/nestjs-filter/commit/dcfe8991512038f88afaa0f0433788410e832685) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Note what pins the CONTEXT_ACCESSOR token key
+
+  Comment-only change. The `CONTEXT_ACCESSOR` docblock said the symbol key must
+  stay byte-identical with `@dudousxd/nestjs-context`'s export but did not say
+  what enforces that. It now names the guard: `test/capability-naming.spec.ts`
+  pins the token against `capability('context', 'accessor')` from
+  `@dudousxd/nestjs-diagnostics`. No runtime behavior changes.
+
 ## 1.33.0
 
 ### Minor Changes
