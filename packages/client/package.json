@@ -8,6 +8,18 @@
     "url": "git+https://github.com/DavideCarvalho/nestjs-filter.git",
     "directory": "packages/client"
   },
+  "homepage": "https://davidecarvalho.github.io/aviary/docs/filter",
+  "bugs": {
+    "url": "https://github.com/DavideCarvalho/nestjs-filter/issues"
+  },
+  "keywords": [
+    "nestjs",
+    "filter",
+    "query",
+    "client",
+    "builder",
+    "tanstack-intent"
+  ],
   "author": "Davi Carvalho <davi@goflip.ai>",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,7 +36,10 @@
       "default": "./dist/tanstack.js"
     }
   },
-  "files": ["dist/", "skills"],
+  "files": [
+    "dist/",
+    "skills"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
@@ -46,6 +61,5 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "keywords": ["nestjs", "filter", "query", "client", "builder", "tanstack-intent"]
+  }
 }

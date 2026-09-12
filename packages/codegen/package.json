@@ -8,6 +8,16 @@
     "url": "git+https://github.com/DavideCarvalho/nestjs-filter.git",
     "directory": "packages/codegen"
   },
+  "homepage": "https://davidecarvalho.github.io/aviary/docs/filter",
+  "bugs": {
+    "url": "https://github.com/DavideCarvalho/nestjs-filter/issues"
+  },
+  "keywords": [
+    "nestjs",
+    "filter",
+    "codegen",
+    "extension"
+  ],
   "author": "Davi Carvalho <davi@goflip.ai>",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,7 +29,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist/"],
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
@@ -41,6 +53,5 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "keywords": ["nestjs", "filter", "codegen", "extension"]
+  }
 }
