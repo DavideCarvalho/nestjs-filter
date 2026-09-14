@@ -46,7 +46,7 @@
     "@mikro-orm/core": "7.1.1",
     "@mikro-orm/decorators": "7.1.1",
     "@mikro-orm/mysql": "7.1.1",
-    "@mikro-orm/nestjs": "7.0.2",
+    "@mikro-orm/nestjs": "7.1.0",
     "@mikro-orm/postgresql": "7.1.1",
     "@mikro-orm/sql": "7.1.1",
     "@mikro-orm/sqlite": "7.1.1",
