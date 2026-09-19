@@ -23,8 +23,8 @@
     "@mikro-orm/postgresql": "7.1.1",
     "@mikro-orm/sql": "7.1.1",
     "@mikro-orm/sqlite": "7.1.1",
-    "@nestjs/common": "12.0.1",
-    "@nestjs/core": "12.0.1",
+    "@nestjs/common": "12.0.3",
+    "@nestjs/core": "12.0.3",
     "@nestjs/typeorm": "12.0.1",
     "better-sqlite3": "11.10.0",
     "mysql2": "3.24.4",
@@ -34,7 +34,7 @@
     "typeorm": "0.3.31"
   },
   "devDependencies": {
-    "@nestjs/testing": "12.0.1",
+    "@nestjs/testing": "12.0.3",
     "@testcontainers/mysql": "10.28.0",
     "@testcontainers/postgresql": "10.28.0",
     "testcontainers": "10.28.0",
