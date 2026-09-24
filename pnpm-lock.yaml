@@ -526,8 +526,8 @@ importers:
   packages/client:
     devDependencies:
       '@tanstack/table-core':
-        specifier: 8.21.3
-        version: 8.21.3
+        specifier: 9.2.4
+        version: 9.2.4
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -539,7 +539,7 @@ importers:
     dependencies:
       '@dudousxd/nestjs-filter-client':
         specifier: '>=1.25.0'
-        version: 1.25.0(@tanstack/table-core@8.21.3)
+        version: 1.25.0(@tanstack/table-core@9.2.4)
       ts-morph:
         specifier: 28.0.0
         version: 28.0.0
@@ -2504,9 +2504,12 @@ packages:
   '@tailwindcss/postcss@4.3.3':
     resolution: {integrity: sha512-JTSZZGQi1AyKirbLN3azmjVzef92tcX7h+iSqPdaeStyFpGpDlKvvpxeOE8njhbUanbRwr3z8DyzhICWnMtQeg==}
 
-  '@tanstack/table-core@8.21.3':
-    resolution: {integrity: sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg==}
-    engines: {node: '>=12'}
+  '@tanstack/store@0.11.1':
+    resolution: {integrity: sha512-mzTOBhypOuDJAy/D8n2MfUZ1HFkXnmSETviRyhqEC8LUE7/IZQExOTxMANj3KjTofYTkFNpBY67qaVrT41YccA==}
+
+  '@tanstack/table-core@9.2.4':
+    resolution: {integrity: sha512-GwdDyGGr6UXAtubF14yAwcXvdaogqfsQgIk89Suebjxob/Rjq2xvfmXsjDF1rQmKmhHsJm9TOY7myxv3i6geJw==}
+    engines: {node: '>=20'}
 
   '@testcontainers/mysql@10.28.0':
     resolution: {integrity: sha512-yZKe86Esg8mPyr957aSwdkmDqXH17vab5aUcDqwR/E2fZpZxLetwfvmoVP+V6TpQQNTYrVTyP5T+HPMgaZeIkA==}
@@ -6435,9 +6438,9 @@ snapshots:
       '@nestjs/core': 12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       reflect-metadata: 0.2.2
 
-  '@dudousxd/nestjs-filter-client@1.25.0(@tanstack/table-core@8.21.3)':
+  '@dudousxd/nestjs-filter-client@1.25.0(@tanstack/table-core@9.2.4)':
     optionalDependencies:
-      '@tanstack/table-core': 8.21.3
+      '@tanstack/table-core': 9.2.4
 
   '@emnapi/runtime@1.11.3':
     dependencies:
@@ -7650,7 +7653,11 @@ snapshots:
       postcss: 8.5.28
       tailwindcss: 4.3.3
 
-  '@tanstack/table-core@8.21.3': {}
+  '@tanstack/store@0.11.1': {}
+
+  '@tanstack/table-core@9.2.4':
+    dependencies:
+      '@tanstack/store': 0.11.1
 
   '@testcontainers/mysql@10.28.0':
     dependencies:
