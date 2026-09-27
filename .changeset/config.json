@@ -23,7 +23,8 @@
     "@integration/mikro-orm-postgres",
     "@integration/mikro-orm-mysql",
     "@integration/typeorm-postgres",
-    "@integration/typeorm-mysql"
+    "@integration/typeorm-mysql",
+    "@integration/drizzle-postgres"
   ],
   "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
     "onlyUpdatePeerDependentsWhenOutOfRange": true

@@ -45,6 +45,7 @@ jobs:
           - mikro-orm-mysql
           - typeorm-postgres
           - typeorm-mysql
+          - drizzle-postgres
 
     steps:
       - uses: actions/checkout@v7.0.1

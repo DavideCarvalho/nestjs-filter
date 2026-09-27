@@ -155,6 +155,7 @@ export function createMikroOrmHarness(): ContractHarness<User, Post> {
     name: 'mikro-orm',
     User,
     Post,
+    UserFilter,
     capabilities: { computedFields: true, relationPathFilters: true },
     get runner() {
       return runnerRef;

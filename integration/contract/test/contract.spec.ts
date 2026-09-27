@@ -8,15 +8,16 @@ import {
   resolveDialect,
   startBackend,
 } from '../src/db-backend.js';
+import { createDrizzleHarness } from '../src/drizzle-harness.js';
 import type { ContractHarness } from '../src/harness.js';
-import { UserFilter as MikroUserFilter, createMikroOrmHarness } from '../src/mikro-orm-harness.js';
-import { UserFilter as TypeOrmUserFilter, createTypeOrmHarness } from '../src/typeorm-harness.js';
+import { createMikroOrmHarness } from '../src/mikro-orm-harness.js';
+import { createTypeOrmHarness } from '../src/typeorm-harness.js';
 
 /**
  * Cross-adapter behavioral contract.
  *
- * ONE set of expectations, run against BOTH the TypeORM and MikroORM adapters
- * via a parametrized `describe.each`. The point is drift detection: if the two
+ * ONE set of expectations, run against the TypeORM, MikroORM and Drizzle
+ * adapters via a parametrized `describe.each`. The point is drift detection: if the two
  * adapters ever disagree on the core filter contract, a test here fails.
  *
  * Default backend is in-memory SQLite, so `pnpm test` stays fast and green with
@@ -47,7 +48,7 @@ if (dialect !== 'sqlite') {
   }
 }
 
-// One started backend (a single container) shared by both adapter harnesses.
+// One started backend (a single container) shared by every adapter harness.
 let backend: StartedBackend | undefined;
 
 const suite = dialect !== 'sqlite' && !dockerOk ? describe.skip : describe;
@@ -67,6 +68,7 @@ suite(`cross-adapter contract [${dialect}]`, () => {
   }> = [
     { name: 'typeorm', create: createTypeOrmHarness },
     { name: 'mikro-orm', create: createMikroOrmHarness },
+    { name: 'drizzle', create: createDrizzleHarness },
   ];
 
   describe.each(harnesses)('adapter: $name', ({ create }) => {
@@ -86,9 +88,9 @@ suite(`cross-adapter contract [${dialect}]`, () => {
     });
 
     // The runner resolves the filter class from DI by type, so each harness must
-    // pass *its own* filter class. Pick it by harness name.
+    // pass *its own* filter class.
     function userFilter(): unknown {
-      return h.name === 'typeorm' ? TypeOrmUserFilter : MikroUserFilter;
+      return h.UserFilter;
     }
 
     async function names(input: unknown): Promise<string[]> {
