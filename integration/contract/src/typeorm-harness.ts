@@ -168,6 +168,7 @@ export function createTypeOrmHarness(): ContractHarness<User, Post> {
     name: 'typeorm',
     User,
     Post,
+    UserFilter,
     capabilities: { computedFields: true, relationPathFilters: false },
     get runner() {
       return runnerRef;

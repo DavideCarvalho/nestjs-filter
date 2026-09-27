@@ -13,12 +13,19 @@ import type { BackendConnection } from './db-backend.js';
  * differ per ORM but the assertions are identical.
  */
 export interface ContractHarness<UserT extends object = object, PostT extends object = object> {
-  /** Human label used in the parametrized describe ("typeorm" | "mikro-orm"). */
+  /** Human label used in the parametrized describe ("typeorm" | "mikro-orm" | "drizzle"). */
   readonly name: string;
 
-  /** The entity classes, for `applyDynamic` / `findPage` / `findAndCount` calls. */
+  /**
+   * The entities, for `applyDynamic` / `findPage` / `findAndCount` calls — an
+   * entity class for TypeORM / MikroORM, a table object for Drizzle (typed as
+   * a class here only so the spec can pass it around uniformly).
+   */
   readonly User: Type<UserT>;
   readonly Post: Type<PostT>;
+
+  /** The harness's contract `UserFilter` class (resolved from its own DI container). */
+  readonly UserFilter: Type<object>;
 
   /**
    * Adapter capability flags. The core contract is identical across adapters;

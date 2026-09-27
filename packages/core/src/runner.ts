@@ -62,6 +62,7 @@ import type {
   FieldHistogramSpec,
   FieldMeta,
   FilterContext,
+  FilterEntity,
   FilterMetadata,
   FilterModuleOptions,
   GroupByCountBucket,
@@ -78,6 +79,27 @@ import type {
  * whose `has()` always returns true.
  */
 type AutoFieldSet = { has(key: string): boolean };
+
+/**
+ * A throwaway instance to bind `@Computed` methods against when the only
+ * metadata source is the entity itself (dynamic mode). An entity CLASS gets an
+ * object on its prototype; a schema object (a Drizzle table — see
+ * {@link FilterEntity}) has no prototype to borrow, and no `@Computed` methods
+ * either, so a bare object stands in.
+ */
+function entityPrototypeOf(entity: FilterEntity): object {
+  return typeof entity === 'function' ? Object.create(entity.prototype as object) : {};
+}
+
+/**
+ * A readable name for an entity in log and error messages. A class reports its
+ * own name; a schema object reports its constructor's (never a `name` property,
+ * which on a Drizzle table is the `name` COLUMN when the table has one).
+ */
+function entityName(entity: FilterEntity): string {
+  if (typeof entity === 'function') return entity.name;
+  return (entity as { constructor?: { name?: string } }).constructor?.name ?? 'entity';
+}
 
 const MATCH_ALL_SET: AutoFieldSet = { has: () => true };
 
@@ -131,7 +153,7 @@ export interface ComputedRegistryEntry {
  * used only to bind decorated methods.
  */
 export function buildComputedRegistry(
-  FilterClass: Function,
+  FilterClass: Function | object,
   instance: object,
 ): Map<string, ComputedRegistryEntry> {
   const registry = new Map<string, ComputedRegistryEntry>();
@@ -251,7 +273,7 @@ export class FilterRunner {
    * adapter it needs, then quietly running on a different backend's, would answer with rows from the
    * wrong data source — a failure that looks like a successful query.
    */
-  private resolveAdapter(...sources: Array<Type<unknown> | undefined>): FilterAdapter | null {
+  private resolveAdapter(...sources: Array<FilterEntity | undefined>): FilterAdapter | null {
     for (const source of sources) {
       const token = source ? getFilterableMetadata(source)?.adapter : undefined;
       if (token === undefined) continue;
@@ -265,7 +287,7 @@ export class FilterRunner {
       }
       if (!resolved) {
         throw new Error(
-          `@Filterable on ${source?.name} names an adapter token that is not registered. Provide it in a module reachable from this one.`,
+          `@Filterable on ${source ? entityName(source) : undefined} names an adapter token that is not registered. Provide it in a module reachable from this one.`,
         );
       }
       this.scopedAdapters.set(token, resolved);
@@ -365,7 +387,7 @@ export class FilterRunner {
    * Intended for building dynamic UIs (column pickers, filter builders) and
    * the `meta.fields` payload of generic, table-name-driven endpoints.
    */
-  describe(entity: Type<unknown>): EntityDescription {
+  describe(entity: FilterEntity): EntityDescription {
     const cached = this.descriptionCache.get(entity);
     if (cached) return cached;
 
@@ -449,11 +471,11 @@ export class FilterRunner {
     qb: Q,
     rawFields: unknown,
     opts: {
-      entity: Type<unknown> | undefined;
+      entity: FilterEntity | undefined;
       adapter: FilterAdapter | null;
       allowed: readonly string[] | undefined;
       throwOnInvalid: boolean;
-      apply: ((qb: unknown, fields: string[], entity: Type<unknown>) => void) | undefined;
+      apply: ((qb: unknown, fields: string[], entity: FilterEntity) => void) | undefined;
       unsupported?: { feature: string; method: string };
       /**
        * `@Filterable` metadata (or entity-level metadata, in dynamic mode)
@@ -1465,7 +1487,7 @@ export class FilterRunner {
     includes: string[],
     allowlist: string[] | undefined,
     adapter: FilterAdapter,
-    entity: Type<unknown>,
+    entity: FilterEntity,
   ): string[] {
     const maxDepth = this.options.maxIncludeDepth ?? 3;
     return includes.filter((path) => {
@@ -1499,7 +1521,7 @@ export class FilterRunner {
     qb: Q,
     searchTerm: string,
     opts: {
-      entity: Type<unknown> | undefined;
+      entity: FilterEntity | undefined;
       adapter: FilterAdapter | null;
       searchConfig?: readonly string[] | { vector: string; rank?: boolean } | undefined;
       slowSearchHint: string;
@@ -1551,7 +1573,7 @@ export class FilterRunner {
    * @returns The query builder with filters applied.
    */
   async applyDynamic<Q>(
-    entity: Type<unknown>,
+    entity: FilterEntity,
     input: unknown,
     qb: Q,
     context: FilterContext = {},
@@ -1767,7 +1789,7 @@ export class FilterRunner {
    * else this method does.
    */
   async findAndCount<E>(
-    entity: Type<E>,
+    entity: FilterEntity<E>,
     input: unknown,
     opts: { qb?: unknown; context?: FilterContext; trustedPageSize?: boolean } = {},
   ): Promise<{ rows: E[]; total: number }> {
@@ -1846,7 +1868,7 @@ export class FilterRunner {
    */
   private resolveDynamicDistinctFields(
     rawDistinct: unknown,
-    entity: Type<unknown>,
+    entity: FilterEntity,
     adapter: FilterAdapter | null,
   ): string[] {
     // Mirrors the alias resolution `applyDynamic`'s own `applyProjection`
@@ -1897,7 +1919,7 @@ export class FilterRunner {
    *   count }[]` with `bucketEnd = bucketStart + bucket`.
    */
   async groupByCount<E>(
-    entity: Type<E>,
+    entity: FilterEntity<E>,
     input: unknown,
     opts: { qb?: unknown; context?: FilterContext; filterClass?: Type<object> } = {},
   ): Promise<GroupByCountResult> {
@@ -1930,7 +1952,7 @@ export class FilterRunner {
     // alias bypass column validation — it is dev-declared, not a column.
     const computedRegistry = opts.filterClass
       ? buildComputedRegistry(opts.filterClass, await this.resolveFilter(opts.filterClass))
-      : buildComputedRegistry(entity, Object.create(entity.prototype) as object);
+      : buildComputedRegistry(entity, entityPrototypeOf(entity));
     const computedEntry = computedRegistry.get(field);
 
     let groupField: GroupByCountField;
@@ -2084,7 +2106,7 @@ export class FilterRunner {
    *   alias). `{}` when the request named no extent fields at all.
    */
   async fieldExtent<E>(
-    entity: Type<E>,
+    entity: FilterEntity<E>,
     input: unknown,
     opts: { qb?: unknown; context?: FilterContext; filterClass?: Type<object> } = {},
   ): Promise<Record<string, FieldExtent>> {
@@ -2112,7 +2134,7 @@ export class FilterRunner {
     // Registry source mirrors groupByCount's: the DI-resolved filter class when
     // given (so `@Computed` methods bind), else `@Filterable` declared on the
     // entity itself, which is all dynamic mode has.
-    const entityProto: object = Object.create(entity.prototype);
+    const entityProto: object = entityPrototypeOf(entity);
     const computedRegistry = opts.filterClass
       ? buildComputedRegistry(opts.filterClass, await this.resolveFilter(opts.filterClass))
       : buildComputedRegistry(entity, entityProto);
@@ -2174,7 +2196,7 @@ export class FilterRunner {
    */
   private resolveMeasurableField(
     field: string,
-    entity: Type<unknown>,
+    entity: FilterEntity,
     adapter: FilterAdapter,
     allowlist: string[] | undefined,
     computedRegistry: Map<string, ComputedRegistryEntry>,
@@ -2195,7 +2217,7 @@ export class FilterRunner {
    * MySQL error 3065.
    */
   private async buildFilteredQb(
-    entity: Type<unknown>,
+    entity: FilterEntity,
     structured: { filter: unknown; search: unknown },
     adapter: FilterAdapter,
     context: FilterContext | undefined,
@@ -2285,7 +2307,7 @@ export class FilterRunner {
    *   bucket list when no row in scope carries a value.
    */
   async fieldHistogram<E>(
-    entity: Type<E>,
+    entity: FilterEntity<E>,
     input: unknown,
     opts: { context?: FilterContext; filterClass?: Type<object> } = {},
   ): Promise<FieldHistogram> {
@@ -2318,7 +2340,7 @@ export class FilterRunner {
     const [remapped] = this.remapFieldAliases([spec.field], aliasMeta);
     const field = remapped ?? spec.field;
 
-    const entityProto: object = Object.create(entity.prototype);
+    const entityProto: object = entityPrototypeOf(entity);
     const computedRegistry = opts.filterClass
       ? buildComputedRegistry(opts.filterClass, await this.resolveFilter(opts.filterClass))
       : buildComputedRegistry(entity, entityProto);
@@ -2451,7 +2473,7 @@ export class FilterRunner {
    */
   private assertBucketable(
     target: FieldExtentField,
-    entity: Type<unknown>,
+    entity: FilterEntity,
     adapter: FilterAdapter,
   ): void {
     if (typeof target !== 'string') return;
@@ -2627,7 +2649,7 @@ export class FilterRunner {
    * cannot opt out.
    */
   async findPage<E>(
-    entity: Type<E>,
+    entity: FilterEntity<E>,
     input: unknown,
     opts: { qb?: unknown; context?: FilterContext; trustedPageSize?: boolean } = {},
   ): Promise<CursorPage<E>> {
@@ -2672,7 +2694,7 @@ export class FilterRunner {
 
     const pk = adapter.getPrimaryKey(entity);
     if (!pk) {
-      throw new Error(`findPage: could not resolve a primary key for ${entity.name}.`);
+      throw new Error(`findPage: could not resolve a primary key for ${entityName(entity)}.`);
     }
     const baseKeyset = buildKeyset(validSorts, pk);
 
@@ -2744,7 +2766,7 @@ export class FilterRunner {
    */
   private splitIncludesByCardinality(
     includes: string[],
-    entity: Type<unknown>,
+    entity: FilterEntity,
     adapter: FilterAdapter | null,
   ): { joinIncludes: string[]; deferredIncludes: string[] } {
     const relations = adapter?.getEntityRelations?.(entity) ?? [];
@@ -2801,7 +2823,7 @@ export class FilterRunner {
    */
   private pruneUnknownColumnFilters(
     filters: ColumnFilter[],
-    entity: Type<unknown>,
+    entity: FilterEntity,
     adapter: FilterAdapter,
     throwOnInvalid = false,
   ): ColumnFilter[] {
@@ -2809,7 +2831,7 @@ export class FilterRunner {
     const relationNames = new Set((adapter.getEntityRelations?.(entity) ?? []).map((r) => r.name));
     if (fieldNames.size === 0 && relationNames.size === 0) {
       this.logger.warn(
-        `where[] column filters on ${entity.name} cannot be validated against entity metadata. The adapter does not implement getEntityFields() or returned null. All where columns will be accepted (legacy behavior). Consider upgrading your adapter.`,
+        `where[] column filters on ${entityName(entity)} cannot be validated against entity metadata. The adapter does not implement getEntityFields() or returned null. All where columns will be accepted (legacy behavior). Consider upgrading your adapter.`,
       );
       return filters;
     }
@@ -2870,7 +2892,7 @@ export class FilterRunner {
           if (!warned.has(clause.field)) {
             warned.add(clause.field);
             this.logger.warn(
-              `Column filter (where) on unknown column "${clause.field}" ignored — it is not a field or relation of ${entity.name}.`,
+              `Column filter (where) on unknown column "${clause.field}" ignored — it is not a field or relation of ${entityName(entity)}.`,
             );
           }
           // The unknown LEAF goes; a group the clause carried stays. Dropping
@@ -3332,7 +3354,7 @@ export class FilterRunner {
     sorts: SortItem[],
     allowlist: string[] | undefined,
     adapter: FilterAdapter,
-    entity: Type<unknown> | undefined,
+    entity: FilterEntity | undefined,
     throwOnInvalid = false,
   ): SortItem[] {
     const accept = (predicate: (s: SortItem) => boolean): SortItem[] => {
@@ -3419,7 +3441,7 @@ export class FilterRunner {
     sorts: SortItem[],
     allowlist: string[] | undefined,
     adapter: FilterAdapter,
-    entity: Type<unknown> | undefined,
+    entity: FilterEntity | undefined,
     throwOnInvalid: boolean,
     computed: Map<string, ComputedRegistryEntry> | undefined,
     autoFieldSet: AutoFieldSet | null,
@@ -3512,7 +3534,7 @@ export class FilterRunner {
     fields: string[],
     allowlist: string[] | undefined,
     adapter: FilterAdapter,
-    entity: Type<unknown> | undefined,
+    entity: FilterEntity | undefined,
     throwOnInvalid = false,
   ): string[] {
     const accept = (predicate: (f: string) => boolean): string[] => {

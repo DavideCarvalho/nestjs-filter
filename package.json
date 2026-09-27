@@ -2,7 +2,7 @@
   "name": "nestjs-filter",
   "version": "0.1.0-alpha.0",
   "private": true,
-  "description": "NestJS filter library with ORM adapters (MikroORM, TypeORM).",
+  "description": "NestJS filter library with ORM adapters (MikroORM, TypeORM, Drizzle).",
   "license": "MIT",
   "repository": {
     "type": "git",

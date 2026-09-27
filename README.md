@@ -35,6 +35,7 @@ Full documentation: **[davidecarvalho.github.io/nestjs-filter](https://davidecar
 | [`@dudousxd/nestjs-filter`](packages/core/README.md) | Core: BaseFilter, FilterRunner, decorators, FilterModule |
 | [`@dudousxd/nestjs-filter-mikro-orm`](packages/mikro-orm/README.md) | MikroORM 7 adapter |
 | [`@dudousxd/nestjs-filter-typeorm`](packages/typeorm/README.md) | TypeORM adapter |
+| [`@dudousxd/nestjs-filter-drizzle`](packages/drizzle/README.md) | Drizzle ORM adapter (Postgres, MySQL, SQLite) |
 
 ## Examples
 
@@ -42,6 +43,7 @@ Full documentation: **[davidecarvalho.github.io/nestjs-filter](https://davidecar
 |---------|-------|-----|
 | [`examples/mikro-orm-app/`](examples/mikro-orm-app/) | MikroORM + SQLite | `pnpm --filter @example/mikro-orm-app test` |
 | [`examples/typeorm-app/`](examples/typeorm-app/) | TypeORM + better-sqlite3 | `pnpm --filter @example/typeorm-app test` |
+| [`examples/drizzle-app/`](examples/drizzle-app/) | Drizzle + better-sqlite3 | `pnpm --filter @example/drizzle-app test` |
 
 ## Features
 
@@ -70,6 +72,9 @@ pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-mikro-orm
 
 # TypeORM
 pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-typeorm
+
+# Drizzle ORM
+pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-drizzle
 ```
 
 ## Quick Start

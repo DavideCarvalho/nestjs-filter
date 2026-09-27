@@ -41,6 +41,13 @@ skills:
     covers: [TypeOrmFilter, TypeOrmFilterModule.forRoot, TypeOrmAdapter,
              SelectQueryBuilder, entityAlias, parameterized andWhere, whereLike]
 
+  - name: drizzle-adapter
+    type: core
+    package: "@dudousxd/nestjs-filter-drizzle"
+    path: packages/drizzle/skills/drizzle-adapter/SKILL.md
+    covers: [DrizzleFilter, DrizzleQuery, drizzleAdapter, DrizzleFilterModule.forRoot,
+             DrizzleAdapter, whereHas, whereLike, relations schema]
+
   - name: filter-query-builder
     type: core
     package: "@dudousxd/nestjs-filter-client"

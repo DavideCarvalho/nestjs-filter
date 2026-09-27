@@ -15,14 +15,14 @@ The fastest way to get `nestjs-filter` running is four steps: install the packag
 
 - **Node.js 20+**
 - **NestJS 10+** (v10, v11 and v12 are supported)
-- One of: **MikroORM 7** or **TypeORM 0.3+**
+- One of: **MikroORM 7**, **TypeORM 0.3+** or **Drizzle ORM 0.40+** (Postgres, MySQL, SQLite)
 - **TypeScript 5+** with `experimentalDecorators` and `emitDecoratorMetadata` enabled
 
 ---
 
 ## Step 1 -- Install
 
-<Tabs items={['MikroORM', 'TypeORM']}>
+<Tabs items={['MikroORM', 'TypeORM', 'Drizzle']}>
   <Tab value="MikroORM">
     ```bash
     pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-mikro-orm
@@ -31,6 +31,11 @@ The fastest way to get `nestjs-filter` running is four steps: install the packag
   <Tab value="TypeORM">
     ```bash
     pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-typeorm
+    ```
+  </Tab>
+  <Tab value="Drizzle">
+    ```bash
+    pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-drizzle
     ```
   </Tab>
 </Tabs>
@@ -45,9 +50,9 @@ pnpm add class-validator class-transformer
 
 ## Step 2 -- Define a filter
 
-A filter is a regular NestJS injectable class that extends `MikroOrmFilter` or `TypeOrmFilter`. Each method decorated with `@FilterFor()` handles one input key.
+A filter is a regular NestJS injectable class that extends `MikroOrmFilter`, `TypeOrmFilter` or `DrizzleFilter`. Each method decorated with `@FilterFor()` handles one input key.
 
-<Tabs items={['MikroORM', 'TypeORM']}>
+<Tabs items={['MikroORM', 'TypeORM', 'Drizzle']}>
   <Tab value="MikroORM">
     ```ts
     // src/user.filter.ts
@@ -114,6 +119,39 @@ A filter is a regular NestJS injectable class that extends `MikroOrmFilter` or `
     }
     ```
   </Tab>
+  <Tab value="Drizzle">
+    ```ts
+    // src/user.filter.ts — the Drizzle table object is the entity
+    import { Injectable } from '@nestjs/common';
+    import { Filterable, FilterFor } from '@dudousxd/nestjs-filter';
+    import { DrizzleFilter } from '@dudousxd/nestjs-filter-drizzle';
+    import { IsOptional, IsString, IsNumber } from 'class-validator';
+    import { Type } from 'class-transformer';
+    import { gte } from 'drizzle-orm';
+    import { users } from './schema.js';
+
+    @Injectable()
+    @Filterable({ entity: users })
+    export class UserFilter extends DrizzleFilter<typeof users> {
+      @IsOptional() @IsString()
+      name?: string;
+
+      @IsOptional() @IsNumber()
+      @Type(() => Number)
+      minAge?: number;
+
+      @FilterFor('name')
+      applyName(v: string) {
+        this.whereLike('name', v); // escaped LIKE
+      }
+
+      @FilterFor('minAge')
+      applyMinAge(v: number) {
+        this.$query.where(gte(users.age, v));
+      }
+    }
+    ```
+  </Tab>
 </Tabs>
 
 <Callout type="info">
@@ -136,7 +174,7 @@ A filter is a regular NestJS injectable class that extends `MikroOrmFilter` or `
 
 ## Step 3 -- Register the module
 
-<Tabs items={['MikroORM', 'TypeORM']}>
+<Tabs items={['MikroORM', 'TypeORM', 'Drizzle']}>
   <Tab value="MikroORM">
     ```ts
     // src/app.module.ts
@@ -177,6 +215,30 @@ A filter is a regular NestJS injectable class that extends `MikroOrmFilter` or `
     export class AppModule {}
     ```
   </Tab>
+  <Tab value="Drizzle">
+    ```ts
+    // src/app.module.ts
+    import { Module } from '@nestjs/common';
+    import { FilterModule } from '@dudousxd/nestjs-filter';
+    import { drizzleAdapter } from '@dudousxd/nestjs-filter-drizzle';
+    import { DRIZZLE, DatabaseModule } from './database.module.js'; // @Global(), provides drizzle(client, { schema })
+    import { UserFilter } from './user.filter.js';
+    import { UsersController } from './users.controller.js';
+
+    @Module({
+      imports: [
+        DatabaseModule,
+        FilterModule.forRoot({
+          inputNormalizer: 'camelCase',
+          adapter: drizzleAdapter({ connection: DRIZZLE }),
+        }),
+        FilterModule.forFeature([UserFilter]),
+      ],
+      controllers: [UsersController],
+    })
+    export class AppModule {}
+    ```
+  </Tab>
 </Tabs>
 
 ---
@@ -195,6 +257,7 @@ export class UsersController {
   list(@ApplyFilter(UserFilter) qb: QueryBuilder<User>) {
     return qb.getResultList(); // MikroORM
     // return qb.getMany();   // TypeORM
+    // return q.execute();    // Drizzle (q: DrizzleQuery<typeof users>)
   }
 }
 ```
@@ -441,6 +504,7 @@ FilterModule.forRoot({
 - [Controllers](/docs/guides/controllers) -- `@ApplyFilter` options, dynamic filter selection, and error handling
 - [Using Filters in Services](/docs/guides/repositories) -- `FilterRunner.apply()` and custom context
 - [Relation Filtering](/docs/guides/relations) -- cross-entity filtering with `@Relations`
+- [Drizzle ORM](/docs/guides/drizzle) -- tables as entities, the `DrizzleQuery` accumulator, relations as `EXISTS`
 - [Generic Operators](/docs/guides/operators) -- `ColumnFilter`, all 22 operators, and the client-side filter builder
 - [Typed Client](/docs/guides/codegen) -- generate a type-safe `filterQuery()` builder with `@dudousxd/nestjs-filter-codegen`
 - [Testing](/docs/guides/testing) -- `FilterTestingModule`, mock query builders, and integration tests

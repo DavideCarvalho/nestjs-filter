@@ -36,9 +36,11 @@ nestjs-filter/
     core/       — @dudousxd/nestjs-filter              (BaseFilter, FilterRunner, decorators, FilterModule)
     mikro-orm/  — @dudousxd/nestjs-filter-mikro-orm    (MikroORM 7 adapter)
     typeorm/    — @dudousxd/nestjs-filter-typeorm       (TypeORM adapter)
+    drizzle/    — @dudousxd/nestjs-filter-drizzle       (Drizzle ORM adapter)
   examples/
     mikro-orm-app/  — end-to-end example with MikroORM + SQLite
     typeorm-app/    — end-to-end example with TypeORM + better-sqlite3
+    drizzle-app/    — end-to-end example with Drizzle + better-sqlite3
 ```
 
 Each package under `packages/` has its own `tsconfig.json`, `vitest.config.ts`, and `build` script. The monorepo is orchestrated with [Turborepo](https://turbo.build/).

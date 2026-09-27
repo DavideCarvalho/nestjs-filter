@@ -1,0 +1,254 @@
+---
+title: Drizzle ORM
+description: Use nestjs-filter with Drizzle — tables as entities, the DrizzleQuery accumulator, relations as EXISTS subqueries, and pagination-safe includes.
+icon: Droplets
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { Filterable, FilterFor } from '@dudousxd/nestjs-filter';
+import { DrizzleFilter } from '@dudousxd/nestjs-filter-drizzle';
+import { eq, gte } from 'drizzle-orm';
+import { posts, users } from './schema.js';
+
+@Injectable()
+@Filterable({ entity: users }) // the table object is the entity
+export class UserFilter extends DrizzleFilter<typeof users> {
+  static readonly sort = ['name', 'age', 'posts.$count'];
+  static readonly search = ['name', 'email'];
+  static readonly includes = ['posts'];
+
+  @FilterFor('minAge')
+  applyMinAge(value: number) {
+    this.$query.where(gte(users.age, value));
+  }
+
+  @FilterFor('name')
+  applyName(value: string) {
+    this.whereILike('name', value);
+  }
+
+  @FilterFor('hasDrafts')
+  applyHasDrafts() {
+    this.$query.whereHas('posts', (p) => eq((p as typeof posts).status, 'draft'));
+  }
+}
+```
+
+`@dudousxd/nestjs-filter-drizzle` supports **Postgres, MySQL and SQLite** (`drizzle-orm` 0.40+,
+below 1.0). Every structured-input feature works: auto-fields, `where[]` operators, sort,
+offset and cursor pagination, search, `include`, `distinct`, `select`, computed fields,
+to-many aggregates, `findAndCount`, `findPage`, `describe`, `groupByCount` and `fieldExtent`.
+
+---
+
+## Install
+
+```bash
+pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-drizzle drizzle-orm
+```
+
+---
+
+## Schema
+
+Declare tables as usual. Declare `relations()` too — the adapter reads them for includes,
+dot-notation filters (`posts.status`), `whereHas`, `@Relations`, aggregates and `describe()`.
+Column filtering, sort, search and pagination work without them.
+
+```ts
+// src/schema.ts
+import { relations } from 'drizzle-orm';
+import { integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull(),
+  age: integer('age').notNull(),
+  managerId: integer('manager_id'),
+});
+
+export const posts = pgTable('posts', {
+  id: serial('id').primaryKey(),
+  title: text('title').notNull(),
+  status: text('status').notNull(),
+  authorId: integer('author_id').notNull(),
+});
+
+export const usersRelations = relations(users, ({ one, many }) => ({
+  manager: one(users, { fields: [users.managerId], references: [users.id], relationName: 'manager' }),
+  reports: many(users, { relationName: 'manager' }),
+  posts: many(posts),
+}));
+
+export const postsRelations = relations(posts, ({ one }) => ({
+  author: one(users, { fields: [posts.authorId], references: [users.id] }),
+}));
+
+export const schema = { users, posts, usersRelations, postsRelations };
+```
+
+---
+
+## Register the adapter
+
+Drizzle has no NestJS module, so provide the drizzle instance yourself — usually from a
+`@Global()` module under an app-owned token — and point the adapter at it.
+
+```ts
+// src/database.module.ts
+import { Global, Module } from '@nestjs/common';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { schema } from './schema.js';
+
+export const DRIZZLE = Symbol('DRIZZLE');
+
+@Global()
+@Module({
+  providers: [{ provide: DRIZZLE, useFactory: () => drizzle(process.env.DATABASE_URL!, { schema }) }],
+  exports: [DRIZZLE],
+})
+export class DatabaseModule {}
+```
+
+```ts
+// src/app.module.ts
+import { Module } from '@nestjs/common';
+import { FilterModule } from '@dudousxd/nestjs-filter';
+import { drizzleAdapter } from '@dudousxd/nestjs-filter-drizzle';
+import { DRIZZLE, DatabaseModule } from './database.module.js';
+import { UserFilter } from './user.filter.js';
+import { UsersController } from './users.controller.js';
+
+@Module({
+  imports: [
+    DatabaseModule,
+    FilterModule.forRoot({ inputNormalizer: 'camelCase', adapter: drizzleAdapter({ connection: DRIZZLE }) }),
+    FilterModule.forFeature([UserFilter]),
+  ],
+  controllers: [UsersController],
+})
+export class AppModule {}
+```
+
+| Option | Description |
+|---|---|
+| `connection` | Injection token of the drizzle instance (must be global for `drizzleAdapter`). |
+| `db` | The drizzle instance itself, instead of a token. |
+| `schema` | Tables + `relations()`. Defaults to the schema the instance was created with. |
+| `dialect` | `'postgres' \| 'mysql' \| 'sqlite'`. Detected from the instance by default. |
+| `imports` | (`DrizzleFilterModule.forRoot` only) modules that provide a non-global `connection`. |
+
+`DrizzleFilterModule.forRoot(options)` is the module form of the same registration.
+
+---
+
+## Execute in a controller
+
+`@ApplyFilter` hands the route a `DrizzleQuery` — the filtered state, not yet executed:
+
+```ts
+// src/users.controller.ts
+import { Controller, Get } from '@nestjs/common';
+import { ApplyFilter } from '@dudousxd/nestjs-filter';
+import type { DrizzleQuery } from '@dudousxd/nestjs-filter-drizzle';
+import type { users } from './schema.js';
+import { UserFilter } from './user.filter.js';
+
+@Controller('users')
+export class UsersController {
+  @Get()
+  list(@ApplyFilter(UserFilter) q: DrizzleQuery<typeof users>) {
+    return q.execute();
+  }
+
+  @Get('page')
+  page(@ApplyFilter(UserFilter) q: DrizzleQuery<typeof users>) {
+    return q.executeAndCount(); // { rows, total } — total ignores LIMIT/OFFSET
+  }
+}
+```
+
+| `DrizzleQuery` member | Description |
+|---|---|
+| `where(...conds)` | ANDs drizzle `SQL` conditions; `undefined` is ignored. |
+| `andWhere(cond \| { col: value })` | Also takes an equality map: array → `IN`, `null` → `IS NULL`. |
+| `whereHas(path, cb?)` / `whereDoesntHave(path, cb?)` | Correlated `EXISTS` over a relation path. |
+| `orderBy`, `clearOrderBy`, `limit`, `offset` | Ordering and page window. |
+| `select`, `addSelect`, `distinct` | Projection. |
+| `include(...paths)` | Relations loaded by `execute()`. |
+| `columns`, `table`, `db`, `dialect` | Columns of the (possibly aliased) table, and the execution context. |
+| `execute()`, `count()`, `executeAndCount()` | Run it. |
+| `toSelect()`, `toSQL()` | The materialized drizzle builder, or its SQL + params. |
+
+In services, `runner.findAndCount(users, input)` infers the row type from the table:
+`rows` is `Array<typeof users.$inferSelect>`.
+
+---
+
+## How it differs from the MikroORM and TypeORM adapters
+
+Drizzle's select builder is single-shot — `.where()` replaces, the projection is fixed at
+`db.select(...)` — so filters write into an **accumulator** that is materialized into one
+`db.select().from(table)` at execution time.
+
+The root query **never joins**:
+
+| Feature | Emitted as |
+|---|---|
+| Relation filter (`posts.status`, `@Relations`, `whereHas`) | `EXISTS (SELECT 1 FROM posts p WHERE p.author_id = users.id AND …)` |
+| Sort / distinct on a to-one path (`manager.name`) | correlated scalar subquery |
+| `include: ['posts', 'manager']` | one batched `SELECT … WHERE key IN (…)` per relation, after the page |
+| `posts.$count`, `posts.$sum.views` | correlated scalar subquery |
+| `findAndCount` total | `count(*)` over the same WHERE |
+
+So a page is always one row per parent: `LIMIT`/`OFFSET` and totals stay exact whatever
+relations a request touches. Includes come back in the shape of drizzle's relational queries
+(`user.posts[]`, `post.author`).
+
+<Callout type="warn" title="Relation filters see an alias">
+  When a filter runs as a relation filter (`@Relations`, `this.related()`), its `$query`
+  targets an **alias** of its table inside the `EXISTS`. Read columns through `this.columns`
+  (or the `whereHas` callback argument), not the imported table:
+  `this.$query.where(eq(this.columns.status, value))`.
+</Callout>
+
+<Callout type="info" title="Why not db.query…findMany for includes?">
+  Drizzle's relational query builder aliases the root table by its schema key (`usersTable`)
+  and rewrites the top-level columns of a `where` to that alias, but not the outer references
+  inside a correlated subquery — so every relation filter would break as soon as the key differs
+  from the SQL table name. Includes are therefore loaded with batched `IN` queries built from the
+  same `relations()` metadata, in the same result shape.
+</Callout>
+
+---
+
+## Testing
+
+No database needed — run the filter against a `DrizzleQuery` over `drizzle.mock()`:
+
+```ts
+import { DrizzleAdapter } from '@dudousxd/nestjs-filter-drizzle';
+import { drizzle } from 'drizzle-orm/node-postgres';
+
+const q = new DrizzleAdapter(drizzle.mock()).query(users);
+await runner.apply(UserFilter, { name: 'al', minAge: 18 }, q);
+
+expect(q.toSQL()).toEqual({
+  sql: 'select "id", "name", "age" from "users" where ("users"."name" ilike $1 and "users"."age" >= $2)',
+  params: ['%al%', 18],
+});
+```
+
+---
+
+## Limitations
+
+- `drizzle-orm` 1.0 (`defineRelations`) is not supported yet — relations are read from `relations()`.
+- No many-to-many kind: model it as a junction table (a one-to-many to the junction).
+- JSON sub-path filters (`metadata.tier`) are not resolved.
+- Vector search (`search = { vector }`) is Postgres-only.
+- Codegen does not derive `filterFields` from Drizzle tables yet.

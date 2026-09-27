@@ -28,6 +28,11 @@ packages:
       clientFacing: true
       covered: true
       imports: [TypeOrmFilter, TypeOrmFilterModule, TypeOrmAdapter]
+    - name: "@dudousxd/nestjs-filter-drizzle"    # packages/drizzle
+      role: adapter
+      clientFacing: true
+      covered: true
+      imports: [DrizzleFilter, DrizzleFilterModule, DrizzleAdapter, DrizzleQuery, drizzleAdapter]
     - name: "@dudousxd/nestjs-filter-client"     # packages/client
       role: client
       clientFacing: true
@@ -52,8 +57,9 @@ packages:
 concepts:
   - id: filter-class
     summary: >
-      A class extending MikroOrmFilter<E> / TypeOrmFilter<E> (which extend
-      BaseFilter<TQuery>), decorated @Injectable() + @Filterable({ entity }).
+      A class extending MikroOrmFilter<E> / TypeOrmFilter<E> / DrizzleFilter<Table>
+      (which extend BaseFilter<TQuery>), decorated @Injectable() + @Filterable({ entity })
+      — the entity is an entity class, or a Drizzle table object.
       @FilterFor('key') methods receive the input value and call this.$query.
     source: packages/core/src/base-filter.ts, packages/core/src/decorator/filterable.decorator.ts
   - id: request-state-als
@@ -71,7 +77,7 @@ concepts:
       FilterModule.forFeature([XFilter]). The adapter module must be present or
       @ApplyFilter throws FilterMissingAdapterException; the filter must be in
       forFeature or FilterRunner.apply throws FilterNotRegisteredException.
-    source: packages/core/src/module.ts, packages/mikro-orm/src/module.ts, packages/typeorm/src/module.ts
+    source: packages/core/src/module.ts, packages/mikro-orm/src/module.ts, packages/typeorm/src/module.ts, packages/drizzle/src/module.ts
   - id: apply-filter-decorator
     summary: >
       @ApplyFilter(FilterClass, opts?) controller param decorator. The interceptor
