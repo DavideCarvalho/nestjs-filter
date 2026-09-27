@@ -1,6 +1,6 @@
 {
   "name": "@dudousxd/nestjs-filter-drizzle",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Drizzle ORM adapter for @dudousxd/nestjs-filter.",
   "license": "MIT",
   "repository": {
