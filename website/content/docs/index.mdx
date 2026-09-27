@@ -17,7 +17,7 @@ List endpoints accumulate filtering logic fast. Without a structure, every contr
 
 - **One method per input key.** A `@FilterFor('name')` method owns the `name` parameter. No central `switch`, no order-dependent `if` chains.
 - **The filter is the DTO.** Add class-validator decorators to the same class and unrecognized or malformed input is rejected before it ever reaches the database.
-- **ORM-agnostic core.** The core knows nothing about your database. You add a thin adapter — MikroORM or TypeORM — and write against its *native* query builder, not a lossy abstraction.
+- **ORM-agnostic core.** The core knows nothing about your database. You add a thin adapter — MikroORM, TypeORM or Drizzle — and write against its *native* query builder (or, for Drizzle, native `SQL` conditions), not a lossy abstraction.
 - **No cross-request leakage.** Filters are singletons backed by `AsyncLocalStorage`, so per-request state never bleeds between concurrent requests.
 
 ## Quickstart

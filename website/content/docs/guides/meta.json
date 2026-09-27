@@ -3,6 +3,7 @@
   "icon": "BookText",
   "pages": [
     "filter-classes",
+    "drizzle",
     "computed",
     "controllers",
     "repositories",
