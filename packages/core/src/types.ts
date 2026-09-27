@@ -55,8 +55,34 @@ export type ComputedEntry =
 
 export type ComputedMap = Record<string, ComputedEntry>;
 
+/**
+ * A queried entity handle that is NOT a class — a schema object carrying its row
+ * type. Schema-first ORMs describe a table as a value rather than a decorated
+ * class: a Drizzle table (`pgTable('users', …)`) is a plain object whose
+ * (type-only) `$inferSelect` property is the row type. Core never inspects the
+ * handle beyond using it as a metadata / cache key; only the adapter that
+ * created it interprets it.
+ */
+export interface SchemaEntity<E = unknown> {
+  readonly $inferSelect: E;
+}
+
+/**
+ * What `@Filterable({ entity })` and the runner's entity-taking entry points
+ * (`applyDynamic`, `findAndCount`, `findPage`, `describe`, `groupByCount`, …)
+ * accept: an entity class (MikroORM, TypeORM) or a {@link SchemaEntity} (a
+ * Drizzle table). `E` is the row type, inferred from either shape, so
+ * `runner.findAndCount(usersTable, input)` types its rows as
+ * `typeof usersTable.$inferSelect` with no annotation.
+ */
+export type FilterEntity<E = unknown> = Type<E> | SchemaEntity<E>;
+
 export interface FilterableOptions {
-  entity: Type<unknown>;
+  /**
+   * The entity this filter queries: an entity class (MikroORM / TypeORM) or a
+   * schema object such as a Drizzle table — see {@link FilterEntity}.
+   */
+  entity: FilterEntity;
   /**
    * The DI token of the {@link FilterAdapter} that answers for this filter,
    * when it is NOT the application-wide one.
@@ -624,7 +650,7 @@ export interface ApplyFilterOptions {
 }
 
 export interface FilterMetadata {
-  entity: Type<unknown>;
+  entity: FilterEntity;
   /** See {@link FilterableOptions.adapter}. Absent = the global adapter. */
   adapter?: InjectionToken;
   allowed?: readonly AllowedFieldEntry[];

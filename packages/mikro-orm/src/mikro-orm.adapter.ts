@@ -7,6 +7,7 @@ import {
   type FieldExtent,
   type FieldExtentField,
   type FilterAdapter,
+  type FilterEntity,
   type GroupByCountField,
   type SortItem,
   escapeLike,
@@ -549,7 +550,10 @@ export class MikroOrmAdapter implements FilterAdapter {
     queryBuilder.andWhere({ [vectorColumn]: { $fulltext: term } });
   }
 
-  applyDistinct(qb: unknown, fields: string[], entity?: Type<unknown>): void {
+  applyDistinct(qb: unknown, fields: string[], filterEntity?: FilterEntity): void {
+    // MikroORM entities are always classes; the wider core type also admits
+    // schema objects (Drizzle tables), which never reach this adapter.
+    const entity = filterEntity as Type<unknown> | undefined;
     // Override the projection to the distinct field(s): SELECT DISTINCT a, b ...
     //
     // A RELATION path (`base.name`) cannot go in as a bare string: MikroORM

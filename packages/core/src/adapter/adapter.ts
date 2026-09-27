@@ -1,7 +1,6 @@
-import type { Type } from '@nestjs/common';
 import type { AggregatePath } from '../aggregate/aggregate-path.js';
 import type { ColumnFilter } from '../operators/types.js';
-import type { ComputedSource, SortItem } from '../types.js';
+import type { ComputedSource, FilterEntity, SortItem } from '../types.js';
 
 /**
  * Describes a single scalar field on an entity, as reported by the ORM's
@@ -81,7 +80,7 @@ export interface VectorSearchOptions {
 }
 
 export interface FilterAdapter {
-  createQueryBuilder<E>(entity: Type<E>): unknown;
+  createQueryBuilder<E>(entity: FilterEntity<E>): unknown;
 
   /**
    * Applies a constraint on a relation. The adapter joins (without selecting)
@@ -114,7 +113,7 @@ export interface FilterAdapter {
    *   resolve column types (e.g. so `isEmpty`/`isNotEmpty` only compare against
    *   `''` on string columns — a DATE/number `col = ''` errors on MySQL).
    */
-  applyColumnFilters?(qb: unknown, filters: ColumnFilter[], entity?: Type<unknown>): void;
+  applyColumnFilters?(qb: unknown, filters: ColumnFilter[], entity?: FilterEntity): void;
 
   /**
    * Applies an auto-field value to the query builder.
@@ -148,7 +147,7 @@ export interface FilterAdapter {
    * @param entity - The entity class to introspect.
    * @returns Array of field descriptors, or `null` if metadata is unavailable.
    */
-  getEntityFields?(entity: Type<unknown>): EntityFieldInfo[] | null;
+  getEntityFields?(entity: FilterEntity): EntityFieldInfo[] | null;
 
   /**
    * Introspects the ORM's metadata for the given entity class and returns
@@ -163,7 +162,7 @@ export interface FilterAdapter {
    * @param entity - The entity class to introspect.
    * @returns Array of relation descriptors, or `null` if metadata is unavailable.
    */
-  getEntityRelations?(entity: Type<unknown>): EntityRelationInfo[] | null;
+  getEntityRelations?(entity: FilterEntity): EntityRelationInfo[] | null;
 
   /**
    * Introspects the ORM's metadata and returns the scalar (non-relation)
@@ -181,7 +180,7 @@ export interface FilterAdapter {
    * @param relationName - The relation property name on the root entity.
    * @returns Array of the related entity's scalar field descriptors, or `null`.
    */
-  getRelatedFields?(entity: Type<unknown>, relationName: string): EntityFieldInfo[] | null;
+  getRelatedFields?(entity: FilterEntity, relationName: string): EntityFieldInfo[] | null;
 
   /**
    * Classifies a field path against the entity's metadata, following relations
@@ -205,7 +204,7 @@ export interface FilterAdapter {
    * @param path - The (possibly dotted) field path to classify.
    * @returns `'field'`, `'relation'`, or `null`.
    */
-  resolveFieldPath?(entity: Type<unknown>, path: string): 'field' | 'relation' | 'json' | null;
+  resolveFieldPath?(entity: FilterEntity, path: string): 'field' | 'relation' | 'json' | null;
 
   /**
    * Applies a dot-notation relation field filter to the query builder.
@@ -240,7 +239,7 @@ export interface FilterAdapter {
    * @param includes - Array of relation paths to eagerly load.
    * @param entity - The root entity class.
    */
-  applyIncludes?(qb: unknown, includes: string[], entity: Type<unknown>): void;
+  applyIncludes?(qb: unknown, includes: string[], entity: FilterEntity): void;
 
   /**
    * Applies a global ILIKE search across the given columns.
@@ -254,7 +253,7 @@ export interface FilterAdapter {
    * @param columns - Column names to search across.
    * @param entity - The root entity class.
    */
-  applySearch?(qb: unknown, term: string, columns: string[], entity: Type<unknown>): void;
+  applySearch?(qb: unknown, term: string, columns: string[], entity: FilterEntity): void;
 
   /**
    * Applies a full-text vector search using a tsvector column.
@@ -295,7 +294,7 @@ export interface FilterAdapter {
    * @param fields - Field/column names to select distinctly.
    * @param entity - The root entity class.
    */
-  applyDistinct?(qb: unknown, fields: string[], entity: Type<unknown>): void;
+  applyDistinct?(qb: unknown, fields: string[], entity: FilterEntity): void;
 
   /**
    * Terminal group-by-count aggregation mode. Emits
@@ -359,7 +358,7 @@ export interface FilterAdapter {
   groupByCount?(
     qb: unknown,
     field: GroupByCountField,
-    entity: Type<unknown>,
+    entity: FilterEntity,
     opts?: { bucket?: number; limit?: number; offset?: number; search?: string },
   ): Promise<Array<{ value: unknown; count: number }>>;
 
@@ -414,7 +413,7 @@ export interface FilterAdapter {
   fieldExtent?(
     qb: unknown,
     fields: FieldExtentField[],
-    entity: Type<unknown>,
+    entity: FilterEntity,
   ): Promise<Record<string, FieldExtent>>;
 
   /**
@@ -431,7 +430,7 @@ export interface FilterAdapter {
    * @param fields - Field/column names to select.
    * @param entity - The root entity class.
    */
-  applySelect?(qb: unknown, fields: string[], entity: Type<unknown>): void;
+  applySelect?(qb: unknown, fields: string[], entity: FilterEntity): void;
 
   /**
    * Applies sort ordering to the query builder.
@@ -666,7 +665,7 @@ export interface FilterAdapter {
   getDistinctResultAndCount?(
     qb: unknown,
     fields: string[],
-    entity: Type<unknown>,
+    entity: FilterEntity,
   ): Promise<{ rows: Record<string, unknown>[]; total: number }>;
 
   /**
@@ -690,7 +689,7 @@ export interface FilterAdapter {
    *
    * @param entity - The entity class.
    */
-  getPrimaryKey?(entity: Type<unknown>): string | null;
+  getPrimaryKey?(entity: FilterEntity): string | null;
 
   /**
    * Applies a keyset (cursor) WHERE predicate to the query builder for
@@ -737,5 +736,5 @@ export interface FilterAdapter {
    * @param relations - Relation paths to load.
    * @param entity - The root entity class.
    */
-  populate?(rows: unknown[], relations: string[], entity: Type<unknown>): Promise<void>;
+  populate?(rows: unknown[], relations: string[], entity: FilterEntity): Promise<void>;
 }
