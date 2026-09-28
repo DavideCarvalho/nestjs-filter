@@ -19,6 +19,21 @@ function hasBracketKeys(input: Record<string, unknown>): boolean {
   return false;
 }
 
+/**
+ * Path segments that would walk out of the object being built and into a prototype: `a[__proto__][x]`
+ * resolves `out.__proto__` to `Object.prototype` and then assigns `x` onto it — a prototype pollution
+ * reachable from any query string, since this runs on raw request input. A key naming one of these
+ * anywhere in its path is dropped whole.
+ */
+const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * The largest array index a bracket key may name. `where[999999999][field]=x` would otherwise
+ * allocate a sparse array whose length every later `.map`/`.filter` walks — a CPU sink for one
+ * short query string. No real query carries more than a handful of clauses or `in` members.
+ */
+export const MAX_BRACKET_INDEX = 1000;
+
 /** `a[b][0][c]` → `['a', 'b', '0', 'c']`; `include[]` → `['include', '']`. */
 function segments(key: string): string[] | null {
   const head = key.slice(0, key.indexOf('['));
@@ -36,6 +51,15 @@ function segments(key: string): string[] | null {
   // Anything the bracket grammar did not account for means this is not a path we understand — a
   // column literally named `weird[` , say. Leave such a key alone rather than reshaping it.
   return consumed === rest.length ? out : null;
+}
+
+/** True when a parsed path must not be assigned: it reaches a prototype, or names an absurd index. */
+function isUnsafePath(path: string[]): boolean {
+  return path.some(
+    (segment) =>
+      BLOCKED_SEGMENTS.has(segment) ||
+      (/^\d+$/.test(segment) && Number(segment) > MAX_BRACKET_INDEX),
+  );
 }
 
 /** Assign `value` at `path` inside `root`, creating arrays for numeric segments and objects for the
@@ -86,9 +110,11 @@ export function expandBracketKeys(input: Record<string, unknown>): Record<string
   for (const [key, value] of Object.entries(input)) {
     const path = key.includes('[') ? segments(key) : null;
     if (!path) {
-      out[key] = value;
+      // Assigning `__proto__` would re-parent `out` itself.
+      if (!BLOCKED_SEGMENTS.has(key)) out[key] = value;
       continue;
     }
+    if (isUnsafePath(path)) continue;
     // A repeated `x[]=a&x[]=b` may already have been collapsed into an array by the HTTP layer;
     // spread it so the append branch sees one value at a time.
     if (path.at(-1) === '' && Array.isArray(value)) {

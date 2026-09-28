@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { expandBracketKeys } from '../src/input/bracket-keys.js';
 
 describe('expandBracketKeys', () => {
@@ -73,5 +73,47 @@ describe('expandBracketKeys', () => {
       filter: { status: 'failed' },
       sort: '-createdAt',
     });
+  });
+
+  describe('prototype pollution', () => {
+    afterEach(() => {
+      for (const key of ['polluted', 'viaCtor', 'nested']) {
+        delete (Object.prototype as Record<string, unknown>)[key];
+      }
+    });
+
+    it('drops a key that walks into __proto__', () => {
+      const out = expandBracketKeys({
+        'filter[__proto__][polluted]': 'yes',
+        'filter[status]': 'active',
+      });
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      expect(out).toEqual({ filter: { status: 'active' } });
+    });
+
+    it('drops a key that walks into constructor.prototype', () => {
+      expandBracketKeys({ 'filter[constructor][prototype][viaCtor]': 'yes' });
+      expect(({} as Record<string, unknown>).viaCtor).toBeUndefined();
+    });
+
+    it('drops a top-level __proto__ key', () => {
+      expandBracketKeys({ '__proto__[nested]': 'yes', 'filter[a]': '1' });
+      expect(({} as Record<string, unknown>).nested).toBeUndefined();
+    });
+
+    it('does not re-parent the output through a bare __proto__ key', () => {
+      const input = JSON.parse('{"__proto__": {"injected": true}, "filter[a]": "1"}');
+      const out = expandBracketKeys(input);
+      expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+      expect((out as Record<string, unknown>).injected).toBeUndefined();
+    });
+  });
+
+  it('drops a key naming an absurd array index instead of allocating a huge sparse array', () => {
+    const out = expandBracketKeys({
+      'filter[where][999999999][field]': 'x',
+      'filter[where][0][field]': 'status',
+    });
+    expect(out).toEqual({ filter: { where: [{ field: 'status' }] } });
   });
 });
