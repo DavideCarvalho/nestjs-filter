@@ -1,6 +1,6 @@
 import type { InjectionToken, Type } from '@nestjs/common';
 import type { FilterFieldTypeHint } from './decorator/filter-for.decorator.js';
-import type { FilterOperator } from './operators/types.js';
+import type { ColumnFilter, FilterOperator } from './operators/types.js';
 
 /**
  * A single entry in a `@Filterable` `allowed` list. Either:
@@ -369,6 +369,12 @@ export interface OffsetPagination {
   size: number;
 }
 
+/** {@link OffsetPagination} spelled with `perPage` (an alias of `size`); `page` defaults to 0. */
+export interface OffsetPaginationPerPage {
+  page?: number;
+  perPage: number;
+}
+
 /**
  * Cursor-based (keyset) pagination parameters.
  *
@@ -584,7 +590,16 @@ export interface StructuredInput {
    * same rows the page comes from, so a route may answer with both.
    */
   histogram?: FieldHistogramSpec;
-  paginate?: OffsetPagination | CursorPagination;
+  /**
+   * Column filters sent next to `filter` rather than inside it (`?where[0][field]=…` on a GET).
+   * Folded into `filter.where` (both lists apply, ANDed).
+   */
+  where?: ColumnFilter[];
+  /**
+   * Offset pagination. `perPage` is accepted as an alias of `size`, and `page` defaults to 0 when
+   * only a size is given.
+   */
+  paginate?: OffsetPagination | OffsetPaginationPerPage | CursorPagination;
   [key: string]: unknown;
 }
 

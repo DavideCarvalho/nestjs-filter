@@ -217,15 +217,29 @@ describe('validateColumnFilter', () => {
   });
 
   it('rejects "in" with non-array value', () => {
-    expect(() => validateColumnFilter({ field: 'x', operator: 'in', value: 'not-array' })).toThrow(
+    expect(() => validateColumnFilter({ field: 'x', operator: 'in', value: 42 })).toThrow(
       /requires an array value/,
     );
   });
 
   it('rejects "notIn" with non-array value', () => {
+    expect(() => validateColumnFilter({ field: 'x', operator: 'notIn', value: true })).toThrow(
+      /requires an array value/,
+    );
+  });
+
+  it('splits a comma-separated string operand for list operators (query-string form)', () => {
+    const inFilter = { field: 'x', operator: 'in' as const, value: 'a, b,,c' };
+    validateColumnFilter(inFilter);
+    expect(inFilter.value).toEqual(['a', 'b', 'c']);
+
+    const between = { field: 'x', operator: 'between' as const, value: '10,20' };
+    validateColumnFilter(between);
+    expect(between.value).toEqual(['10', '20']);
+
     expect(() =>
-      validateColumnFilter({ field: 'x', operator: 'notIn', value: 'not-array' }),
-    ).toThrow(/requires an array value/);
+      validateColumnFilter({ field: 'x', operator: 'between', value: '10,20,30' }),
+    ).toThrow(/2-element array/);
   });
 
   it('rejects "isAnyOf" with non-array value', () => {

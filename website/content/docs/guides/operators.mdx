@@ -119,6 +119,9 @@ normalizeOperator('<>'); // 'notEquals'
 normalizeOperator('iContains'); // 'iContains' (canonical operators pass through)
 ```
 
+Aliases are accepted everywhere an operator is: in a `where` clause and as a
+key of an auto-field operator object (`?filter[age][>=]=18`).
+
 <Callout type="info">
   Only scalar comparison operators have symbol aliases. Array, range, and unary
   operators (`in`, `between`, `isNull`, …) have no symbol form — use the
@@ -223,6 +226,19 @@ This is parsed into:
 - `status` with implicit `equals` and value `active`
 
 Bracket notation works with **auto-fields**. The adapter detects the operator object `{ contains: 'fleet' }` and applies the correct SQL.
+
+A query string has no array syntax the server is guaranteed to understand, so list operands
+(`in`, `notIn`, `isAnyOf`, `between`, `notBetween`) may be sent as **one comma-separated value** —
+in an operator object or in a `where` clause:
+
+```
+GET /users?filter[status][in]=active,pending&filter[age][between]=18,65
+GET /users?filter[where][0][field]=status&filter[where][0][operator]=in&filter[where][0][value]=active,pending
+```
+
+A `where` list may also be sent **next to** `filter` instead of inside it
+(`?where[0][field]=age&where[0][operator]=>=&where[0][value]=18&sort=-age`); it is
+ANDed with `filter.where`.
 
 ### Body format with `where` array
 

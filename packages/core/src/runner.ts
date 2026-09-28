@@ -46,6 +46,7 @@ import {
   normalizeOperator,
   validateColumnFilters,
 } from './operators/validate-column-filter.js';
+import { canonicalizeOperatorObject, listOperatorValue } from './operators/value-shape.js';
 import {
   buildKeyset,
   decodeCursor,
@@ -183,6 +184,26 @@ export function buildComputedRegistry(
   }
 
   return registry;
+}
+
+/**
+ * Folds a top-level `where` into `filter.where`.
+ *
+ * `where` belongs inside `filter` (`{ filter: { where: [...] } }`), but it is just as natural to send
+ * it next to `filter` — `?where[0][field]=seats&sort=-createdAt` on a GET, or `{ where, sort }` in a
+ * body — and that shape used to be dropped in silence once any other structured key was present:
+ * the request answered with every row, which reads exactly like a successful query. Both lists are
+ * kept (ANDed, like every top-level `where` entry). A `where` that is not a list is left alone.
+ */
+function mergeTopLevelWhere(filter: unknown, where: unknown): unknown {
+  if (!Array.isArray(where) || where.length === 0) return filter ?? undefined;
+  if (filter == null) return { where };
+  if (typeof filter !== 'object' || Array.isArray(filter)) return filter;
+  const existing = (filter as Record<string, unknown>).where;
+  return {
+    ...(filter as Record<string, unknown>),
+    where: Array.isArray(existing) ? [...existing, ...where] : where,
+  };
 }
 
 @Injectable()
@@ -850,7 +871,11 @@ export class FilterRunner {
                 throwOnInvalidPolicy,
               );
               if (filtered !== undefined) {
-                adapter.applyComputedField(qb as unknown, computedEntry.source, filtered);
+                adapter.applyComputedField(
+                  qb as unknown,
+                  computedEntry.source,
+                  canonicalizeOperatorObject(filtered),
+                );
               }
             } else {
               this.warnUnsupported(`Computed field "${key}" provided`, 'applyComputedField');
@@ -907,7 +932,7 @@ export class FilterRunner {
                 throwOnInvalidPolicy,
               );
               if (filtered !== undefined) {
-                adapter.applyAutoField(qb, key, filtered);
+                adapter.applyAutoField(qb, key, canonicalizeOperatorObject(filtered));
               }
             } else {
               this.warnUnsupported(`Auto-field "${key}" provided`, 'applyAutoField');
@@ -930,7 +955,12 @@ export class FilterRunner {
               if (relations) {
                 const isRelation = relations.some((r) => r.name === relName);
                 if (isRelation) {
-                  adapter.applyAutoRelationField(qb, relName, fieldName, value);
+                  adapter.applyAutoRelationField(
+                    qb,
+                    relName,
+                    fieldName,
+                    canonicalizeOperatorObject(value),
+                  );
                   continue;
                 }
               }
@@ -1283,7 +1313,7 @@ export class FilterRunner {
     ];
     if (STRUCTURED_KEYS.some((k) => k in inputObj)) {
       return {
-        filter: inputObj.filter ?? undefined,
+        filter: mergeTopLevelWhere(inputObj.filter, inputObj.where),
         include: inputObj.include ?? undefined,
         search: inputObj.search ?? undefined,
         sort: inputObj.sort ?? undefined,
@@ -1658,7 +1688,12 @@ export class FilterRunner {
             ) {
               const rels = adapter.getEntityRelations(entity);
               if (rels?.some((r) => r.name === relName)) {
-                adapter.applyAutoRelationField(qb as unknown, relName, fieldName, value);
+                adapter.applyAutoRelationField(
+                  qb as unknown,
+                  relName,
+                  fieldName,
+                  canonicalizeOperatorObject(value),
+                );
                 handled = true;
               }
               // Unknown relation: falls through to the JSON check below
@@ -1682,7 +1717,7 @@ export class FilterRunner {
               adapter.applyColumnFilters(qb as unknown, jsonFilters, entity);
             }
           } else if (fieldNames.has(key)) {
-            adapter.applyAutoField(qb as unknown, key, value);
+            adapter.applyAutoField(qb as unknown, key, canonicalizeOperatorObject(value));
           }
           // Unknown keys silently skipped
         }
@@ -3202,7 +3237,7 @@ export class FilterRunner {
       return Object.entries(value as Record<string, unknown>).map(([op, opVal]) => ({
         field,
         operator: normalizeOperator(op),
-        value: opVal,
+        value: listOperatorValue(op, opVal),
       }));
     }
     return [{ field, operator: 'equals', value }];
@@ -3599,10 +3634,14 @@ export class FilterRunner {
     if (!rawPaginate || typeof rawPaginate !== 'object') return;
 
     const p = rawPaginate as Record<string, unknown>;
+    // `perPage` is accepted as an alias of `size` (the name most list APIs and UI table kits use),
+    // and a page size without a page means the first page. Before, `{ page, perPage }` or a bare
+    // `{ size }` matched neither branch and the query ran with no LIMIT at all.
+    const rawSize = p.size ?? p.perPage;
 
-    if ('page' in p && 'size' in p) {
+    if (rawSize !== undefined && !('after' in p) && !('before' in p)) {
       if (!adapter?.applyOffsetPagination) return;
-      const size = this.resolvePageSize(p.size, trusted);
+      const size = this.resolvePageSize(rawSize, trusted);
       const page = Math.max(0, Number(p.page) || 0);
       adapter.applyOffsetPagination(qb as unknown, page, size);
     } else if ('after' in p || 'before' in p) {

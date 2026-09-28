@@ -118,7 +118,11 @@ Source: `packages/core/src/runner.ts` (`resolveAutoFields`, `enforceAutoFieldOpe
 - **distinct**: `SELECT DISTINCT` of a field — for populating filter dropdowns.
 - **select**: sparse fieldset (narrows the projection, no DISTINCT).
 - **paginate**: `{ page, size }` for offset paging (`size` capped by `maxPageSize`, default 100 —
-  a trusted server-side caller lifts the cap with `trustedPageSize`, see below).
+  a trusted server-side caller lifts the cap with `trustedPageSize`, see below). `perPage` is an
+  alias of `size`; `page` (0-based) defaults to 0 when only a size is given.
+- A top-level `where` next to `filter` is folded into `filter.where`; list operands (`in`,
+  `between`, …) may arrive as one comma-separated string, and operator-object keys may be symbol
+  aliases (`filter[age][>=]=18`).
 
 Source: `packages/core/src/runner.ts` (`parseSorts`, `parseIncludes`, `applyGlobalSearch`, `applyProjection`, `applyPagination`)
 
