@@ -97,6 +97,7 @@ export type {
   InputNormalizer,
   InputSource,
   OffsetPagination,
+  OffsetPaginationPerPage,
   OnUnknownKey,
   RelationMeta,
   SchemaEntity,
@@ -134,6 +135,11 @@ export {
   hasArrayPathSegment,
 } from './operators/validate-column-filter.js';
 export type { FieldPathSegment } from './operators/validate-column-filter.js';
-export { isOperatorObject, valueToColumnFilters } from './operators/value-shape.js';
+export {
+  canonicalizeOperatorObject,
+  isOperatorObject,
+  listOperatorValue,
+  valueToColumnFilters,
+} from './operators/value-shape.js';
 export { parseAggregatePath } from './aggregate/aggregate-path.js';
 export type { AggregateFn, AggregatePath } from './aggregate/aggregate-path.js';

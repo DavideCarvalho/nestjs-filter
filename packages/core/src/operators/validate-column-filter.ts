@@ -184,6 +184,15 @@ export function validateColumnFilter(filter: ColumnFilter, depth = 0): void {
   // Persist the canonical form so downstream query builders never see aliases.
   filter.operator = op;
 
+  // A list operand that arrived as one comma-separated string (`where[0][value]=a,b` on a GET) is
+  // the only way a query string can spell a list; split it rather than reject it below.
+  if (ARRAY_OPERATORS.has(op) && typeof filter.value === 'string') {
+    filter.value = filter.value
+      .split(',')
+      .map((member) => member.trim())
+      .filter((member) => member.length > 0);
+  }
+
   // Reject null for non-unary operators (point to isNull instead)
   if (!UNARY_OPERATORS.has(op) && filter.value === null) {
     throw new InvalidColumnFilterError(

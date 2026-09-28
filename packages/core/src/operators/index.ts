@@ -12,4 +12,9 @@ export {
   normalizeOperator,
   InvalidColumnFilterError,
 } from './validate-column-filter.js';
-export { isOperatorObject, valueToColumnFilters } from './value-shape.js';
+export {
+  canonicalizeOperatorObject,
+  isOperatorObject,
+  listOperatorValue,
+  valueToColumnFilters,
+} from './value-shape.js';
