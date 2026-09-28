@@ -5,6 +5,7 @@
     "filter-classes",
     "drizzle",
     "memory",
+    "clickhouse",
     "computed",
     "controllers",
     "repositories",

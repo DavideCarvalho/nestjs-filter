@@ -1,0 +1,64 @@
+{
+  "name": "@dudousxd/nestjs-filter-clickhouse",
+  "version": "0.0.0",
+  "description": "ClickHouse adapter for @dudousxd/nestjs-filter: compiles structured filter input to parameterized ClickHouse SQL.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DavideCarvalho/nestjs-filter.git",
+    "directory": "packages/clickhouse"
+  },
+  "homepage": "https://davidecarvalho.github.io/aviary/docs/filter",
+  "bugs": {
+    "url": "https://github.com/DavideCarvalho/nestjs-filter/issues"
+  },
+  "keywords": ["nestjs", "filter", "query", "clickhouse", "analytics", "tanstack-intent"],
+  "author": "Davi Carvalho <davi@goflip.ai>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist/", "README.md", "CHANGELOG.md", "skills"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "@clickhouse/client": ">=1.0.0",
+    "@dudousxd/nestjs-filter": "workspace:^",
+    "@nestjs/common": ">=10.0.0",
+    "@nestjs/core": ">=10.0.0",
+    "reflect-metadata": ">=0.1.13"
+  },
+  "peerDependenciesMeta": {
+    "@clickhouse/client": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@clickhouse/client": "1.23.1",
+    "@dudousxd/nestjs-filter": "workspace:*",
+    "@nestjs/common": "12.0.3",
+    "@nestjs/core": "12.0.3",
+    "@nestjs/testing": "12.0.3",
+    "@types/node": "20.19.43",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

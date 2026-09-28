@@ -63,3 +63,34 @@ jobs:
           DB_USER: test
           DB_PASSWORD: test
           DB_NAME: nestjs_filter_test
+
+  clickhouse:
+    runs-on: ubuntu-latest
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.8
+        env:
+          CLICKHOUSE_USER: test
+          CLICKHOUSE_PASSWORD: test
+          CLICKHOUSE_DB: nestjs_filter_test
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "clickhouse-client --user test --password test --query 'SELECT 1'"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 20.20.2
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter './packages/*' build
+      - name: Run the ClickHouse adapter against a real server
+        run: pnpm --filter @dudousxd/nestjs-filter-clickhouse test
+        env:
+          CLICKHOUSE_URL: http://test:test@localhost:8123/nestjs_filter_test
