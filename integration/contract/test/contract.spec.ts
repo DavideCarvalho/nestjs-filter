@@ -10,13 +10,14 @@ import {
 } from '../src/db-backend.js';
 import { createDrizzleHarness } from '../src/drizzle-harness.js';
 import type { ContractHarness } from '../src/harness.js';
+import { createMemoryHarness } from '../src/memory-harness.js';
 import { createMikroOrmHarness } from '../src/mikro-orm-harness.js';
 import { createTypeOrmHarness } from '../src/typeorm-harness.js';
 
 /**
  * Cross-adapter behavioral contract.
  *
- * ONE set of expectations, run against the TypeORM, MikroORM and Drizzle
+ * ONE set of expectations, run against the TypeORM, MikroORM, Drizzle and memory
  * adapters via a parametrized `describe.each`. The point is drift detection: if the two
  * adapters ever disagree on the core filter contract, a test here fails.
  *
@@ -69,6 +70,9 @@ suite(`cross-adapter contract [${dialect}]`, () => {
     { name: 'typeorm', create: createTypeOrmHarness },
     { name: 'mikro-orm', create: createMikroOrmHarness },
     { name: 'drizzle', create: createDrizzleHarness },
+    // No database: the same fixture as plain arrays. Runs in every dialect pass (it is instant),
+    // so an array keeps answering exactly as each real database does.
+    { name: 'memory', create: createMemoryHarness },
   ];
 
   describe.each(harnesses)('adapter: $name', ({ create }) => {
