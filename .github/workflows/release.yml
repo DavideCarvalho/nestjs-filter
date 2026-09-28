@@ -132,6 +132,22 @@ jobs:
           git commit -m "chore: version packages"
           git push origin HEAD:${{ github.ref_name }}
 
+      # npm trusted publishing (OIDC) can only publish to a package that already EXISTS on npm: the
+      # trusted publisher is configured per package on npmjs.com, and there is no package to
+      # configure until a first version has been published. A brand-new package therefore fails
+      # below with `E404 PUT https://registry.npmjs.org/<pkg>` — which reads like "no such package"
+      # and says nothing about the fix. This names the package and the one-time manual step.
+      - name: Flag packages that were never published
+        run: |
+          for dir in packages/*/; do
+            name=$(node -p "require('./${dir}package.json').name")
+            private=$(node -p "require('./${dir}package.json').private === true")
+            [ "$private" = "true" ] && continue
+            if ! npm view "$name" name >/dev/null 2>&1; then
+              echo "::warning title=First publish needed::$name is not on npm yet. OIDC trusted publishing cannot create a package: publish its first version manually (pnpm --filter $name publish --access public, after pnpm build), then add the trusted publisher (repo ${{ github.repository }}, workflow release.yml) on npmjs.com. Until then its publish below fails with E404."
+            fi
+          done
+
       - name: Create Release PR or Publish
         id: changesets
         uses: changesets/action@v1.9.0

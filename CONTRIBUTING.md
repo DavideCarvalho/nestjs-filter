@@ -100,6 +100,28 @@ When a release PR is merged, the CI release workflow applies the version bumps a
 
 Do **not** manually edit `CHANGELOG.md` or bump versions in `package.json` files -- Changesets handles this.
 
+### Adding a new package
+
+Publishing runs on npm **trusted publishing** (OIDC) — the release workflow holds no npm token.
+A trusted publisher is configured per package on npmjs.com, which is only possible once the
+package exists, so **the first version of a new package must be published by hand**:
+
+1. Merge the package with its changeset as usual; let the "Version Packages" PR bump it.
+2. From a maintainer machine logged in to npm (`npm whoami`), on the released commit:
+   ```bash
+   pnpm install --frozen-lockfile
+   pnpm --filter <package-name> build
+   pnpm --filter <package-name> publish --access public
+   ```
+   Use `pnpm publish`, not `npm publish`: it rewrites the `workspace:` ranges in
+   `peerDependencies` / `devDependencies` to real versions.
+3. On npmjs.com → the package → Settings → Trusted publishing, add GitHub Actions with repository
+   `DavideCarvalho/nestjs-filter` and workflow `release.yml`.
+
+Every later version publishes from CI. Until step 2 happens, the release job fails for that
+package with `E404 PUT https://registry.npmjs.org/<package>` (npm answers 404, not 403, for a
+package the OIDC identity cannot write to); the workflow flags such packages with a warning.
+
 ## Linting and formatting
 
 We use [Biome](https://biomejs.dev/) for linting and formatting:
