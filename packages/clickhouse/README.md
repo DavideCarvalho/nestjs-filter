@@ -1,0 +1,122 @@
+# @dudousxd/nestjs-filter-clickhouse
+
+ClickHouse adapter for [`@dudousxd/nestjs-filter`](../core/README.md): compiles the structured
+input — `filter` / `where` operators, `sort`, `paginate`, `search`, `distinct`, `select`, cursor
+pages, `groupByCount`, `extent` — to **one parameterized ClickHouse statement**. Every client value
+is bound as a typed `{pN:Type}` query parameter; client-supplied field names only select among
+declared expressions. Nothing a client sends is ever part of the SQL text.
+
+```bash
+pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-clickhouse @clickhouse/client
+```
+
+## Declare a table
+
+The table is the adapter's "entity". Its `fields` are the allowlist: a trusted SQL expression per
+field plus its ClickHouse type (which types every bound parameter).
+
+```ts
+import { defineClickHouseTable } from '@dudousxd/nestjs-filter-clickhouse';
+
+export const events = defineClickHouseTable({
+  table: 'events',
+  primaryKey: 'id',
+  where: 'at >= now64(3) - toIntervalDay(90)', // optional always-on guard (trusted SQL)
+  fields: {
+    id: 'UUID',
+    at: "DateTime64(3, 'UTC')",
+    day: { type: 'Date', expr: 'toDate(at)' },
+    event: { type: 'LowCardinality(String)', expr: 'name' },
+    provider: 'Nullable(String)',
+    durationMs: 'UInt64',
+    tags: 'Array(String)',
+  },
+});
+```
+
+### Aggregated tables (measures)
+
+Fields marked `measure` are aggregate expressions. A table with measures answers with **groups**:
+rows are grouped by the requested dimensions (`select`, else the table's `groupBy`), a filter that
+touches a measure goes to `HAVING`, sorting by a measure orders groups, and the total counts groups.
+
+```ts
+export const chatDaily = defineClickHouseTable({
+  table: 'chat_daily',
+  groupBy: ['provider', 'model'],
+  fields: {
+    day: 'Date',
+    provider: 'LowCardinality(String)',
+    model: 'LowCardinality(String)',
+    turns: { type: 'UInt64', expr: 'sum(turns)', measure: true },
+    errorRate: { type: 'Float64', expr: 'sum(errors) / nullIf(sum(turns), 0)', measure: true },
+  },
+});
+
+// GET /stats/chat?select=day&filter[provider]=openai&filter[where][0][field]=turns&filter[where][0][operator]=>=&filter[where][0][value]=100&sort=-turns
+```
+
+## Register and query
+
+```ts
+import { createClient } from '@clickhouse/client';
+import { clickHouseAdapter, ClickHouseFilter, type ClickHouseQuery } from '@dudousxd/nestjs-filter-clickhouse';
+
+FilterModule.forRoot({ adapter: clickHouseAdapter({ client: createClient({ url }) }) });
+// or { connection: CLICKHOUSE } — the token of a provider holding the client
+
+@Injectable()
+@Filterable({ entity: events, defaultSort: '-at' })
+export class EventFilter extends ClickHouseFilter {
+  static readonly search = ['event', 'provider'];
+
+  @FilterFor('days')
+  lastDays(value: string) {
+    this.$query.where(`at >= now64(3) - toIntervalDay(${this.$query.bind('UInt32', Number(value))})`);
+  }
+}
+
+@Get()
+list(@ApplyFilter(EventFilter) q: ClickHouseQuery) {
+  return q.executeAndCount(); // { rows, total }
+}
+```
+
+`q.toSQL()` / `q.toCountSQL()` return `{ query, params }` to run with any client. Next to a
+database adapter, provide `ClickHouseAdapter` under `CLICKHOUSE_FILTER_ADAPTER` and name it per
+filter: `@Filterable({ entity: events, adapter: CLICKHOUSE_FILTER_ADAPTER })`.
+
+## Semantics
+
+The same answers as the SQL and memory adapters (Postgres as the reference):
+
+- **NULL logic** — negated operators do not match NULL values. ClickHouse answers `NULL NOT IN (…)`
+  with `1` (`transform_null_in = 0`), so `notIn` on a `Nullable` field adds `isNotNull(…)`.
+- **Case & wildcards** — `contains`/`startsWith`/`endsWith` are case-sensitive, `iContains` and
+  `search` case-insensitive (UTF-8). Matching uses `position()`/`startsWith()`, not `LIKE`: `%`
+  and `_` in values are literal. Non-string fields are matched via `toString()`.
+- **Coercion** — values are encoded for the field type (`'30'` → UInt, `'true'` → Bool, ISO strings
+  → `DateTime64` text in UTC); a value that does not fit is a 400 (`ClickHouseValueError`), not a
+  failed query.
+- **`isEmpty`** — NULL-or-`''` on strings, NULL-or-`[]` on arrays, NULL elsewhere.
+- **Array fields** — positive operators hold when any element matches (`arrayExists`), negated
+  ones when none does.
+- **Ordering** — `NULLS LAST` ascending, `NULLS FIRST` descending.
+- **Output columns** are aliased `__<field>` in the SQL (ClickHouse resolves aliases inside WHERE
+  and aggregates, so `sum(errors) AS errors` would recurse) and un-prefixed on execution.
+- **Computed fields** — SQL expressions (strings, or functions returning a string).
+- Not supported: relations / includes / to-many aggregates (ClickHouse has no correlated
+  subqueries to build them on), `tsvector` search.
+
+Result values are whatever `JSONEachRow` returns: 64-bit integers arrive as strings unless you set
+`output_format_json_quote_64bit_integers: 0` on the client, and dates as text.
+
+## Testing
+
+`pnpm test` runs the SQL-snapshot suite. With a server, the real-server suite runs the
+cross-adapter contract's operator expectations against ClickHouse:
+
+```bash
+docker run -d --name ch -p 8123:8123 -e CLICKHOUSE_USER=test -e CLICKHOUSE_PASSWORD=test clickhouse/clickhouse-server:25.8
+CLICKHOUSE_URL=http://test:test@localhost:8123 pnpm --filter @dudousxd/nestjs-filter-clickhouse test
+```

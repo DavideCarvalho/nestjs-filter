@@ -37,6 +37,7 @@ Full documentation: **[davidecarvalho.github.io/nestjs-filter](https://davidecar
 | [`@dudousxd/nestjs-filter-typeorm`](packages/typeorm/README.md) | TypeORM adapter |
 | [`@dudousxd/nestjs-filter-drizzle`](packages/drizzle/README.md) | Drizzle ORM adapter (Postgres, MySQL, SQLite) |
 | [`@dudousxd/nestjs-filter-memory`](packages/memory/README.md) | In-memory adapter: the same structured input over plain arrays |
+| [`@dudousxd/nestjs-filter-clickhouse`](packages/clickhouse/README.md) | ClickHouse adapter: parameterized SQL, aggregated tables |
 
 ## Examples
 
