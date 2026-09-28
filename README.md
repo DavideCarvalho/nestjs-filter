@@ -36,6 +36,7 @@ Full documentation: **[davidecarvalho.github.io/nestjs-filter](https://davidecar
 | [`@dudousxd/nestjs-filter-mikro-orm`](packages/mikro-orm/README.md) | MikroORM 7 adapter |
 | [`@dudousxd/nestjs-filter-typeorm`](packages/typeorm/README.md) | TypeORM adapter |
 | [`@dudousxd/nestjs-filter-drizzle`](packages/drizzle/README.md) | Drizzle ORM adapter (Postgres, MySQL, SQLite) |
+| [`@dudousxd/nestjs-filter-memory`](packages/memory/README.md) | In-memory adapter: the same structured input over plain arrays |
 
 ## Examples
 

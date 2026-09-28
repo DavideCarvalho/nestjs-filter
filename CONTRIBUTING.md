@@ -37,6 +37,7 @@ nestjs-filter/
     mikro-orm/  — @dudousxd/nestjs-filter-mikro-orm    (MikroORM 7 adapter)
     typeorm/    — @dudousxd/nestjs-filter-typeorm       (TypeORM adapter)
     drizzle/    — @dudousxd/nestjs-filter-drizzle       (Drizzle ORM adapter)
+    memory/     — @dudousxd/nestjs-filter-memory        (in-memory adapter over plain arrays)
   examples/
     mikro-orm-app/  — end-to-end example with MikroORM + SQLite
     typeorm-app/    — end-to-end example with TypeORM + better-sqlite3

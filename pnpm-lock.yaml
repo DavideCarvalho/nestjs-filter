@@ -239,6 +239,9 @@ importers:
       '@dudousxd/nestjs-filter-drizzle':
         specifier: workspace:*
         version: link:../../packages/drizzle
+      '@dudousxd/nestjs-filter-memory':
+        specifier: workspace:*
+        version: link:../../packages/memory
       '@dudousxd/nestjs-filter-mikro-orm':
         specifier: workspace:*
         version: link:../../packages/mikro-orm
@@ -787,6 +790,36 @@ importers:
       pg:
         specifier: 8.23.0
         version: 8.23.0
+      reflect-metadata:
+        specifier: 0.2.2
+        version: 0.2.2
+      rxjs:
+        specifier: 7.8.2
+        version: 7.8.2
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.7
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@20.19.43)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(yaml@2.9.0)
+
+  packages/memory:
+    devDependencies:
+      '@dudousxd/nestjs-filter':
+        specifier: workspace:*
+        version: link:../core
+      '@nestjs/common':
+        specifier: 12.0.3
+        version: 12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: 12.0.3
+        version: 12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/testing':
+        specifier: 12.0.3
+        version: 12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3))
+      '@types/node':
+        specifier: 20.19.43
+        version: 20.19.43
       reflect-metadata:
         specifier: 0.2.2
         version: 0.2.2

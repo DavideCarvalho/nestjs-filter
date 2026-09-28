@@ -4,6 +4,7 @@
   "pages": [
     "filter-classes",
     "drizzle",
+    "memory",
     "computed",
     "controllers",
     "repositories",

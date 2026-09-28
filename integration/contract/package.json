@@ -15,6 +15,7 @@
   "dependencies": {
     "@dudousxd/nestjs-filter": "workspace:*",
     "@dudousxd/nestjs-filter-drizzle": "workspace:*",
+    "@dudousxd/nestjs-filter-memory": "workspace:*",
     "@dudousxd/nestjs-filter-mikro-orm": "workspace:*",
     "@dudousxd/nestjs-filter-typeorm": "workspace:*",
     "@mikro-orm/core": "7.1.1",
