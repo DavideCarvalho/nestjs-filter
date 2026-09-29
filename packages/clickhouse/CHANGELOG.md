@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter-clickhouse
 
+## 0.1.1
+
+### Patch Changes
+
+- [#188](https://github.com/DavideCarvalho/nestjs-filter/pull/188) [`c68ffc2`](https://github.com/DavideCarvalho/nestjs-filter/commit/c68ffc222e365eb53791097ee1b8a5f6013a8651) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Republish from CI through npm trusted publishing (OIDC) so the release carries a provenance attestation; 0.1.0 was a one-time manual first publish.
+
 ## 0.1.0
 
 ### Minor Changes
