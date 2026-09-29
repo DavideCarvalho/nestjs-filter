@@ -1,6 +1,6 @@
 {
   "name": "@dudousxd/nestjs-filter-memory",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "In-memory adapter for @dudousxd/nestjs-filter: run the same structured filter/sort/paginate/search/distinct input against plain arrays.",
   "license": "MIT",
   "repository": {
