@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter
 
+## 1.35.1
+
+### Patch Changes
+
+- [#190](https://github.com/DavideCarvalho/nestjs-filter/pull/190) [`4ed447a`](https://github.com/DavideCarvalho/nestjs-filter/commit/4ed447a2311670e1f4970b4f72f669414eb33882) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Stop importing the optional peers `class-validator` and `class-transformer` at module load. `ColumnFilterDto` now applies its decorators only when both packages are installed, so importing `@dudousxd/nestjs-filter` (or the drizzle/memory/clickhouse adapters) no longer crashes with `ERR_MODULE_NOT_FOUND` in apps that don't use class-validator DTOs. Instantiating `ColumnFilterDto` without them throws an error naming the missing package(s).
+
 ## 1.35.0
 
 ### Minor Changes
