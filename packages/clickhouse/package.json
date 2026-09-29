@@ -1,6 +1,6 @@
 {
   "name": "@dudousxd/nestjs-filter-clickhouse",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "ClickHouse adapter for @dudousxd/nestjs-filter: compiles structured filter input to parameterized ClickHouse SQL.",
   "license": "MIT",
   "repository": {
