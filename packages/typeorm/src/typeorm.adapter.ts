@@ -41,6 +41,18 @@ const SAFE_FIELD = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * builder's `expressionMap` so repeated keyset applications on one builder don't
  * collide. Keeps generated SQL deterministic.
  */
+/**
+ * The total a page implies on its own: a page shorter than its LIMIT is the
+ * tail of the result set, so the total is the OFFSET plus its rows. `undefined`
+ * when the page is full, or empty past an OFFSET (the offset may overshoot).
+ */
+function totalFromPage(rows: number, limit?: number, offset?: number): number | undefined {
+  const skipped = offset ?? 0;
+  if (limit != null && rows >= limit) return undefined;
+  if (rows === 0 && skipped > 0) return undefined;
+  return skipped + rows;
+}
+
 const keysetCounters = new WeakMap<object, number>();
 
 function nextKeysetSeq(qb: { expressionMap?: object }): number {
@@ -788,8 +800,8 @@ export class TypeOrmAdapter implements FilterAdapter {
   }
 
   /**
-   * With no computed aliases recorded for this builder (the historical path),
-   * a plain `getManyAndCount()`. When {@link applyComputedSelect} recorded
+   * With no computed aliases recorded for this builder, a plain
+   * `getManyAndCount()`, which skips its count query when the page is short. When {@link applyComputedSelect} recorded
    * projected aliases, `getRawAndEntities()` runs instead: it executes the ONE
    * query TypeORM would run for `getMany()` and returns both the hydrated
    * entities and the raw rows, paired by index (entities are built from the
@@ -803,7 +815,8 @@ export class TypeOrmAdapter implements FilterAdapter {
    * internal clone that resets order/limit/offset/skip/take and swaps the
    * projection for a `COUNT(DISTINCT pk)`, so the computed select never
    * reaches the count SQL and pagination is ignored, exactly like the plain
-   * path.
+   * path. It is skipped under the same rule `getManyAndCount()` applies: a
+   * short page (paged by entity, not by joined row) supplies the total itself.
    */
   async getResultAndCount<T = unknown>(qb: unknown): Promise<{ rows: T[]; total: number }> {
     const queryBuilder = qb as SelectQueryBuilder<ObjectLiteral>;
@@ -813,16 +826,27 @@ export class TypeOrmAdapter implements FilterAdapter {
       return { rows: rows as T[], total };
     }
 
-    const { entities, raw } = await queryBuilder.getRawAndEntities<Record<string, unknown>>();
-    entities.forEach((entity, index) => {
-      const rawRow = raw[index];
-      if (!rawRow) return;
-      for (const alias of aliases) {
-        (entity as Record<string, unknown>)[alias] = rawRow[alias];
-      }
-    });
-    const total = await queryBuilder.getCount();
-    return { rows: entities as T[], total };
+    const page = async () => {
+      const { entities, raw } = await queryBuilder.getRawAndEntities<Record<string, unknown>>();
+      entities.forEach((entity, index) => {
+        const rawRow = raw[index];
+        if (!rawRow) return;
+        for (const alias of aliases) {
+          (entity as Record<string, unknown>)[alias] = rawRow[alias];
+        }
+      });
+      return entities;
+    };
+    const map = queryBuilder.expressionMap;
+    const rows = await page();
+    // A raw LIMIT with joins pages joined rows, not entities, so only a
+    // take/skip page (or an unjoined one) can stand in for the count.
+    const pagedByEntity = map.joinAttributes.length === 0 || map.limit == null;
+    const total =
+      (pagedByEntity
+        ? totalFromPage(rows.length, map.limit ?? map.take, map.offset ?? map.skip)
+        : undefined) ?? (await queryBuilder.getCount());
+    return { rows: rows as T[], total };
   }
 
   /**
@@ -870,6 +894,9 @@ export class TypeOrmAdapter implements FilterAdapter {
       return projected;
     });
 
+    const known = this.distinctPageTotal(queryBuilder, rows.length);
+    if (known !== undefined) return { rows, total: known };
+
     // Ignore limit/offset/order for the total — a fresh clone so the page
     // query above (and its caller) is unaffected. The builder methods (rather
     // than assigning `expressionMap` fields directly) reset cleanly under
@@ -889,6 +916,25 @@ export class TypeOrmAdapter implements FilterAdapter {
     const total = Number(countResult[0]?.count ?? 0);
 
     return { rows, total };
+  }
+
+  /**
+   * The total a distinct page implies on its own, or `undefined`. Uses the
+   * window TypeORM puts on a raw query: `limit`/`offset`, else `take`/`skip`
+   * when nothing is joined.
+   */
+  private distinctPageTotal(
+    qb: SelectQueryBuilder<ObjectLiteral>,
+    rows: number,
+  ): number | undefined {
+    const map = qb.expressionMap;
+    let limit = map.limit;
+    let offset = map.offset;
+    if (limit === undefined && offset === undefined && map.joinAttributes.length === 0) {
+      limit = map.take;
+      offset = map.skip;
+    }
+    return totalFromPage(rows, limit ?? undefined, offset ?? undefined);
   }
 
   async getResult(qb: unknown): Promise<unknown[]> {
@@ -938,6 +984,9 @@ export class TypeOrmAdapter implements FilterAdapter {
     //   OR (c0 = v0 AND c1 = v1 AND c2 OP2 v2) ...
     // where OPi is `>` for an asc column and `<` for a desc column. This is the
     // portable form of a row-value comparison and works across all dialects.
+    // With several columns it is ANDed with `c0 >= v0` (`<=` for desc), which
+    // every tier implies: PostgreSQL cannot derive an index range from the OR
+    // alone, and MySQL does not use one for a row-value comparison.
     const cols: string[] = [];
     for (const s of keyset) {
       const col = this.resolveKeysetColumn(queryBuilder, s.field);
@@ -946,6 +995,11 @@ export class TypeOrmAdapter implements FilterAdapter {
     }
 
     const seq = nextKeysetSeq(queryBuilder);
+    if (keyset.length > 1 && values[0] != null) {
+      const bound = keyset[0]!.direction === 'asc' ? '>=' : '<=';
+      const p = `keyset_${seq}_bound`;
+      queryBuilder.andWhere(`${cols[0]} ${bound} :${p}`, { [p]: values[0] });
+    }
     queryBuilder.andWhere(
       new Brackets((outer) => {
         let first = true;

@@ -155,8 +155,9 @@ describe('MikroORM to-many aggregate fields over a MANY_TO_MANY relation (pivot-
     // Only Grace (count=1) satisfies both bounds.
     await runner.apply(UserFilter, { filter: { 'tags.$count': { gt: 0, lt: 3 } } }, qb);
     const sql = qb.getQuery().toLowerCase();
-    const occurrences = sql.split('select count(*)').length - 1;
-    expect(occurrences).toBe(2);
+    // `gt: 0` compiles to a LIMIT 1 probe, `lt: 3` to a COUNT subquery.
+    expect(sql.split('select count(*)').length - 1).toBe(1);
+    expect(sql.split('limit 1) is not null').length - 1).toBe(1);
     const rows = await qb.getResultList();
     expect(rows.map((r) => r.name)).toEqual(['Grace']);
     await mod.close();

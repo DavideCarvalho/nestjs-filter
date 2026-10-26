@@ -185,10 +185,11 @@ describe('MikroORM to-many aggregate fields ($count / $sum / $avg / $min / $max)
     // calls are ANDed, not overwriting one another.
     await runner.apply(UserFilter, { filter: { 'posts.$count': { gt: 0, lt: 3 } } }, qb);
     const sql = qb.getQuery().toLowerCase();
-    // Two independently-compiled subquery fragments, one per operator — not a
-    // single reused fragment (MikroORM raw fragments are single-use).
-    const occurrences = sql.split('select count(*)').length - 1;
-    expect(occurrences).toBe(2);
+    // One independently-compiled fragment per operator — not a single reused
+    // fragment (MikroORM raw fragments are single-use). `gt: 0` only asks
+    // whether a post exists, so it compiles to a LIMIT 1 probe; `lt: 3` needs the count.
+    expect(sql.split('select count(*)').length - 1).toBe(1);
+    expect(sql.split('limit 1) is not null').length - 1).toBe(1);
     const rows = await qb.getResultList();
     expect(rows.map((r) => r.name)).toEqual(['Grace']);
     await mod.close();
