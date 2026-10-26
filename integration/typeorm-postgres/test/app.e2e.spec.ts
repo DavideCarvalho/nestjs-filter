@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { TypeOrmAdapter } from '@dudousxd/nestjs-filter-typeorm';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -101,5 +102,13 @@ describe('TypeORM + PostgreSQL integration', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Bob']);
+  });
+
+  it('groupByCount narrows a number column by a search', async () => {
+    await seed();
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = ds.getRepository(User).createQueryBuilder('user');
+    const groups = await adapter.groupByCount(qb, 'age', User, { search: '3' });
+    expect(groups.map((g) => Number(g.value)).sort()).toEqual([30, 35]);
   });
 });

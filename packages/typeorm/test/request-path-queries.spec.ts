@@ -126,4 +126,26 @@ describe('TypeOrmAdapter request-path queries', () => {
     const expected = all.filter((r) => r.priority > 1 || (r.priority === 1 && r.id > 2));
     expect(rows.map((r) => r.id)).toEqual(expected.map((r) => r.id));
   });
+
+  it('casts a groupByCount search to text on PostgreSQL, which has no LOWER() for a number', async () => {
+    await setup();
+    // Same metadata, PostgreSQL dialect: the cast is decided by the data source type.
+    Object.defineProperty(ds, 'options', { value: { ...ds.options, type: 'postgres' } });
+    const adapter = new TypeOrmAdapter(ds);
+    const qb = builder(adapter);
+    let sql = '';
+    qb.getRawMany = async () => {
+      sql = qb.getQuery();
+      return [];
+    };
+    await adapter.groupByCount(qb, 'priority', Item, { search: '1' });
+    expect(sql).toContain('LOWER(CAST("item"."priority" AS TEXT)) LIKE');
+  });
+
+  it('keeps the groupByCount search uncast elsewhere', async () => {
+    const adapter = await setup();
+    const groups = await adapter.groupByCount(builder(adapter), 'priority', Item, { search: '1' });
+    expect(queries.some((q) => q.includes('lower("item"."priority") like'))).toBe(true);
+    expect(groups).toEqual([{ value: 1, count: 2 }]);
+  });
 });

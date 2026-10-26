@@ -320,8 +320,11 @@ export class TypeOrmAdapter implements FilterAdapter {
     // Postgres allows but MySQL only sometimes does.
     // Narrows the GROUPS: applied to the grouping expression, so it selects which values are
     // counted rather than which rows carry them. Bound as a parameter.
+    // PostgreSQL has no `LOWER()` for a non-text value, so the expression is
+    // cast to text there; MySQL and SQLite coerce it themselves.
     if (opts?.search) {
-      queryBuilder.andWhere(`LOWER(${expression}) LIKE :groupByCountSearch`, {
+      const text = this.isPostgres() ? `CAST(${expression} AS TEXT)` : expression;
+      queryBuilder.andWhere(`LOWER(${text}) LIKE :groupByCountSearch`, {
         groupByCountSearch: `%${opts.search.toLowerCase()}%`,
       });
     }
@@ -333,6 +336,12 @@ export class TypeOrmAdapter implements FilterAdapter {
 
     const rows = await queryBuilder.getRawMany<Record<string, unknown>>();
     return rows.map((row) => ({ value: row.value, count: Number(row.count) }));
+  }
+
+  /** Whether the data source speaks PostgreSQL (`postgres`, `cockroachdb`, `aurora-postgres`). */
+  private isPostgres(): boolean {
+    const type = String(this.dataSource.options.type);
+    return type === 'postgres' || type === 'cockroachdb' || type === 'aurora-postgres';
   }
 
   /**
