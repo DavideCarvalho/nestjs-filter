@@ -1004,7 +1004,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     };
     const expr =
       typeof field === 'string'
-        ? this.quoteIdent(this.resolveColumnName(entity, field))
+        ? this.quoteSingleIdent(this.resolveColumnName(entity, field))
         : this.computedSql(field.source, queryBuilder.alias);
 
     const bucket = opts?.bucket;
@@ -1458,7 +1458,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     const queryBuilder = qb as ProjectionQB;
     const expr = this.computedSql(source, queryBuilder.alias);
     if (queryBuilder.state.fields === undefined) queryBuilder.select('*');
-    queryBuilder.addSelect(raw(`${expr} as ${this.quoteIdent(alias)}`));
+    queryBuilder.addSelect(raw(`${expr} as ${this.quoteSingleIdent(alias)}`));
     const aliases = this.projectedAliases.get(qb as object);
     if (aliases) {
       aliases.push(alias);
@@ -1491,7 +1491,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     this.assertSafeAlias(alias);
     const queryBuilder = qb as ProjectionQB;
     const expr = raw(
-      `${this.computedSql(source, queryBuilder.alias)} as ${this.quoteIdent(alias)}`,
+      `${this.computedSql(source, queryBuilder.alias)} as ${this.quoteSingleIdent(alias)}`,
     );
     if (queryBuilder.state.fields === undefined) {
       queryBuilder.select(expr, true);
@@ -1842,25 +1842,10 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   /**
-   * Backtick-quotes a metadata-derived SQL identifier, escaping embedded
-   * backticks — the same defensive quoting {@link buildJsonArrayCondition}
-   * applies to a JSON column name. Identifiers here always come from ORM
-   * metadata (table/column/FK names), never client-supplied text, but this
-   * keeps the identifier well-formed even if metadata ever contained one.
-   */
-  private quoteIdent(name: string): string {
-    return `\`${name.replace(/`/g, '``')}\``;
-  }
-
-  /**
    * Quotes a name as ONE identifier, using the ACTIVE platform's quote
-   * character — backticks on MySQL/SQLite, double quotes on PostgreSQL —
-   * instead of the backtick-only {@link quoteIdent}.
-   *
-   * Used by the relation-path distinct projection and the to-many aggregate
-   * subqueries, which are reachable from any dialect (a filter dropdown over a
-   * relation column, or a `posts.$count` filter, is not a MySQL feature), so
-   * MySQL-only quoting there would be a PostgreSQL syntax error.
+   * character — backticks on MySQL/SQLite, double quotes on PostgreSQL — and
+   * doubling any embedded occurrence of it. The names come from ORM metadata
+   * or dev-declared aliases, never client text, but are quoted all the same.
    *
    * The platform's own `quoteIdentifier()` cannot be called directly: it treats
    * its argument as a QUALIFIED name and splits on dots, so the output alias
@@ -1889,9 +1874,9 @@ export class MikroOrmAdapter implements FilterAdapter {
    * (`[A-Za-z_][A-Za-z0-9_]*`). Aliases are dev-declared (the keys of the
    * `@Filterable.computed` map / `@Computed` method names), never client
    * input, so a violation is a programming error — but since the alias is
-   * embedded into a raw `… as \`alias\`` fragment (and must round-trip
-   * verbatim as a result-row key), it gets the same defensive rigor
-   * {@link quoteIdent} applies to metadata-derived identifiers, plus this
+   * embedded into a raw `… as <alias>` fragment (and must round-trip
+   * verbatim as a result-row key), it gets the same defensive quoting
+   * ({@link quoteSingleIdent}) metadata-derived identifiers get, plus this
    * hard shape check.
    */
   private assertSafeAlias(alias: string): void {

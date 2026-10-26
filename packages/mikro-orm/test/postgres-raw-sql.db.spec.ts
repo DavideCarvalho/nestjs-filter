@@ -16,6 +16,7 @@ import { Injectable } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MikroOrmFilter } from '../src/mikro-orm-filter.js';
+import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
 import { MikroOrmFilterModule } from '../src/module.js';
 
 @Entity({ tableName: 'agg_pg_tags' })
@@ -58,7 +59,7 @@ class Book {
 @Filterable({ entity: Author })
 class AuthorFilter extends MikroOrmFilter<Author> {}
 
-describe('PostgreSQL — to-many aggregate filters and sorts', () => {
+describe('PostgreSQL — aggregates, computed projections and groupByCount', () => {
   let mod: TestingModule;
   let orm: MikroORM;
   let runner: FilterRunner;
@@ -141,5 +142,49 @@ describe('PostgreSQL — to-many aggregate filters and sorts', () => {
 
   it('sorts by a $count', async () => {
     expect(await names({ sort: '-books.$count' })).toEqual(['Ann', 'Bob', 'Cid']);
+  });
+
+  const bookCount = ({ alias }: { alias: string }) =>
+    `(SELECT COUNT(*) FROM agg_pg_books b WHERE b.author_id = ${alias}.id)`;
+
+  it('returns a computed select under its alias', async () => {
+    const adapter = new MikroOrmAdapter(orm.em.fork());
+    const qb = adapter.createQueryBuilder(Author) as { orderBy: (o: unknown) => void };
+    adapter.applyComputedSelect(qb, 'bookCount', bookCount);
+    qb.orderBy({ name: 'asc' });
+    const { rows } = await adapter.getResultAndCount<Author & { bookCount: unknown }>(qb);
+    expect(rows.map((r) => [r.name, Number(r.bookCount)])).toEqual([
+      ['Ann', 3],
+      ['Bob', 1],
+      ['Cid', 0],
+    ]);
+  });
+
+  it('counts a computed distinct projection', async () => {
+    const adapter = new MikroOrmAdapter(orm.em.fork());
+    const qb = adapter.createQueryBuilder(Author);
+    adapter.applyComputedDistinct(qb, 'bookCount', bookCount);
+    const { rows, total } = await adapter.getDistinctResultAndCount(qb, []);
+    expect(rows.map((r) => Number(r.bookCount)).sort()).toEqual([0, 1, 3]);
+    expect(total).toBe(3);
+  });
+
+  it('groups a plain column', async () => {
+    const adapter = new MikroOrmAdapter(orm.em.fork());
+    const qb = adapter.createQueryBuilder(Book);
+    const groups = await adapter.groupByCount(qb, 'pages', Book);
+    expect(groups.map((g) => [Number(g.value), g.count]).sort((a, b) => a[0]! - b[0]!)).toEqual([
+      [50, 1],
+      [100, 1],
+      [200, 1],
+      [300, 1],
+    ]);
+  });
+
+  it('groups a plain column narrowed by a search', async () => {
+    const adapter = new MikroOrmAdapter(orm.em.fork());
+    const qb = adapter.createQueryBuilder(Author);
+    const groups = await adapter.groupByCount(qb, 'name', Author, { search: 'b' });
+    expect(groups).toEqual([{ value: 'Bob', count: 1 }]);
   });
 });

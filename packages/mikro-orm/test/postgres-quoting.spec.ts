@@ -16,6 +16,7 @@ import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MikroOrmFilter } from '../src/mikro-orm-filter.js';
+import { MikroOrmAdapter } from '../src/mikro-orm.adapter.js';
 import { MikroOrmFilterModule } from '../src/module.js';
 
 @Entity({ tableName: 'pg_quoting_tags' })
@@ -56,10 +57,10 @@ class Book {
 class AuthorFilter extends MikroOrmFilter<Author> {}
 
 /**
- * Compiles the to-many aggregate SQL for the PostgreSQL platform. `connect:
+ * Compiles the adapter's raw SQL for the PostgreSQL platform. `connect:
  * false` builds the platform without a server, so this runs in the unit suite.
  */
-describe('MikroORM to-many aggregates on the PostgreSQL platform', () => {
+describe('MikroORM raw SQL on the PostgreSQL platform', () => {
   let orm: MikroORM;
   let runner: FilterRunner;
 
@@ -136,5 +137,50 @@ describe('MikroORM to-many aggregates on the PostgreSQL platform', () => {
     expect(sql).toContain(
       '(SELECT COALESCE(SUM("pg_quoting_books"."pages"),0) FROM "pg_quoting_books" WHERE "pg_quoting_books"."author_id" = ',
     );
+  });
+
+  describe('computed projections and groupByCount', () => {
+    const adapter = () => new MikroOrmAdapter(orm.em.fork());
+    const bookCount = ({ alias }: { alias: string }) =>
+      `(SELECT COUNT(*) FROM "pg_quoting_books" WHERE "pg_quoting_books"."author_id" = ${alias}."id")`;
+
+    it('aliases a computed select with double quotes', async () => {
+      await createModule();
+      const a = adapter();
+      const qb = a.createQueryBuilder(Author) as { getQuery: () => string };
+      a.applyComputedSelect(qb, 'bookCount', bookCount);
+      const sql = qb.getQuery();
+      expect(sql).not.toContain('`');
+      expect(sql).toContain(' as "bookCount"');
+    });
+
+    it('aliases a computed distinct member with double quotes', async () => {
+      await createModule();
+      const a = adapter();
+      const qb = a.createQueryBuilder(Author) as { getQuery: () => string };
+      a.applyComputedDistinct(qb, 'bookCount', bookCount);
+      const sql = qb.getQuery();
+      expect(sql).not.toContain('`');
+      expect(sql).toContain(' as "bookCount"');
+    });
+
+    it('groups a plain column by its double-quoted name', async () => {
+      await createModule();
+      const a = adapter();
+      const qb = a.createQueryBuilder(Book) as {
+        getQuery: () => string;
+        execute: () => Promise<unknown[]>;
+      };
+      let sql = '';
+      qb.execute = async () => {
+        sql = qb.getQuery();
+        return [];
+      };
+      await a.groupByCount(qb, 'pages', Book, { search: '1' });
+      expect(sql).not.toContain('`');
+      expect(sql).toContain('select "pages" as value, count(*) as count');
+      expect(sql).toContain('group by "pages"');
+      expect(sql).toContain('lower("pages") like ?');
+    });
   });
 });
