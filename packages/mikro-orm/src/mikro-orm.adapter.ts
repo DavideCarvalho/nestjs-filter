@@ -1559,12 +1559,16 @@ export class MikroOrmAdapter implements FilterAdapter {
     const existence = aggregate.fn === 'count' ? countExistence(filter) : null;
     if (existence !== null) {
       // `$count > 0` and `$count = 0` only ask whether a child row exists, which
-      // a LIMIT 1 probe answers at the first match instead of counting them
-      // all. Not `EXISTS`: MySQL 8 turns that into a semi-join that reads the
-      // whole child table before the outer LIMIT can stop it.
+      // is answered at the first match instead of by counting them all.
+      // PostgreSQL plans `EXISTS` as a semi-/anti-join. MySQL 8 does too, but
+      // materializes the child table for it before the outer LIMIT can stop
+      // anything, so elsewhere a per-row LIMIT 1 probe is used.
       const rows = this.countedRowsSql(qb, aggregate.relation);
-      const sql = (alias: string) =>
-        `(SELECT 1 ${rows(alias)} LIMIT 1) IS ${existence ? 'NOT ' : ''}NULL`;
+      const sql =
+        this.platformKind() === 'postgres'
+          ? (alias: string) => `${existence ? '' : 'NOT '}EXISTS (SELECT 1 ${rows(alias)})`
+          : (alias: string) =>
+              `(SELECT 1 ${rows(alias)} LIMIT 1) IS ${existence ? 'NOT ' : ''}NULL`;
       (qb as { andWhere: (c: unknown) => void }).andWhere({ [raw(sql)]: [] });
       return;
     }
@@ -1678,9 +1682,9 @@ export class MikroOrmAdapter implements FilterAdapter {
       );
     }
     const pkColumn = this.resolveRootPkColumn(rootMeta, relationName);
-    const childTable = this.quoteIdent(childMeta.tableName);
-    const fk = this.quoteIdent(fkColumn);
-    const pk = this.quoteIdent(pkColumn);
+    const childTable = this.quoteSingleIdent(childMeta.tableName);
+    const fk = this.quoteSingleIdent(fkColumn);
+    const pk = this.quoteSingleIdent(pkColumn);
     return (alias) => `FROM ${childTable} WHERE ${childTable}.${fk} = ${alias}.${pk}`;
   }
 
@@ -1721,9 +1725,9 @@ export class MikroOrmAdapter implements FilterAdapter {
       );
     }
     const ownerPkColumn = this.resolveRootPkColumn(rootMeta, relationName);
-    const pivot = this.quoteIdent(pivotTable);
-    const ownerFkQ = this.quoteIdent(ownerFk);
-    const ownerPk = this.quoteIdent(ownerPkColumn);
+    const pivot = this.quoteSingleIdent(pivotTable);
+    const ownerFkQ = this.quoteSingleIdent(ownerFk);
+    const ownerPk = this.quoteSingleIdent(ownerPkColumn);
     return (alias) => `FROM ${pivot} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk}`;
   }
 
@@ -1763,9 +1767,9 @@ export class MikroOrmAdapter implements FilterAdapter {
       );
     }
     const ownerPkColumn = this.resolveRootPkColumn(rootMeta, aggregate.relation);
-    const pivot = this.quoteIdent(pivotTable);
-    const ownerFkQ = this.quoteIdent(ownerFk);
-    const ownerPk = this.quoteIdent(ownerPkColumn);
+    const pivot = this.quoteSingleIdent(pivotTable);
+    const ownerFkQ = this.quoteSingleIdent(ownerFk);
+    const ownerPk = this.quoteSingleIdent(ownerPkColumn);
 
     if (aggregate.fn === 'count') {
       const rows = this.manyToManyPivotRowsSql(rootMeta, prop, aggregate.relation);
@@ -1782,9 +1786,9 @@ export class MikroOrmAdapter implements FilterAdapter {
       );
     }
     const aggExpr = this.buildAggregateExpr(aggregate, childMeta);
-    const childTable = this.quoteIdent(childMeta.tableName);
-    const childPk = this.quoteIdent(childPkColumn);
-    const inverseFkQ = this.quoteIdent(inverseFk);
+    const childTable = this.quoteSingleIdent(childMeta.tableName);
+    const childPk = this.quoteSingleIdent(childPkColumn);
+    const inverseFkQ = this.quoteSingleIdent(inverseFk);
     return ({ alias }) =>
       `(SELECT ${aggExpr} FROM ${childTable} JOIN ${pivot} ON ${childTable}.${childPk} = ${pivot}.${inverseFkQ} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk})`;
   }
@@ -1822,7 +1826,7 @@ export class MikroOrmAdapter implements FilterAdapter {
         `Cannot resolve child column "${aggregate.column}" for aggregate function "${aggregate.fn}".`,
       );
     }
-    const col = `${this.quoteIdent(childMeta.tableName)}.${this.quoteIdent(column)}`;
+    const col = `${this.quoteSingleIdent(childMeta.tableName)}.${this.quoteSingleIdent(column)}`;
     switch (aggregate.fn) {
       case 'sum':
         return `COALESCE(SUM(${col}),0)`;
@@ -1853,10 +1857,10 @@ export class MikroOrmAdapter implements FilterAdapter {
    * character — backticks on MySQL/SQLite, double quotes on PostgreSQL —
    * instead of the backtick-only {@link quoteIdent}.
    *
-   * Used by the relation-path distinct projection, which is reachable from any
-   * dialect (a filter dropdown over a relation column is not a MySQL feature),
-   * so MySQL-only quoting there would trade a silent drop for a PostgreSQL
-   * syntax error.
+   * Used by the relation-path distinct projection and the to-many aggregate
+   * subqueries, which are reachable from any dialect (a filter dropdown over a
+   * relation column, or a `posts.$count` filter, is not a MySQL feature), so
+   * MySQL-only quoting there would be a PostgreSQL syntax error.
    *
    * The platform's own `quoteIdentifier()` cannot be called directly: it treats
    * its argument as a QUALIFIED name and splits on dots, so the output alias
