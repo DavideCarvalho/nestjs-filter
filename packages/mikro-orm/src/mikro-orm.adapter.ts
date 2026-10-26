@@ -1026,8 +1026,11 @@ export class MikroOrmAdapter implements FilterAdapter {
     // Narrowing the GROUPS, not the rows: applied to the grouping expression before the aggregate,
     // so it selects which values are counted rather than which rows carry them. Bound as a
     // parameter — this is the one part of this method that is client text.
+    // PostgreSQL has no `lower()` for a non-text value, so the expression is
+    // cast to text there; MySQL and SQLite coerce it themselves.
     if (opts?.search) {
-      queryBuilder.andWhere(`lower(${expr}) like ?`, [`%${opts.search.toLowerCase()}%`]);
+      const text = this.platformKind() === 'postgres' ? `cast(${expr} as text)` : expr;
+      queryBuilder.andWhere(`lower(${text}) like ?`, [`%${opts.search.toLowerCase()}%`]);
     }
 
     // Top-N: order by the aggregate, then bound. The ORDER BY repeats `count(*)`

@@ -187,4 +187,15 @@ describe('PostgreSQL — aggregates, computed projections and groupByCount', () 
     const groups = await adapter.groupByCount(qb, 'name', Author, { search: 'b' });
     expect(groups).toEqual([{ value: 'Bob', count: 1 }]);
   });
+
+  it('groups a number column narrowed by a search', async () => {
+    const adapter = new MikroOrmAdapter(orm.em.fork());
+    const qb = adapter.createQueryBuilder(Book);
+    const groups = await adapter.groupByCount(qb, 'pages', Book, { search: '00' });
+    expect(groups.map((g) => [Number(g.value), g.count]).sort((a, b) => a[0]! - b[0]!)).toEqual([
+      [100, 1],
+      [200, 1],
+      [300, 1],
+    ]);
+  });
 });

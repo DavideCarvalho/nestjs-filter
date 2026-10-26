@@ -176,11 +176,26 @@ describe('MikroORM raw SQL on the PostgreSQL platform', () => {
         sql = qb.getQuery();
         return [];
       };
-      await a.groupByCount(qb, 'pages', Book, { search: '1' });
+      await a.groupByCount(qb, 'pages', Book);
       expect(sql).not.toContain('`');
       expect(sql).toContain('select "pages" as value, count(*) as count');
       expect(sql).toContain('group by "pages"');
-      expect(sql).toContain('lower("pages") like ?');
+    });
+
+    it('casts a groupByCount search to text, which lower() needs for a number column', async () => {
+      await createModule();
+      const a = adapter();
+      const qb = a.createQueryBuilder(Book) as {
+        getQuery: () => string;
+        execute: () => Promise<unknown[]>;
+      };
+      let sql = '';
+      qb.execute = async () => {
+        sql = qb.getQuery();
+        return [];
+      };
+      await a.groupByCount(qb, 'pages', Book, { search: '1' });
+      expect(sql).toContain('lower(cast("pages" as text)) like ?');
     });
   });
 });
