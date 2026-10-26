@@ -53,7 +53,7 @@ export class PostFilter extends MikroOrmFilter<Post> {
 
 <Callout type="warn">
   Auto-detected search across **more than 10 string columns** logs a slow-query
-  warning. Declare an explicit `static search = [...]` to silence it and keep
+  warning, once per filter class rather than on every request. Declare an explicit `static search = [...]` to silence it and keep
   the query fast.
 </Callout>
 

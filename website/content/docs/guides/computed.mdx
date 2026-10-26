@@ -205,6 +205,8 @@ export class AuthorsController {
 }
 ```
 
+The total follows the same rules as `findAndCount`: a short page supplies it without a `COUNT`, and the count never evaluates the computed expression. See [How the total is computed](/docs/guides/repositories#how-the-total-is-computed).
+
 `project: true` is dispatched by the static pipeline (`FilterRunner.apply()`, i.e. `@ApplyFilter` with a filter class) — dynamic mode (`applyDynamic`/`findAndCount`, which take an entity instead of a filter class) has no `project` dispatch.
 
 If the active adapter doesn't implement `applyComputedSelect`, the runner logs a warning and skips the projection — rows simply lack the alias; nothing throws.

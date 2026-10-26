@@ -37,11 +37,6 @@ type RelationMetadata = EntityMetadata['relations'][number];
 const SAFE_FIELD = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 /**
- * Per-query monotonic counter for keyset parameter-name prefixes, keyed on the
- * builder's `expressionMap` so repeated keyset applications on one builder don't
- * collide. Keeps generated SQL deterministic.
- */
-/**
  * The total a page implies on its own: a page shorter than its LIMIT is the
  * tail of the result set, so the total is the OFFSET plus its rows. `undefined`
  * when the page is full, or empty past an OFFSET (the offset may overshoot).
@@ -53,6 +48,11 @@ function totalFromPage(rows: number, limit?: number, offset?: number): number | 
   return skipped + rows;
 }
 
+/**
+ * Per-query monotonic counter for keyset parameter-name prefixes, keyed on the
+ * builder's `expressionMap` so repeated keyset applications on one builder don't
+ * collide. Keeps generated SQL deterministic.
+ */
 const keysetCounters = new WeakMap<object, number>();
 
 function nextKeysetSeq(qb: { expressionMap?: object }): number {
@@ -801,10 +801,11 @@ export class TypeOrmAdapter implements FilterAdapter {
 
   /**
    * With no computed aliases recorded for this builder, a plain
-   * `getManyAndCount()`, which skips its count query when the page is short. When {@link applyComputedSelect} recorded
-   * projected aliases, `getRawAndEntities()` runs instead: it executes the ONE
-   * query TypeORM would run for `getMany()` and returns both the hydrated
-   * entities and the raw rows, paired by index (entities are built from the
+   * `getManyAndCount()`, which skips its count query when the page is short.
+   * When {@link applyComputedSelect} recorded projected aliases,
+   * `getRawAndEntities()` runs instead: it executes the ONE query TypeORM
+   * would run for `getMany()` and returns both the hydrated entities and the
+   * raw rows, paired by index (entities are built from the
    * raw rows in order; nothing on this path multiplies rows — the runner
    * defers to-many relation loading to `populate`, off the join). Each
    * computed value is then attached to its entity under the alias, read from
