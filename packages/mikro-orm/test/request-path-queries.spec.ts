@@ -185,6 +185,41 @@ describe('MikroOrmAdapter request-path queries', () => {
       expect(countQueries()).toHaveLength(0);
     });
 
+    it('a computed projection with a to-many include totals roots, not joined rows', async () => {
+      await createModule();
+      const adapter = adapterOf();
+      const qb = adapter.createQueryBuilder(Owner) as never as { orderBy: (o: unknown) => void };
+      adapter.applyComputedSelect(qb, 'twice', ({ alias }) => `${alias}.id * 2`);
+      adapter.applyIncludes(qb, ['pets']);
+      qb.orderBy({ id: 'asc' });
+      // A page that holds every owner: 7 owners, 10 joined owner × pet rows.
+      adapter.applyOffsetPagination(qb, 0, 12);
+
+      const { rows, total } = await adapter.getResultAndCount<Owner & { twice: number }>(qb);
+
+      expect(rows.map((o) => o.name)).toEqual(['o1', 'o2', 'o3', 'o4', 'o5', 'o6', 'o7']);
+      expect(rows.find((o) => o.name === 'o1')?.pets).toHaveLength(3);
+      expect(total).toBe(7);
+    });
+
+    it('a short page with a computed projection and a to-many include totals roots', async () => {
+      await createModule();
+      const adapter = adapterOf();
+      const qb = adapter.createQueryBuilder(Owner) as never as { orderBy: (o: unknown) => void };
+      adapter.applyComputedSelect(qb, 'twice', ({ alias }) => `${alias}.id * 2`);
+      adapter.applyIncludes(qb, ['pets']);
+      qb.orderBy({ id: 'asc' });
+      adapter.applyOffsetPagination(qb, 1, 5);
+
+      const { rows, total } = await adapter.getResultAndCount<Owner & { twice: number }>(qb);
+
+      expect(rows.map((o) => [o.name, o.twice])).toEqual([
+        ['o6', 12],
+        ['o7', 14],
+      ]);
+      expect(total).toBe(7);
+    });
+
     it('a short distinct page supplies the total when it has no null member', async () => {
       await createModule();
       const adapter = adapterOf();
