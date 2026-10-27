@@ -93,6 +93,96 @@ interface JoinableQB {
   getAliasForJoinPath?: (path: string) => string | undefined;
 }
 
+/**
+ * Whether a `$count` filter only asks if a child row exists: `true` for
+ * `> 0` / `>= 1` / `!= 0`, `false` for `= 0` / `<= 0` / `< 1`, `null` for
+ * anything that needs the actual count.
+ */
+function countExistence(filter: ColumnFilter): boolean | null {
+  const value = filter.value;
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const n = Number(value);
+  switch (normalizeOperator(filter.operator)) {
+    case 'gt':
+    case 'notEquals':
+      return n === 0 ? true : null;
+    case 'gte':
+      return n === 1 ? true : null;
+    case 'equals':
+    case 'lte':
+      return n === 0 ? false : null;
+    case 'lt':
+      return n === 1 ? false : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * The total a page implies on its own: a page shorter than its LIMIT is the
+ * tail of the result set, so the total is the OFFSET plus its rows. `undefined`
+ * when the page is full, or empty past an OFFSET (the offset may overshoot).
+ */
+function totalFromPage(rows: number, limit?: number, offset?: number): number | undefined {
+  const skipped = offset ?? 0;
+  if (limit != null && rows >= limit) return undefined;
+  if (rows === 0 && skipped > 0) return undefined;
+  return skipped + rows;
+}
+
+/** The parts of a builder join (`state.joins`) the count query reads. */
+interface IncludeJoin {
+  alias: string;
+  ownerAlias: string;
+  prop: { name: string };
+}
+
+/** One populate hint of a builder (`state.populate` / `state.joinedProps`). */
+interface PopulateItem {
+  field: string;
+  children?: PopulateItem[];
+}
+
+/**
+ * The internal builder state the execution paths read (`qb.state`). Optional
+ * throughout: a builder without it just gets the conservative path.
+ */
+interface BuilderState {
+  limit?: number;
+  offset?: number;
+  groupBy?: unknown[];
+  having?: Record<string, unknown>;
+  flags?: Set<QueryFlag>;
+  flushMode?: unknown;
+  joins?: Record<string, IncludeJoin>;
+  populate?: PopulateItem[];
+  joinedProps?: Map<string, PopulateItem>;
+}
+
+/** The slice of a MikroORM `QueryBuilder` the page + total execution uses. */
+interface ExecutableQB {
+  alias: string;
+  state?: BuilderState;
+  context?: unknown;
+  em?: SqlEntityManager;
+  mainAlias: { meta: { class: new () => object; virtual?: boolean } };
+  hasToManyJoins?: () => boolean;
+  clone: () => ExecutableQB;
+  getResultList: () => Promise<unknown[]>;
+  getCount: (field?: string[], distinct?: boolean) => Promise<number>;
+  count: (field?: string[], distinct?: boolean) => ExecutableQB;
+  execute: (method: 'all') => Promise<Record<string, unknown>[]>;
+  limit: (n?: number) => unknown;
+  offset: (n?: number) => unknown;
+  orderBy: (order: unknown[]) => unknown;
+  getQuery: () => string;
+  getParams: () => readonly unknown[];
+}
+
+/** Upper bound on the resolved field paths cached per entity. */
+const FIELD_PATH_CACHE_LIMIT = 1000;
+
 export class MikroOrmAdapter implements FilterAdapter {
   constructor(private readonly em: SqlEntityManager) {}
 
@@ -100,7 +190,11 @@ export class MikroOrmAdapter implements FilterAdapter {
   // per entity class. `.has()` is used so null results are cached too.
   private fieldCache = new WeakMap<object, EntityFieldInfo[] | null>();
   private relationCache = new WeakMap<object, EntityRelationInfo[] | null>();
-  private fieldPathCache = new WeakMap<object, Map<string, 'field' | 'relation' | 'json' | null>>();
+  private relatedFieldCache = new WeakMap<object, EntityFieldInfo[] | null>();
+  // Keyed by client-supplied paths, so only resolvable paths are kept and each
+  // entity's map is capped: JSON sub-paths and cyclic relation walks
+  // (`author.posts.author…`) are valid without being finite.
+  private fieldPathCache = new WeakMap<object, Map<string, 'field' | 'relation' | 'json'>>();
 
   /**
    * Computed aliases projected into a builder's SELECT list via
@@ -149,6 +243,13 @@ export class MikroOrmAdapter implements FilterAdapter {
    * the rule, so only a real MySQL/PostgreSQL run surfaces it.
    */
   private distinctProjectionAliases = new WeakMap<object, Map<string, string>>();
+
+  /**
+   * Per builder, the keys of the joins {@link applyIncludes} added. A LEFT
+   * JOIN that only eager-loads cannot change how many root rows match, so
+   * {@link countSource} leaves these out of the total.
+   */
+  private includeJoinKeys = new WeakMap<object, string[]>();
 
   createQueryBuilder<E>(entity: Type<E>): unknown {
     return this.em.createQueryBuilder(entity as unknown as new () => E);
@@ -337,7 +438,11 @@ export class MikroOrmAdapter implements FilterAdapter {
       const prop = meta?.properties?.[relationName];
       if (!prop || prop.kind === ReferenceKind.SCALAR) return null;
       const targetMeta = this.em.getMetadata().get(prop.type as unknown as new () => unknown);
-      return this.scalarFieldsOf(targetMeta);
+      if (!targetMeta) return null;
+      if (this.relatedFieldCache.has(targetMeta)) return this.relatedFieldCache.get(targetMeta)!;
+      const result = this.scalarFieldsOf(targetMeta);
+      this.relatedFieldCache.set(targetMeta, result);
+      return result;
     } catch {
       return null;
     }
@@ -346,12 +451,13 @@ export class MikroOrmAdapter implements FilterAdapter {
   resolveFieldPath(entity: Type<unknown>, path: string): 'field' | 'relation' | 'json' | null {
     let pathMap = this.fieldPathCache.get(entity);
     if (!pathMap) {
-      pathMap = new Map<string, 'field' | 'relation' | 'json' | null>();
+      pathMap = new Map<string, 'field' | 'relation' | 'json'>();
       this.fieldPathCache.set(entity, pathMap);
     }
-    if (pathMap.has(path)) return pathMap.get(path)!;
+    const cached = pathMap.get(path);
+    if (cached !== undefined) return cached;
     const result = this.computeFieldPath(entity, path);
-    pathMap.set(path, result);
+    if (result !== null && pathMap.size < FIELD_PATH_CACHE_LIMIT) pathMap.set(path, result);
     return result;
   }
 
@@ -532,11 +638,23 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   applyIncludes(qb: unknown, includes: string[]): void {
-    const queryBuilder = qb as { leftJoinAndSelect: (field: string, alias: string) => void };
+    const queryBuilder = qb as {
+      leftJoinAndSelect: (field: string, alias: string) => void;
+      state?: BuilderState;
+    };
+    const before = new Set(Object.keys(queryBuilder.state?.joins ?? {}));
     for (const path of includes) {
       const alias = path.replace(/\./g, '_');
       queryBuilder.leftJoinAndSelect(path, alias);
     }
+    const joins = queryBuilder.state?.joins;
+    if (!joins) return;
+    const added = Object.keys(joins).filter((key) => !before.has(key));
+    if (added.length === 0) return;
+    this.includeJoinKeys.set(qb as object, [
+      ...(this.includeJoinKeys.get(qb as object) ?? []),
+      ...added,
+    ]);
   }
 
   applySearch(qb: unknown, term: string, columns: string[]): void {
@@ -886,7 +1004,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     };
     const expr =
       typeof field === 'string'
-        ? this.quoteIdent(this.resolveColumnName(entity, field))
+        ? this.quoteSingleIdent(this.resolveColumnName(entity, field))
         : this.computedSql(field.source, queryBuilder.alias);
 
     const bucket = opts?.bucket;
@@ -908,8 +1026,11 @@ export class MikroOrmAdapter implements FilterAdapter {
     // Narrowing the GROUPS, not the rows: applied to the grouping expression before the aggregate,
     // so it selects which values are counted rather than which rows carry them. Bound as a
     // parameter — this is the one part of this method that is client text.
+    // PostgreSQL has no `lower()` for a non-text value, so the expression is
+    // cast to text there; MySQL and SQLite coerce it themselves.
     if (opts?.search) {
-      queryBuilder.andWhere(`lower(${expr}) like ?`, [`%${opts.search.toLowerCase()}%`]);
+      const text = this.platformKind() === 'postgres' ? `cast(${expr} as text)` : expr;
+      queryBuilder.andWhere(`lower(${text}) like ?`, [`%${opts.search.toLowerCase()}%`]);
     }
 
     // Top-N: order by the aggregate, then bound. The ORDER BY repeats `count(*)`
@@ -1340,7 +1461,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     const queryBuilder = qb as ProjectionQB;
     const expr = this.computedSql(source, queryBuilder.alias);
     if (queryBuilder.state.fields === undefined) queryBuilder.select('*');
-    queryBuilder.addSelect(raw(`${expr} as ${this.quoteIdent(alias)}`));
+    queryBuilder.addSelect(raw(`${expr} as ${this.quoteSingleIdent(alias)}`));
     const aliases = this.projectedAliases.get(qb as object);
     if (aliases) {
       aliases.push(alias);
@@ -1373,7 +1494,7 @@ export class MikroOrmAdapter implements FilterAdapter {
     this.assertSafeAlias(alias);
     const queryBuilder = qb as ProjectionQB;
     const expr = raw(
-      `${this.computedSql(source, queryBuilder.alias)} as ${this.quoteIdent(alias)}`,
+      `${this.computedSql(source, queryBuilder.alias)} as ${this.quoteSingleIdent(alias)}`,
     );
     if (queryBuilder.state.fields === undefined) {
       queryBuilder.select(expr, true);
@@ -1438,6 +1559,22 @@ export class MikroOrmAdapter implements FilterAdapter {
    * cannot be reused across the two conditions.
    */
   applyAggregateField(qb: unknown, aggregate: AggregatePath, filter: ColumnFilter): void {
+    const existence = aggregate.fn === 'count' ? countExistence(filter) : null;
+    if (existence !== null) {
+      // `$count > 0` and `$count = 0` only ask whether a child row exists, which
+      // is answered at the first match instead of by counting them all.
+      // PostgreSQL plans `EXISTS` as a semi-/anti-join. MySQL 8 does too, but
+      // materializes the child table for it before the outer LIMIT can stop
+      // anything, so elsewhere a per-row LIMIT 1 probe is used.
+      const rows = this.countedRowsSql(qb, aggregate.relation);
+      const sql =
+        this.platformKind() === 'postgres'
+          ? (alias: string) => `${existence ? '' : 'NOT '}EXISTS (SELECT 1 ${rows(alias)})`
+          : (alias: string) =>
+              `(SELECT 1 ${rows(alias)} LIMIT 1) IS ${existence ? 'NOT ' : ''}NULL`;
+      (qb as { andWhere: (c: unknown) => void }).andWhere({ [raw(sql)]: [] });
+      return;
+    }
     const condition = resolveOperator({
       ...filter,
       field: this.aggregateSubquery(qb, aggregate) as unknown as string,
@@ -1527,21 +1664,74 @@ export class MikroOrmAdapter implements FilterAdapter {
     aggregate: AggregatePath,
   ): ComputedSource {
     const childMeta = this.resolveChildMeta(prop, aggregate.relation);
+    const aggExpr = this.buildAggregateExpr(aggregate, childMeta);
+    const rows = this.oneToManyRowsSql(rootMeta, prop, childMeta, aggregate.relation);
+    return ({ alias }) => `(SELECT ${aggExpr} ${rows(alias)})`;
+  }
+
+  /** `FROM \`child\` WHERE \`child\`.\`fk\` = <alias>.\`pk\`` for a ONE_TO_MANY relation. */
+  private oneToManyRowsSql(
+    rootMeta: AggregateEntityMeta,
+    prop: AggregateEntityProp,
+    childMeta: AggregateEntityMeta,
+    relationName: string,
+  ): (alias: string) => string {
     const mappedBy = prop.mappedBy;
     const fkProp = mappedBy ? childMeta.properties?.[mappedBy] : undefined;
     const fkColumn = fkProp?.fieldNames?.[0];
     if (!fkColumn) {
       throw new Error(
-        `Cannot resolve the inverse FK column for aggregate relation "${aggregate.relation}".`,
+        `Cannot resolve the inverse FK column for aggregate relation "${relationName}".`,
       );
     }
-    const pkColumn = this.resolveRootPkColumn(rootMeta, aggregate.relation);
-    const aggExpr = this.buildAggregateExpr(aggregate, childMeta);
-    const childTable = this.quoteIdent(childMeta.tableName);
-    const fk = this.quoteIdent(fkColumn);
-    const pk = this.quoteIdent(pkColumn);
-    return ({ alias }) =>
-      `(SELECT ${aggExpr} FROM ${childTable} WHERE ${childTable}.${fk} = ${alias}.${pk})`;
+    const pkColumn = this.resolveRootPkColumn(rootMeta, relationName);
+    const childTable = this.quoteSingleIdent(childMeta.tableName);
+    const fk = this.quoteSingleIdent(fkColumn);
+    const pk = this.quoteSingleIdent(pkColumn);
+    return (alias) => `FROM ${childTable} WHERE ${childTable}.${fk} = ${alias}.${pk}`;
+  }
+
+  /**
+   * The rows a to-many `$count` counts, as a `FROM … WHERE …` tail correlated
+   * to the outer alias: the child rows of a ONE_TO_MANY, the pivot rows of a
+   * MANY_TO_MANY.
+   */
+  private countedRowsSql(qb: unknown, relationName: string): (alias: string) => string {
+    const rootMeta = (qb as { mainAlias: { meta: AggregateEntityMeta } }).mainAlias.meta;
+    const prop = rootMeta.properties?.[relationName];
+    if (!prop) {
+      throw new Error(`Cannot resolve aggregate relation "${relationName}".`);
+    }
+    if (prop.kind === ReferenceKind.ONE_TO_MANY) {
+      const childMeta = this.resolveChildMeta(prop, relationName);
+      return this.oneToManyRowsSql(rootMeta, prop, childMeta, relationName);
+    }
+    if (prop.kind === ReferenceKind.MANY_TO_MANY) {
+      return this.manyToManyPivotRowsSql(rootMeta, prop, relationName);
+    }
+    throw new Error(
+      `Aggregate relation "${relationName}" (kind "${prop.kind}") is not a to-many relation the MikroORM adapter can correlate — only one-to-many and many-to-many are supported.`,
+    );
+  }
+
+  /** `FROM \`pivot\` WHERE \`pivot\`.\`ownerFk\` = <alias>.\`ownerPk\`` for a MANY_TO_MANY relation. */
+  private manyToManyPivotRowsSql(
+    rootMeta: AggregateEntityMeta,
+    prop: AggregateEntityProp,
+    relationName: string,
+  ): (alias: string) => string {
+    const pivotTable = prop.pivotTable;
+    const ownerFk = prop.joinColumns?.[0];
+    if (!pivotTable || !ownerFk || !prop.inverseJoinColumns?.[0]) {
+      throw new Error(
+        `Cannot resolve pivot-table metadata for aggregate relation "${relationName}".`,
+      );
+    }
+    const ownerPkColumn = this.resolveRootPkColumn(rootMeta, relationName);
+    const pivot = this.quoteSingleIdent(pivotTable);
+    const ownerFkQ = this.quoteSingleIdent(ownerFk);
+    const ownerPk = this.quoteSingleIdent(ownerPkColumn);
+    return (alias) => `FROM ${pivot} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk}`;
   }
 
   /**
@@ -1580,13 +1770,13 @@ export class MikroOrmAdapter implements FilterAdapter {
       );
     }
     const ownerPkColumn = this.resolveRootPkColumn(rootMeta, aggregate.relation);
-    const pivot = this.quoteIdent(pivotTable);
-    const ownerFkQ = this.quoteIdent(ownerFk);
-    const ownerPk = this.quoteIdent(ownerPkColumn);
+    const pivot = this.quoteSingleIdent(pivotTable);
+    const ownerFkQ = this.quoteSingleIdent(ownerFk);
+    const ownerPk = this.quoteSingleIdent(ownerPkColumn);
 
     if (aggregate.fn === 'count') {
-      return ({ alias }) =>
-        `(SELECT COUNT(*) FROM ${pivot} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk})`;
+      const rows = this.manyToManyPivotRowsSql(rootMeta, prop, aggregate.relation);
+      return ({ alias }) => `(SELECT COUNT(*) ${rows(alias)})`;
     }
 
     const childPkName = childMeta.primaryKeys?.[0];
@@ -1599,9 +1789,9 @@ export class MikroOrmAdapter implements FilterAdapter {
       );
     }
     const aggExpr = this.buildAggregateExpr(aggregate, childMeta);
-    const childTable = this.quoteIdent(childMeta.tableName);
-    const childPk = this.quoteIdent(childPkColumn);
-    const inverseFkQ = this.quoteIdent(inverseFk);
+    const childTable = this.quoteSingleIdent(childMeta.tableName);
+    const childPk = this.quoteSingleIdent(childPkColumn);
+    const inverseFkQ = this.quoteSingleIdent(inverseFk);
     return ({ alias }) =>
       `(SELECT ${aggExpr} FROM ${childTable} JOIN ${pivot} ON ${childTable}.${childPk} = ${pivot}.${inverseFkQ} WHERE ${pivot}.${ownerFkQ} = ${alias}.${ownerPk})`;
   }
@@ -1639,7 +1829,7 @@ export class MikroOrmAdapter implements FilterAdapter {
         `Cannot resolve child column "${aggregate.column}" for aggregate function "${aggregate.fn}".`,
       );
     }
-    const col = `${this.quoteIdent(childMeta.tableName)}.${this.quoteIdent(column)}`;
+    const col = `${this.quoteSingleIdent(childMeta.tableName)}.${this.quoteSingleIdent(column)}`;
     switch (aggregate.fn) {
       case 'sum':
         return `COALESCE(SUM(${col}),0)`;
@@ -1655,25 +1845,10 @@ export class MikroOrmAdapter implements FilterAdapter {
   }
 
   /**
-   * Backtick-quotes a metadata-derived SQL identifier, escaping embedded
-   * backticks — the same defensive quoting {@link buildJsonArrayCondition}
-   * applies to a JSON column name. Identifiers here always come from ORM
-   * metadata (table/column/FK names), never client-supplied text, but this
-   * keeps the identifier well-formed even if metadata ever contained one.
-   */
-  private quoteIdent(name: string): string {
-    return `\`${name.replace(/`/g, '``')}\``;
-  }
-
-  /**
    * Quotes a name as ONE identifier, using the ACTIVE platform's quote
-   * character — backticks on MySQL/SQLite, double quotes on PostgreSQL —
-   * instead of the backtick-only {@link quoteIdent}.
-   *
-   * Used by the relation-path distinct projection, which is reachable from any
-   * dialect (a filter dropdown over a relation column is not a MySQL feature),
-   * so MySQL-only quoting there would trade a silent drop for a PostgreSQL
-   * syntax error.
+   * character — backticks on MySQL/SQLite, double quotes on PostgreSQL — and
+   * doubling any embedded occurrence of it. The names come from ORM metadata
+   * or dev-declared aliases, never client text, but are quoted all the same.
    *
    * The platform's own `quoteIdentifier()` cannot be called directly: it treats
    * its argument as a QUALIFIED name and splits on dots, so the output alias
@@ -1702,9 +1877,9 @@ export class MikroOrmAdapter implements FilterAdapter {
    * (`[A-Za-z_][A-Za-z0-9_]*`). Aliases are dev-declared (the keys of the
    * `@Filterable.computed` map / `@Computed` method names), never client
    * input, so a violation is a programming error — but since the alias is
-   * embedded into a raw `… as \`alias\`` fragment (and must round-trip
-   * verbatim as a result-row key), it gets the same defensive rigor
-   * {@link quoteIdent} applies to metadata-derived identifiers, plus this
+   * embedded into a raw `… as <alias>` fragment (and must round-trip
+   * verbatim as a result-row key), it gets the same defensive quoting
+   * ({@link quoteSingleIdent}) metadata-derived identifiers get, plus this
    * hard shape check.
    */
   private assertSafeAlias(alias: string): void {
@@ -1724,9 +1899,9 @@ export class MikroOrmAdapter implements FilterAdapter {
   /**
    * Executes the page + total. Two paths, keyed off {@link projectedAliases}:
    *
-   * **No computed projection** (the historical path): MikroORM's own
-   * `getResultAndCount()` — hydrated entities + a count that ignores
-   * limit/offset.
+   * **No computed projection**: `getResultList()` for hydrated entities and
+   * `getCount()` for a total that ignores limit/offset — the two queries
+   * MikroORM's own `getResultAndCount()` runs.
    *
    * **Computed projection** ({@link applyComputedSelect} recorded aliases for
    * this builder): MikroORM's entity hydration discards any selected column
@@ -1741,43 +1916,46 @@ export class MikroOrmAdapter implements FilterAdapter {
    * - each raw row is hydrated into a real entity via `em.map(entity, row)`
    *   (the builder's own `em` when available, so a forked context keeps its
    *   identity map; the adapter's `em` otherwise) — callers still receive
-   *   entity instances, exactly like the historical path;
+   *   entity instances, exactly like the plain path;
    * - each recorded computed alias is then re-attached onto the hydrated
    *   entity (`entity[alias] = row[alias]`) — the piece hydration dropped;
    * - the total runs as a separate `qb.clone().getCount()`: `count()` REPLACES
    *   the projection with `count(*)` (the computed expression never affects
    *   how many rows match on a non-distinct query, so evaluating it inside the
    *   count would be pure waste) and resets limit/offset/order internally —
-   *   the same reset contract the historical `getResultAndCount()` total has.
+   *   the same reset contract as the plain path's total.
+   *
+   * Either way the total comes from {@link pageAndTotal}: skipped when a short
+   * page already implies it, and without the include joins
+   * ({@link countSource}).
    */
   async getResultAndCount<T = unknown>(qb: unknown): Promise<{ rows: T[]; total: number }> {
+    const queryBuilder = qb as ExecutableQB;
     const aliases = this.projectedAliases.get(qb as object);
-    if (!aliases || aliases.length === 0) {
-      const queryBuilder = qb as { getResultAndCount: () => Promise<[unknown[], number]> };
-      const [rows, total] = await queryBuilder.getResultAndCount();
-      return { rows: rows as T[], total };
-    }
+    const list =
+      !aliases || aliases.length === 0
+        ? () => queryBuilder.clone().getResultList()
+        : () => this.computedRows(queryBuilder, aliases);
+    const count = () => this.countSource(queryBuilder, false).getCount();
+    const { rows, total } = await this.pageAndTotal(queryBuilder, list, count, {
+      knowable: this.rowsMatchCount(queryBuilder),
+      flushFirst: !aliases || aliases.length === 0,
+    });
+    return { rows: rows as T[], total };
+  }
 
-    const queryBuilder = qb as {
-      clone: () => {
-        execute: (method: 'all') => Promise<Record<string, unknown>[]>;
-        getCount: () => Promise<number>;
-      };
-      mainAlias: { meta: { class: new () => object } };
-      em?: SqlEntityManager;
-    };
-    const entity = queryBuilder.mainAlias.meta.class;
-    const em = queryBuilder.em ?? this.em;
-    const rawRows = await queryBuilder.clone().execute('all');
-    const rows = rawRows.map((row) => {
+  /** The computed-projection page: raw rows hydrated, computed aliases re-attached. */
+  private async computedRows(qb: ExecutableQB, aliases: string[]): Promise<unknown[]> {
+    const entity = qb.mainAlias.meta.class;
+    const em = qb.em ?? this.em;
+    const rawRows = await qb.clone().execute('all');
+    return rawRows.map((row) => {
       const hydrated = em.map(entity, row as never) as unknown as Record<string, unknown>;
       for (const alias of aliases) {
         hydrated[alias] = row[alias];
       }
       return hydrated;
     });
-    const total = await queryBuilder.clone().getCount();
-    return { rows: rows as T[], total };
   }
 
   /**
@@ -1805,47 +1983,152 @@ export class MikroOrmAdapter implements FilterAdapter {
    * (the same pattern the TypeORM adapter uses for every distinct total),
    * with limit/offset/order reset on the inner clone and the WHERE parameters
    * still bound (`getQuery()` + `getParams()` — never inlined).
+   *
+   * A short page skips the total query as in {@link getResultAndCount}. For
+   * `getCount(fields, true)` only on a first page with no null member:
+   * `count(distinct a)` skips nulls that `select distinct a` returns as a row.
    */
   async getDistinctResultAndCount(
     qb: unknown,
     fields: string[],
   ): Promise<{ rows: Record<string, unknown>[]; total: number }> {
-    const queryBuilder = qb as {
-      clone: () => {
-        execute: (method: 'all') => Promise<Record<string, unknown>[]>;
-        getCount: (field: string[], distinct: boolean) => Promise<number>;
-        limit: (n?: number) => unknown;
-        offset: (n?: number) => unknown;
-        orderBy: (order: unknown[]) => unknown;
-        getQuery: () => string;
-        getParams: () => readonly unknown[];
-      };
-      em?: SqlEntityManager;
-    };
-    const rows = await queryBuilder.clone().execute('all');
+    const queryBuilder = qb as ExecutableQB;
+    const list = () => queryBuilder.clone().execute('all');
 
     if (!this.subqueryCountDistinctBuilders.has(qb as object)) {
       // Total ignores limit/offset/order (getCount resets them internally),
       // mirroring how getResultAndCount's own total is computed.
-      const total = await queryBuilder.clone().getCount(fields, true);
-      return { rows, total };
+      const count = () => this.countSource(queryBuilder, false).getCount(fields, true);
+      return this.pageAndTotal(queryBuilder, list, count, {
+        knowable: (rows) =>
+          !queryBuilder.state?.offset &&
+          rows.every((row) => fields.every((field) => row[field] != null)),
+      });
     }
 
     // Computed member(s) in the distinct projection → count the FULL tuple.
-    const inner = queryBuilder.clone();
-    inner.limit(undefined);
-    inner.offset(undefined);
-    inner.orderBy([]);
-    const em = queryBuilder.em ?? this.em;
-    const result = await em
-      .getConnection()
-      .execute<Array<{ count: unknown }>>(
-        `select count(*) as count from (${inner.getQuery()}) as distinct_count`,
-        [...inner.getParams()],
-        'all',
-      );
-    const total = Number(result[0]?.count ?? 0);
+    const count = async () => {
+      const inner = this.countSource(queryBuilder, true);
+      inner.limit(undefined);
+      inner.offset(undefined);
+      inner.orderBy([]);
+      const em = queryBuilder.em ?? this.em;
+      const result = await em
+        .getConnection()
+        .execute<Array<{ count: unknown }>>(
+          `select count(*) as count from (${inner.getQuery()}) as distinct_count`,
+          [...inner.getParams()],
+          'all',
+        );
+      return Number(result[0]?.count ?? 0);
+    };
+    return this.pageAndTotal(queryBuilder, list, count, { knowable: () => true });
+  }
+
+  /**
+   * Runs the page and its total.
+   *
+   * When `knowable` says the page's rows correspond one-to-one to what the
+   * total counts, the page runs first and a short page supplies the total
+   * itself ({@link totalFromPage}), so the last page of a list and any result
+   * set smaller than a page cost one query instead of two.
+   *
+   * Otherwise both queries are needed and run concurrently, unless the
+   * builder is bound to a transaction (one connection: they would only queue)
+   * — then they run in order, as MikroORM's own `getResultAndCount` does.
+   * `flushFirst` performs the auto-flush `getResultList` would, before the
+   * count starts, so the count cannot run ahead of pending changes.
+   */
+  private async pageAndTotal<R>(
+    qb: ExecutableQB,
+    list: () => Promise<R[]>,
+    count: () => Promise<number>,
+    opts: { knowable: ((rows: R[]) => boolean) | null; flushFirst?: boolean },
+  ): Promise<{ rows: R[]; total: number }> {
+    const state = qb.state;
+    if (opts.knowable && state) {
+      const rows = await list();
+      const total = opts.knowable(rows)
+        ? totalFromPage(rows.length, state.limit, state.offset)
+        : undefined;
+      return { rows, total: total ?? (await count()) };
+    }
+
+    const em = qb.em ?? this.em;
+    if (qb.context || em.isInTransaction()) {
+      const rows = await list();
+      return { rows, total: await count() };
+    }
+    if (opts.flushFirst) {
+      await em.tryFlush(qb.mainAlias.meta.class, { flushMode: state?.flushMode as never });
+    }
+    const [rows, total] = await Promise.all([list(), count()]);
     return { rows, total };
+  }
+
+  /**
+   * Whether every row `getResultList` returns is one root entity the plain
+   * total counts — i.e. a short page can stand in for the count. Not with
+   * GROUP BY/HAVING, and not when a to-many join is paged as raw joined rows
+   * (MikroORM's paginate subquery, which pages distinct roots, is disabled).
+   */
+  private rowsMatchCount(qb: ExecutableQB): ((rows: unknown[]) => boolean) | null {
+    const state = qb.state;
+    if (!state?.flags) return null;
+    if ((state.groupBy?.length ?? 0) > 0) return null;
+    if (Object.keys(state.having ?? {}).length > 0) return null;
+    const pagesRoots = !state.flags.has(QueryFlag.DISABLE_PAGINATE) && !qb.mainAlias.meta.virtual;
+    if (!pagesRoots && qb.hasToManyJoins?.() !== false) return null;
+    return () => true;
+  }
+
+  /**
+   * A clone of the builder to compute the total from, without the joins
+   * {@link applyIncludes} added. Those LEFT JOINs only eager-load, so they
+   * cannot change which root rows match, but they make the count join (and,
+   * for a to-many include, deduplicate) every related row.
+   *
+   * They stay when anything else in the query references their alias — a
+   * condition, a nested join, a projected relation path — which is checked on
+   * the SQL the stripped clone compiles to. `keepProjection` is for a total
+   * computed over the builder's own SELECT list rather than through `count()`.
+   */
+  private countSource(qb: ExecutableQB, keepProjection: boolean): ExecutableQB {
+    const clone = qb.clone();
+    const keys = this.includeJoinKeys.get(qb as object);
+    const state = clone.state;
+    if (!keys || !state?.joins) return clone;
+
+    const removed: IncludeJoin[] = [];
+    for (const key of keys) {
+      const join = state.joins[key];
+      if (!join) continue;
+      removed.push(join);
+      delete state.joins[key];
+    }
+    if (removed.length === 0) return clone;
+    // Without their join, the include's populate hints must go too: MikroORM
+    // re-joins a hinted inverse one-to-one on its own.
+    for (const join of removed) {
+      const owner =
+        join.ownerAlias === clone.alias
+          ? state.populate
+          : state.joinedProps?.get(join.ownerAlias)?.children;
+      const index = owner?.findIndex((item) => item.field === join.prop.name) ?? -1;
+      if (index >= 0) owner!.splice(index, 1);
+      state.joinedProps?.delete(join.alias);
+    }
+
+    const probe = clone.clone();
+    const sql = (keepProjection ? probe : probe.count()).getQuery();
+    const quote = this.platformQuoteChar();
+    const referenced = removed.some(
+      ({ alias }) =>
+        !/^\w+$/.test(alias) ||
+        sql.includes(`${quote}${alias}${quote}`) ||
+        new RegExp(`\\b${alias}\\.`).test(sql),
+    );
+    return referenced ? qb.clone() : clone;
   }
 
   async getResult(qb: unknown): Promise<unknown[]> {
@@ -1879,6 +2162,13 @@ export class MikroOrmAdapter implements FilterAdapter {
    * MikroORM FilterQuery (`{ $or: [{ $and: [...] }, ...] }`) so the same builder
    * works across every SQL driver. Dotted relation paths are nested so MikroORM
    * auto-joins the relation for the comparison.
+   *
+   * With more than one column the OR is prefixed by `c0 >= v0` (`<=` for desc),
+   * which every tier already implies. PostgreSQL cannot turn the OR into an
+   * index range on its own and scans from the start of the index; the bound
+   * gives it one. A row-value comparison would too, but MySQL does not use an
+   * index for it. A null leading value gets no bound: its equality tiers
+   * compile to `IS NULL` and match rows a bound would exclude.
    */
   applyKeysetPagination(qb: unknown, keyset: SortItem[], values: unknown[]): void {
     if (keyset.length === 0) return;
@@ -1894,7 +2184,11 @@ export class MikroOrmAdapter implements FilterAdapter {
       ands.push(this.nestPath(keyset[tier]!.field, { [op]: values[tier] }));
       tiers.push(ands.length === 1 ? ands[0]! : { $and: ands });
     }
-    const condition = tiers.length === 1 ? tiers[0]! : { $or: tiers };
+    let condition = tiers.length === 1 ? tiers[0]! : { $or: tiers };
+    if (tiers.length > 1 && values[0] != null) {
+      const bound = keyset[0]!.direction === 'asc' ? '$gte' : '$lte';
+      condition = { $and: [this.nestPath(keyset[0]!.field, { [bound]: values[0] }), condition] };
+    }
     (qb as { andWhere: (c: unknown) => void }).andWhere(condition);
   }
 

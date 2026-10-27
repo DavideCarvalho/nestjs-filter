@@ -69,6 +69,16 @@ const topTags = filterQueryTyped<WorkOrderFields>()
   .build();
 ```
 
+A bounded answer can be paged and searched, which is what a value picker that loads as it scrolls needs:
+
+```ts
+filterQueryTyped<WorkOrderFields>()
+  .groupByCount('tag', { limit: 20, offset: 20, search: 'eng' })
+  .build();
+```
+
+`offset` skips groups in the same `COUNT(*)`-descending order, so it is only meaningful alongside `limit`. `search` keeps the groups whose **value** contains the text, case-insensitively. That is not the same as a `where` on the grouping column: `where` selects rows, and grouping the matching rows can still return values that don't match. The search text is bound as a parameter. The MikroORM and Drizzle adapters also search number columns on PostgreSQL, which has no `lower()` for a number, by casting the grouping expression to text first.
+
 On the [codegen](/docs/guides/codegen) per-route typed builder, `field` is constrained to that route's filter fields, so grouping by an unknown column is a **compile error** — matching the server-side allowlist validation.
 
 The wire body extends the structured input shape:

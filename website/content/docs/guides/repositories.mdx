@@ -193,6 +193,29 @@ async page<E extends object>(entity: Type<E>, input: Record<string, unknown>) {
 > dropped (or rejected when `throwOnInvalid` is set), so a malformed client
 > query can never reach the ORM as an invalid column.
 
+### How the total is computed
+
+`total` ignores `limit`/`offset`, but it does not always cost a second query.
+A page that comes back shorter than its page size is the tail of the result
+set, so the total is the offset plus the rows on that page and no `COUNT` runs.
+The last page of a list, and any result that fits in one page, is one query.
+A full page, an empty page past the end, or a grouped query whose rows are not
+the rows being counted still runs the count. The MikroORM,
+TypeORM and Drizzle adapters all do this, for both entity rows and
+`distinct` projections.
+
+On MikroORM:
+
+- The count leaves out the LEFT JOINs an `include` adds, since an eager-load
+  join cannot change which root rows match. A join stays in the count when a
+  condition, a nested join or a projected path references its alias.
+- When the count is needed and can't be derived from the page, the page and
+  the count run concurrently. Inside a transaction they run one after the
+  other, because both would share the transaction's connection.
+- A distinct page over plain columns supplies its own total only when it is
+  the first page and none of its values is null, because `count(distinct …)` skips the null
+  that `select distinct` returns as a row.
+
 ### Trusted page sizes (`trustedPageSize`)
 
 `maxPageSize` is a module-level ceiling, and by default it applies to every

@@ -133,6 +133,30 @@ order.
 Multi-column sort composes naturally — a mixed `-createdAt,title` keyset
 produces a correct lexicographic seek across all three columns.
 
+### The seek predicate and indexes
+
+The seek compiles to an OR of AND tiers, which every SQL dialect runs. With more
+than one keyset column, the official SQL adapters (MikroORM, TypeORM, Drizzle)
+also AND it with a bound on the leading column, which every tier already
+implies:
+
+```sql
+-- keyset (priority asc, id asc), cursor (900, 900)
+WHERE priority >= 900
+  AND (priority > 900 OR (priority = 900 AND id > 900))
+```
+
+A `desc` leading column gets `<=` instead. The bound lets PostgreSQL start an
+index range at the cursor, where the OR alone makes it scan from the start of
+the index, so a deep cursor costs about the same as the first page. A
+row-value comparison (`(priority, id) > (900, 900)`) is not used because MySQL
+doesn't use an index for it. The bound is left out when the cursor's leading
+value is `NULL`, since those equality tiers compile to `IS NULL`.
+
+Index the keyset in sort order, primary key last: `(priority, id)` for
+`sort=priority`. For a mixed-direction sort, declare the index columns with the
+same mix (`(created_at DESC, title, id)` for `sort=-createdAt,title`).
+
 ---
 
 ## Cursors are opaque

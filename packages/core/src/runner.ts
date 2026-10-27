@@ -220,6 +220,10 @@ export class FilterRunner {
 
   /** Per-entity metadata cache for `describe()`. Metadata is static at runtime. */
   private readonly descriptionCache = new WeakMap<object, EntityDescription>();
+  /** {@link resolveAutoFields} per filter class; its inputs are all static metadata. */
+  private readonly autoFieldCache = new WeakMap<Function, AutoFieldSet | null>();
+  /** Entities already warned about a wide auto-detected global search, per hint. */
+  private readonly slowSearchWarned = new WeakMap<object, Set<string>>();
 
   constructor(
     private readonly moduleRef: ModuleRef,
@@ -1390,6 +1394,13 @@ export class FilterRunner {
    * logged warning.
    */
   private resolveAutoFields(FilterClass: Function): AutoFieldSet | null {
+    if (this.autoFieldCache.has(FilterClass)) return this.autoFieldCache.get(FilterClass)!;
+    const set = this.buildAutoFields(FilterClass);
+    this.autoFieldCache.set(FilterClass, set);
+    return set;
+  }
+
+  private buildAutoFields(FilterClass: Function): AutoFieldSet | null {
     const meta = getFilterableMetadata(FilterClass);
     if (!meta) return null;
     const autoFieldsConfig = meta.autoFields ?? true;
@@ -1578,7 +1589,7 @@ export class FilterRunner {
           ?.filter((f) => f.type === 'string')
           .map((f) => f.name) ?? []);
 
-    if (columns.length > 10) {
+    if (columns.length > 10 && this.firstSlowSearch(entity, slowSearchHint)) {
       this.logger.warn(
         `Global search on ${columns.length} columns may be slow. Consider ${slowSearchHint}`,
       );
@@ -1587,6 +1598,18 @@ export class FilterRunner {
     if (columns.length > 0 && adapter.applySearch) {
       adapter.applySearch(qb, searchTerm, columns, entity);
     }
+  }
+
+  /** True the first time a given entity + hint pair reaches the wide-search warning. */
+  private firstSlowSearch(entity: FilterEntity, hint: string): boolean {
+    let hints = this.slowSearchWarned.get(entity as object);
+    if (!hints) {
+      hints = new Set();
+      this.slowSearchWarned.set(entity as object, hints);
+    }
+    if (hints.has(hint)) return false;
+    hints.add(hint);
+    return true;
   }
 
   /**

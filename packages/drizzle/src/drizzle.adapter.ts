@@ -29,9 +29,11 @@ import {
   eq,
   getTableName,
   gt,
+  gte,
   is,
   isSQLWrapper,
   lt,
+  lte,
   max,
   min,
   or,
@@ -85,6 +87,18 @@ export function detectDialect(db: DrizzleDatabase): DrizzleDialect {
   throw new Error(
     'DrizzleAdapter: could not detect the dialect of the given database. Pass `dialect` explicitly.',
   );
+}
+
+/**
+ * The total a page implies on its own: a page shorter than its LIMIT is the
+ * tail of the result set, so the total is the OFFSET plus its rows. `undefined`
+ * when the page is full, or empty past an OFFSET (the offset may overshoot).
+ */
+function totalFromPage(rows: number, limit?: number, offset?: number): number | undefined {
+  const skipped = offset ?? 0;
+  if (limit != null && rows >= limit) return undefined;
+  if (rows === 0 && skipped > 0) return undefined;
+  return skipped + rows;
 }
 
 function asQuery(qb: unknown): DrizzleQuery<Table> {
@@ -451,6 +465,9 @@ export class DrizzleAdapter implements FilterAdapter {
     const expr = (target: SQL | Column) => target as unknown as SQL;
     // Lexicographic tuple comparison, spelled as an OR of AND tiers so every
     // dialect runs it: (c0 > v0) OR (c0 = v0 AND c1 > v1) OR …
+    // With several columns it is ANDed with `c0 >= v0` (`<=` for desc), which
+    // every tier implies: PostgreSQL cannot derive an index range from the OR
+    // alone, and MySQL does not use one for a row-value comparison.
     const tiers = keyset.map((s, tier) => {
       const equalities = targets
         .slice(0, tier)
@@ -460,6 +477,13 @@ export class DrizzleAdapter implements FilterAdapter {
       const cmp = s.direction === 'asc' ? gt(expr(target), value) : lt(expr(target), value);
       return and(...equalities, cmp);
     });
+    const lead = targets[0]!;
+    const leadValue = values[0];
+    if (keyset.length > 1 && leadValue != null) {
+      const bound = keyset[0]!.direction === 'asc' ? gte : lte;
+      q.where(and(bound(expr(lead), bind(lead, leadValue)), or(...tiers)));
+      return;
+    }
     q.where(or(...tiers));
   }
 
@@ -475,10 +499,14 @@ export class DrizzleAdapter implements FilterAdapter {
 
   // ─── Execution ──────────────────────────────────────────────────────────────
 
+  /**
+   * The page, then its total — skipped when the page is shorter than its
+   * LIMIT, since the total is then the OFFSET plus the page's rows.
+   */
   async getResultAndCount<T = unknown>(qb: unknown): Promise<{ rows: T[]; total: number }> {
     const q = asQuery(qb);
     const rows = await q.execute();
-    const total = await q.count();
+    const total = totalFromPage(rows.length, q.getLimit(), q.getOffset()) ?? (await q.count());
     return { rows: rows as T[], total };
   }
 
@@ -487,7 +515,7 @@ export class DrizzleAdapter implements FilterAdapter {
   ): Promise<{ rows: Record<string, unknown>[]; total: number }> {
     const q = asQuery(qb);
     const rows = (await q.execute()) as DrizzleRow<Table>[];
-    const total = await q.count();
+    const total = totalFromPage(rows.length, q.getLimit(), q.getOffset()) ?? (await q.count());
     return { rows, total };
   }
 

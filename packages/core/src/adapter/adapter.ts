@@ -615,6 +615,13 @@ export interface FilterAdapter {
    * method, so alias bookkeeping lives entirely in the adapter. With no
    * recorded aliases, behavior is unchanged (plain entity rows).
    *
+   * The total may be derived from the page instead of a second query: a page
+   * shorter than its LIMIT is the tail of the result set, so its total is the
+   * OFFSET plus its rows. That holds only when each returned row is one row the
+   * total counts (no GROUP BY, no to-many join paged as raw joined rows), and
+   * not for an empty page past an OFFSET, which may have overshot the end. The
+   * official SQL adapters take that shortcut and run the count otherwise.
+   *
    * Optional — required only if you call `findAndCount` (or execute an
    * `apply()`-built query through the adapter).
    *
@@ -649,6 +656,11 @@ export interface FilterAdapter {
    * {@link getResultAndCount}'s hydrated path). `fields` carries only the
    * plain (column) distinct fields; the total must nonetheless count distinct
    * tuples over the FULL projection, computed aliases included.
+   *
+   * The same short-page shortcut as {@link getResultAndCount} applies, with one
+   * more condition when the total is a `count(distinct …)`: that skips the
+   * null tuple `select distinct` returns as a row, so the page can only supply
+   * the total when it is the first page and carries no null member.
    *
    * Optional — required only when `FilterRunner.findAndCount` is called with a
    * `distinct` projection; `findAndCount` throws if the adapter doesn't
@@ -701,6 +713,13 @@ export interface FilterAdapter {
    * strictly *after* the boundary in keyset order. Columns sorted `asc` use
    * `>` and `desc` use `<` at each tier; ties on a column fall through to the
    * next. Implementations must parameterize all values.
+   *
+   * Spelled as an OR of AND tiers, the predicate gives PostgreSQL no index
+   * range to start from. The official SQL adapters therefore AND it, when
+   * there are several keyset columns, with a bound on the leading column
+   * (`c0 >= v0`, `<=` for a desc column), which every tier already implies.
+   * The bound is left out when the leading value is null, because the
+   * equality tiers then match `IS NULL` rows the bound would exclude.
    *
    * Optional — required only for `findPage` cursor pagination.
    *

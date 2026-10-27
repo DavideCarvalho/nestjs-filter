@@ -130,6 +130,8 @@ Source: `packages/core/src/runner.ts` (`parseSorts`, `parseIncludes`, `applyGlob
 
 - `findAndCount(entity, input)` builds **and runs** the query, returning `{ rows, total }`,
   loading to-many relations in a separate query so `limit`/`offset` stay correct.
+  `total` ignores `limit`/`offset`; a page shorter than its size supplies it
+  (offset + rows) without a `COUNT`, so don't treat a missing count query as a bug.
 - `findPage(entity, input)` does keyset (cursor) pagination, returning
   `{ items, nextCursor, prevCursor, hasNext, hasPrev }`.
 - `describe(entity)` returns `{ fields, relations }` from ORM metadata (memoized) for
