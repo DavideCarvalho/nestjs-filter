@@ -23,6 +23,20 @@ export class FilterStateUnavailableException extends FilterException {
   }
 }
 
+/** A `@TenantScoped` filter ran with nothing to scope it by. It fails rather than return every tenant. */
+export class TenantScopeUnavailableException extends FilterException {
+  constructor(
+    public readonly filterName: string,
+    public readonly reason: 'no-tenant' | 'no-adapter-support',
+  ) {
+    super(
+      reason === 'no-tenant'
+        ? `@TenantScoped filter ${filterName} ran with no tenant in context. Bind @dudousxd/nestjs-context, or pass { optional: true } if this filter may run without a tenant.`
+        : `@TenantScoped filter ${filterName} needs an adapter that implements applyAutoField.`,
+    );
+  }
+}
+
 export class UnknownFilterKeyException extends FilterException {
   constructor(public readonly key: string) {
     super(`Unknown filter key "${key}". No method or @FilterFor matches.`);

@@ -45,16 +45,17 @@ That is the entire opt-in. Nothing else in the filter changes — client input,
 every resulting query is now additionally scoped to the current tenant.
 
 <Callout type="info">
-  `@TenantScoped` is **strictly opt-in and additive**. A filter class without
-  the decorator keeps its existing behavior. Even *with* the decorator, the
-  scope is a no-op unless a context accessor is bound **and** resolves a tenant
-  id — so it degrades safely in tests and non-tenant contexts.
+  `@TenantScoped` **fails closed**. With no context accessor or no tenant, the
+  run throws `TenantScopeUnavailableException` rather than return every tenant's
+  rows. A filter that may really run without a tenant, such as an admin area,
+  declares `@TenantScoped('tenantId', { optional: true })`. A filter class
+  without the decorator keeps its existing behavior.
 </Callout>
 
 The constraint is applied through the adapter's auto-field mechanism (the same
 path an ordinary equality filter takes), so it stays portable across ORMs. If
-the active adapter does not implement `applyAutoField`, the runner logs a
-warning and skips the scope rather than failing.
+the active adapter does not implement `applyAutoField`, the run throws
+`TenantScopeUnavailableException` as well.
 
 ---
 

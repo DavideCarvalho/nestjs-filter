@@ -29,9 +29,10 @@ import { getComputedMap, getComputedOptsMap } from './decorator/computed.decorat
 import { getFilterForMap } from './decorator/filter-for.decorator.js';
 import { getFilterableMetadata } from './decorator/filterable.decorator.js';
 import { type RelationConfig, resolveRelation } from './decorator/relations.decorator.js';
-import { getTenantScopedField } from './decorator/tenant-scoped.decorator.js';
+import { getTenantScopedMetadata } from './decorator/tenant-scoped.decorator.js';
 import {
   FilterMethodException,
+  TenantScopeUnavailableException,
   FilterNotRegisteredException,
   UnknownFilterKeyException,
 } from './errors/exceptions.js';
@@ -260,12 +261,10 @@ export class FilterRunner {
    * and the FilterRunner's local injection gets null.
    */
   /**
-   * Applies the opt-in `@TenantScoped(field)` constraint: `where field = tenantId()`.
-   *
-   * Strictly opt-in and additive — a no-op unless the filter class carries the
-   * decorator, a context accessor is bound, and that accessor resolves a tenant
-   * id. The constraint is applied via the adapter's auto-field mechanism (the
-   * same path equality filters use), so it stays portable across ORMs.
+   * Applies the `@TenantScoped(field)` constraint: `where field = tenantId()`. With nothing to scope
+   * by it throws, unless the filter declared `{ optional: true }`: an unscoped query here returns
+   * every tenant's rows. The constraint goes through the adapter's auto-field mechanism (the same path
+   * equality filters use), so it stays portable across ORMs.
    */
   private applyTenantScope<Q>(
     FilterClass: Function,
@@ -273,17 +272,17 @@ export class FilterRunner {
     adapter: FilterAdapter | null,
     contextAccessor: ContextAccessor | undefined,
   ): void {
-    const field = getTenantScopedField(FilterClass);
-    if (!field) return;
+    const scope = getTenantScopedMetadata(FilterClass);
+    if (!scope) return;
     const tenantId = contextAccessor?.tenantId();
-    if (tenantId === undefined) return;
-    if (!adapter?.applyAutoField) {
-      this.logger.warn(
-        `@TenantScoped("${field}") on ${FilterClass.name} requires an adapter that implements applyAutoField. Skipping tenant scope.`,
-      );
-      return;
+    if (tenantId === undefined) {
+      if (scope.optional) return;
+      throw new TenantScopeUnavailableException(FilterClass.name, 'no-tenant');
     }
-    adapter.applyAutoField(qb as unknown, field, tenantId);
+    if (!adapter?.applyAutoField) {
+      throw new TenantScopeUnavailableException(FilterClass.name, 'no-adapter-support');
+    }
+    adapter.applyAutoField(qb as unknown, scope.field, tenantId);
   }
 
   /**
@@ -693,8 +692,7 @@ export class FilterRunner {
       async () => {
         await this.runSetup(filter);
 
-        // Opt-in tenant auto-scope (@TenantScoped). Only applies when an accessor
-        // is bound AND resolves a tenant id; otherwise a no-op.
+        // @TenantScoped: scopes the query, or throws when there is nothing to scope it by.
         this.applyTenantScope(FilterClass, qb, adapter, contextAccessor);
 
         // Resolve the (possibly operator-restricting) allowlist once for this run.
