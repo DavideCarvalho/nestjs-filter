@@ -113,9 +113,11 @@ Source: `packages/core/src/runner.ts` (`resolveThrowOnInvalid`, `handleUnknownKe
 
 ### 3. Tenant / user scoping
 
-`@TenantScoped('tenantId')` auto-applies `where tenantId = <current tenant>` — but only
-when the optional `@dudousxd/nestjs-context` accessor is bound and resolves a tenant id;
-otherwise it is a silent no-op. For finer control read `this.tenantId()` /
+`@TenantScoped('tenantId')` auto-applies `where tenantId = <current tenant>`. It fails
+closed: with no tenant, no `@dudousxd/nestjs-context` accessor, or an adapter without
+`applyAutoField`, the run throws `TenantScopeUnavailableException` instead of returning
+every tenant's rows. A filter that may run without a tenant declares
+`@TenantScoped('tenantId', { optional: true })`. For finer control read `this.tenantId()` /
 `this.currentUserRef()` inside a method or `setup()`:
 
 ```typescript

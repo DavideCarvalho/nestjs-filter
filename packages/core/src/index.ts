@@ -26,6 +26,10 @@ export type {
 export { Computed, getComputedMap, getComputedOptsMap } from './decorator/computed.decorator.js';
 export type { ComputedOptions } from './decorator/computed.decorator.js';
 export type {
+  TenantScopedMetadata,
+  TenantScopedOptions,
+} from './decorator/tenant-scoped.decorator.js';
+export type {
   ComputedContext,
   ComputedReturn,
   ComputedSource,
@@ -38,6 +42,7 @@ export type { RelationConfig, RelationsMap } from './decorator/relations.decorat
 export {
   TenantScoped,
   getTenantScopedField,
+  getTenantScopedMetadata,
 } from './decorator/tenant-scoped.decorator.js';
 export type { ContextAccessor, ContextStore, UserRef } from './context-accessor.js';
 export { ApplyFilterInterceptor } from './interceptor/apply-filter.interceptor.js';
@@ -49,6 +54,7 @@ export {
   FilterException,
   FilterNotRegisteredException,
   FilterMissingEntityException,
+  TenantScopeUnavailableException,
   FilterStateUnavailableException,
   UnknownFilterKeyException,
   FilterValidationException,
