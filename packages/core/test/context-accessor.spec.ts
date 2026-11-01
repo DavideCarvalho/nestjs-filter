@@ -1,7 +1,7 @@
 import 'reflect-metadata';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { FilterAdapter } from '../src/adapter/adapter.js';
 import { runWithFilterState } from '../src/als-store.js';
 import { BaseFilter } from '../src/base-filter.js';
@@ -198,16 +198,16 @@ describe('FilterRunner context accessor injection', () => {
 class ScopedFilter extends BaseFilter<MockQB> {}
 
 @Injectable()
-@TenantScoped('tenantId', { optional: true })
+@TenantScoped('tenantId', { required: true })
 @Filterable({ entity: FakeEntity, autoFields: false })
-class OptionalScopedFilter extends BaseFilter<MockQB> {}
+class RequiredScopedFilter extends BaseFilter<MockQB> {}
 
 @Injectable()
 @Filterable({ entity: FakeEntity, autoFields: false })
 class UnscopedFilter extends BaseFilter<MockQB> {}
 
 async function makeScopedModule(
-  FilterClass: typeof ScopedFilter | typeof OptionalScopedFilter | typeof UnscopedFilter,
+  FilterClass: typeof ScopedFilter | typeof RequiredScopedFilter | typeof UnscopedFilter,
   accessor?: ContextAccessor,
   adapter: unknown = makeAutoFieldAdapter(),
 ) {
@@ -243,45 +243,58 @@ describe('@TenantScoped opt-in auto-scope', () => {
     expect(qb.calls).toEqual([]);
   });
 
-  it('throws when no accessor is bound, instead of running unscoped', async () => {
+  it('runs unscoped and warns when no accessor is bound', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const runner = await makeScopedModule(ScopedFilter);
     const qb = makeMockQB();
-    const run = runner.apply(ScopedFilter, {}, qb);
+    await runner.apply(ScopedFilter, {}, qb);
+    expect(qb.calls).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('UNSCOPED'));
+    warn.mockRestore();
+  });
+
+  it('runs unscoped and warns when the accessor resolves no tenant', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const runner = await makeScopedModule(ScopedFilter, makeContext({}));
+    const qb = makeMockQB();
+    await runner.apply(ScopedFilter, {}, qb);
+    expect(qb.calls).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('UNSCOPED'));
+    warn.mockRestore();
+  });
+
+  it('{ required: true } throws when no accessor is bound', async () => {
+    const runner = await makeScopedModule(RequiredScopedFilter);
+    const qb = makeMockQB();
+    const run = runner.apply(RequiredScopedFilter, {}, qb);
     await expect(run).rejects.toBeInstanceOf(TenantScopeUnavailableException);
     await expect(run).rejects.toMatchObject({ reason: 'no-accessor' });
     expect(qb.calls).toEqual([]);
   });
 
-  it('throws when the accessor resolves no tenant', async () => {
-    const runner = await makeScopedModule(ScopedFilter, makeContext({}));
-    await expect(runner.apply(ScopedFilter, {}, makeMockQB())).rejects.toMatchObject({
+  it('{ required: true } throws when the accessor resolves no tenant', async () => {
+    const runner = await makeScopedModule(RequiredScopedFilter, makeContext({}));
+    await expect(runner.apply(RequiredScopedFilter, {}, makeMockQB())).rejects.toMatchObject({
       reason: 'no-tenant',
     });
   });
 
-  it('throws when the adapter cannot apply the constraint, even when optional', async () => {
-    const runner = await makeScopedModule(OptionalScopedFilter, makeContext({ tenantId: 't' }), {
+  it('{ required: true } throws when the adapter cannot apply the constraint', async () => {
+    const runner = await makeScopedModule(RequiredScopedFilter, makeContext({ tenantId: 't' }), {
       ...makeAutoFieldAdapter(),
       applyAutoField: undefined,
     });
     const qb = makeMockQB();
-    await expect(runner.apply(OptionalScopedFilter, {}, qb)).rejects.toMatchObject({
+    await expect(runner.apply(RequiredScopedFilter, {}, qb)).rejects.toMatchObject({
       reason: 'no-adapter-support',
     });
     expect(qb.calls).toEqual([]);
   });
 
-  it('{ optional: true } runs unscoped when there is no tenant', async () => {
-    const runner = await makeScopedModule(OptionalScopedFilter);
+  it('{ required: true } scopes when there is a tenant', async () => {
+    const runner = await makeScopedModule(RequiredScopedFilter, makeContext({ tenantId: 't' }));
     const qb = makeMockQB();
-    await runner.apply(OptionalScopedFilter, {}, qb);
-    expect(qb.calls).toEqual([]);
-  });
-
-  it('{ optional: true } still scopes when there is a tenant', async () => {
-    const runner = await makeScopedModule(OptionalScopedFilter, makeContext({ tenantId: 't' }));
-    const qb = makeMockQB();
-    await runner.apply(OptionalScopedFilter, {}, qb);
+    await runner.apply(RequiredScopedFilter, {}, qb);
     expect(qb.calls).toEqual([['andWhere', { tenantId: 't' }]]);
   });
 });

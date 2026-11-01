@@ -1,5 +1,13 @@
 # @dudousxd/nestjs-filter-drizzle
 
+## 0.1.3
+
+### Patch Changes
+
+- Back on this line after the accidental major.
+
+> `1.0.0` was published by mistake when a major changeset cascaded through the peer dependencies, and is deprecated.
+
 ## 1.0.0
 
 ### Patch Changes

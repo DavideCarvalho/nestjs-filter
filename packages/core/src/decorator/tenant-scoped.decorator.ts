@@ -3,10 +3,11 @@ import { TENANT_SCOPED_METADATA } from '../tokens.js';
 
 export interface TenantScopedOptions {
   /**
-   * Run unscoped when there is no tenant, instead of throwing. For a filter that really serves both
-   * tenant and non-tenant contexts, such as an admin area. Default `false`.
+   * Throw {@link TenantScopeUnavailableException} when the scope can't be applied, instead of running
+   * unscoped with a warning. Turn this on wherever a query without a tenant must never run. Default
+   * `false`.
    */
-  optional?: boolean;
+  required?: boolean;
 }
 
 export interface TenantScopedMetadata extends TenantScopedOptions {
@@ -17,9 +18,9 @@ export interface TenantScopedMetadata extends TenantScopedOptions {
  * When present on a filter class, the {@link FilterRunner} applies `where <field> = tenantId()` to
  * every query, with the tenant from the context accessor (`@dudousxd/nestjs-context`).
  *
- * It fails closed: with no tenant, no accessor, or an adapter that can't apply the constraint, the run
- * throws {@link TenantScopeUnavailableException} rather than returning every tenant's rows. Pass
- * `{ optional: true }` to run unscoped when there is no tenant.
+ * With no tenant, no accessor, or an adapter that can't apply the constraint, the query runs
+ * **unscoped** and a warning is logged, so it returns every tenant's rows. Pass `{ required: true }`
+ * to make those cases throw {@link TenantScopeUnavailableException} instead.
  *
  * @param field - The entity column to constrain to the current tenant id (e.g. `'tenantId'`).
  *

@@ -262,9 +262,9 @@ export class FilterRunner {
    */
   /**
    * Applies the `@TenantScoped(field)` constraint: `where field = tenantId()`. With nothing to scope
-   * by it throws, unless the filter declared `{ optional: true }`: an unscoped query here returns
-   * every tenant's rows. The constraint goes through the adapter's auto-field mechanism (the same path
-   * equality filters use), so it stays portable across ORMs.
+   * by, the query runs unscoped with a warning, or throws under `{ required: true }`. The constraint
+   * goes through the adapter's auto-field mechanism (the same path equality filters use), so it stays
+   * portable across ORMs.
    */
   private applyTenantScope<Q>(
     FilterClass: Function,
@@ -274,16 +274,19 @@ export class FilterRunner {
   ): void {
     const scope = getTenantScopedMetadata(FilterClass);
     if (!scope) return;
+    const unavailable = (reason: TenantScopeUnavailableException['reason']) => {
+      const error = new TenantScopeUnavailableException(FilterClass.name, reason);
+      if (scope.required) throw error;
+      this.logger.warn(`${error.message} Running UNSCOPED.`);
+    };
     const tenantId = contextAccessor?.tenantId();
     if (tenantId === undefined) {
-      if (scope.optional) return;
-      throw new TenantScopeUnavailableException(
-        FilterClass.name,
-        contextAccessor === undefined ? 'no-accessor' : 'no-tenant',
-      );
+      unavailable(contextAccessor === undefined ? 'no-accessor' : 'no-tenant');
+      return;
     }
     if (!adapter?.applyAutoField) {
-      throw new TenantScopeUnavailableException(FilterClass.name, 'no-adapter-support');
+      unavailable('no-adapter-support');
+      return;
     }
     adapter.applyAutoField(qb as unknown, scope.field, tenantId);
   }
@@ -695,7 +698,7 @@ export class FilterRunner {
       async () => {
         await this.runSetup(filter);
 
-        // @TenantScoped: scopes the query, or throws when there is nothing to scope it by.
+        // @TenantScoped: scopes the query. With nothing to scope it by, warns or throws.
         this.applyTenantScope(FilterClass, qb, adapter, contextAccessor);
 
         // Resolve the (possibly operator-restricting) allowlist once for this run.
