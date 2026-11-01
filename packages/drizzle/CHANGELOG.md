@@ -1,5 +1,12 @@
 # @dudousxd/nestjs-filter-drizzle
 
+## 1.0.0
+
+### Patch Changes
+
+- Updated dependencies [[`d72540d`](https://github.com/DavideCarvalho/nestjs-filter/commit/d72540db4e664cf4ab464b9067da84b9ea37c081)]:
+  - @dudousxd/nestjs-filter@2.0.0
+
 ## 0.1.2
 
 ### Patch Changes

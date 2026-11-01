@@ -1,4 +1,4 @@
-export const VERSION = '1.35.2';
+export const VERSION = '2.0.0';
 
 export { BaseFilter } from './base-filter.js';
 export type {

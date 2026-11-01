@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter
 
+## 2.0.0
+
+### Major Changes
+
+- [#195](https://github.com/DavideCarvalho/nestjs-filter/pull/195) [`d72540d`](https://github.com/DavideCarvalho/nestjs-filter/commit/d72540db4e664cf4ab464b9067da84b9ea37c081) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `@TenantScoped` fails closed. With no tenant, no context accessor, or an adapter without `applyAutoField`, the run now throws `TenantScopeUnavailableException` instead of returning every tenant's rows. Filters that may run without a tenant declare `@TenantScoped('tenantId', { optional: true })`.
+
 ## 1.35.2
 
 ### Patch Changes
