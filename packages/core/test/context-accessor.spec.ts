@@ -263,6 +263,19 @@ describe('@TenantScoped opt-in auto-scope', () => {
     warn.mockRestore();
   });
 
+  it('runs unscoped and warns when the adapter cannot apply the constraint', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const runner = await makeScopedModule(ScopedFilter, makeContext({ tenantId: 't' }), {
+      ...makeAutoFieldAdapter(),
+      applyAutoField: undefined,
+    });
+    const qb = makeMockQB();
+    await runner.apply(ScopedFilter, {}, qb);
+    expect(qb.calls).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('UNSCOPED'));
+    warn.mockRestore();
+  });
+
   it('{ required: true } throws when no accessor is bound', async () => {
     const runner = await makeScopedModule(RequiredScopedFilter);
     const qb = makeMockQB();
