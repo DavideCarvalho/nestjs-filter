@@ -32,8 +32,8 @@ import { type RelationConfig, resolveRelation } from './decorator/relations.deco
 import { getTenantScopedMetadata } from './decorator/tenant-scoped.decorator.js';
 import {
   FilterMethodException,
-  TenantScopeUnavailableException,
   FilterNotRegisteredException,
+  TenantScopeUnavailableException,
   UnknownFilterKeyException,
 } from './errors/exceptions.js';
 import { expandBracketKeys } from './input/bracket-keys.js';
