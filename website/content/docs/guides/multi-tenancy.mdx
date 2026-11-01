@@ -45,17 +45,17 @@ That is the entire opt-in. Nothing else in the filter changes — client input,
 every resulting query is now additionally scoped to the current tenant.
 
 <Callout type="info">
-  `@TenantScoped` **fails closed**. With no context accessor or no tenant, the
-  run throws `TenantScopeUnavailableException` rather than return every tenant's
-  rows. A filter that may really run without a tenant, such as an admin area,
-  declares `@TenantScoped('tenantId', { optional: true })`. A filter class
-  without the decorator keeps its existing behavior.
+  With no context accessor or no tenant, a `@TenantScoped` filter runs **unscoped**
+  and logs a warning, so it returns every tenant's rows. Where that must never
+  happen, declare `@TenantScoped('tenantId', { required: true })`: the run then
+  throws `TenantScopeUnavailableException`. A filter class without the decorator
+  keeps its existing behavior.
 </Callout>
 
 The constraint is applied through the adapter's auto-field mechanism (the same
 path an ordinary equality filter takes), so it stays portable across ORMs. If
-the active adapter does not implement `applyAutoField`, the run throws
-`TenantScopeUnavailableException` as well.
+the active adapter does not implement `applyAutoField`, the runner warns and skips
+the scope, or throws under `{ required: true }`.
 
 ---
 
@@ -115,19 +115,19 @@ store.set('tenantId', resolveTenantFromRequest(req));
 
 ### Add `@TenantScoped` to tenant-owned filters
 
-Every filter over a tenant-owned entity gets `@TenantScoped('<column>')`. Done —
-the runner reads the tenant from the accessor and applies the scope on every query.
+Every filter over a tenant-owned entity gets
+`@TenantScoped('<column>', { required: true })`. The runner reads the tenant from the
+accessor, applies the scope automatically, and throws when it can't.
 
 </Step>
 
 </Steps>
 
 <Callout type="warn">
-  Without nestjs-context, or with no tenant set for the request, a
-  `@TenantScoped` filter throws `TenantScopeUnavailableException`, with reason
-  `no-accessor` or `no-tenant`. `{ optional: true }` turns those two into an
-  unscoped run. It does not excuse an adapter without `applyAutoField` when a
-  tenant is present: that always throws, with reason `no-adapter-support`.
+  Without nestjs-context, or with no tenant set for the request, `@TenantScoped`
+  applies **no** constraint unless the filter declares `{ required: true }`. Use
+  `required` on every filter over tenant-owned data. The reasons on the exception are
+  `no-accessor`, `no-tenant` and `no-adapter-support`.
 </Callout>
 
 ---

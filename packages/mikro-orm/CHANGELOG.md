@@ -1,5 +1,13 @@
 # @dudousxd/nestjs-filter-mikro-orm
 
+## 1.35.3
+
+### Patch Changes
+
+- Back on this line after the accidental major.
+
+> `2.0.0` was published by mistake when a major changeset cascaded through the peer dependencies, and is deprecated.
+
 ## 2.0.0
 
 ### Patch Changes

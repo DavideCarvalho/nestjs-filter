@@ -1,5 +1,13 @@
 # @dudousxd/nestjs-filter
 
+## 1.36.0
+
+### Minor Changes
+
+- `@TenantScoped` gains `{ required: true }`, which throws `TenantScopeUnavailableException` when the scope can't be applied. Without it, the query still runs unscoped, now with a warning.
+
+> `2.0.0` was published by mistake when a major changeset cascaded through the peer dependencies, and is deprecated.
+
 ## 2.0.0
 
 ### Major Changes

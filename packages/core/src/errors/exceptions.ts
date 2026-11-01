@@ -23,7 +23,7 @@ export class FilterStateUnavailableException extends FilterException {
   }
 }
 
-/** A `@TenantScoped` filter ran with nothing to scope it by. It fails rather than return every tenant. */
+/** A `@TenantScoped(field, { required: true })` filter ran with nothing to scope it by. */
 export class TenantScopeUnavailableException extends FilterException {
   constructor(
     public readonly filterName: string,
@@ -31,8 +31,8 @@ export class TenantScopeUnavailableException extends FilterException {
   ) {
     super(
       {
-        'no-accessor': `@TenantScoped filter ${filterName} ran with no context accessor. Bind @dudousxd/nestjs-context, or pass { optional: true } if this filter may run without a tenant.`,
-        'no-tenant': `@TenantScoped filter ${filterName} ran with no tenant in context. Pass { optional: true } if this filter may run without a tenant.`,
+        'no-accessor': `@TenantScoped filter ${filterName} ran with no context accessor. Bind @dudousxd/nestjs-context, or drop { required: true } if this filter may run without a tenant.`,
+        'no-tenant': `@TenantScoped filter ${filterName} ran with no tenant in context. Drop { required: true } if this filter may run without a tenant.`,
         'no-adapter-support': `@TenantScoped filter ${filterName} needs an adapter that implements applyAutoField.`,
       }[reason],
     );
