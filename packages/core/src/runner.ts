@@ -277,7 +277,10 @@ export class FilterRunner {
     const tenantId = contextAccessor?.tenantId();
     if (tenantId === undefined) {
       if (scope.optional) return;
-      throw new TenantScopeUnavailableException(FilterClass.name, 'no-tenant');
+      throw new TenantScopeUnavailableException(
+        FilterClass.name,
+        contextAccessor === undefined ? 'no-accessor' : 'no-tenant',
+      );
     }
     if (!adapter?.applyAutoField) {
       throw new TenantScopeUnavailableException(FilterClass.name, 'no-adapter-support');

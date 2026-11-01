@@ -154,7 +154,7 @@ async function makeModule(accessor?: ContextAccessor) {
       provide: FILTER_MODULE_OPTIONS,
       useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
     },
-    { provide: FILTER_ADAPTER, useValue: makeAutoFieldAdapter() },
+    { provide: FILTER_ADAPTER, useValue: adapter },
   ];
   const mod = await Test.createTestingModule({
     providers: accessor
@@ -209,6 +209,7 @@ class UnscopedFilter extends BaseFilter<MockQB> {}
 async function makeScopedModule(
   FilterClass: typeof ScopedFilter | typeof OptionalScopedFilter | typeof UnscopedFilter,
   accessor?: ContextAccessor,
+  adapter: unknown = makeAutoFieldAdapter(),
 ) {
   const providers = [
     FilterClass,
@@ -245,9 +246,9 @@ describe('@TenantScoped opt-in auto-scope', () => {
   it('throws when no accessor is bound, instead of running unscoped', async () => {
     const runner = await makeScopedModule(ScopedFilter);
     const qb = makeMockQB();
-    await expect(runner.apply(ScopedFilter, {}, qb)).rejects.toBeInstanceOf(
-      TenantScopeUnavailableException,
-    );
+    const run = runner.apply(ScopedFilter, {}, qb);
+    await expect(run).rejects.toBeInstanceOf(TenantScopeUnavailableException);
+    await expect(run).rejects.toMatchObject({ reason: 'no-accessor' });
     expect(qb.calls).toEqual([]);
   });
 
@@ -256,6 +257,18 @@ describe('@TenantScoped opt-in auto-scope', () => {
     await expect(runner.apply(ScopedFilter, {}, makeMockQB())).rejects.toMatchObject({
       reason: 'no-tenant',
     });
+  });
+
+  it('throws when the adapter cannot apply the constraint, even when optional', async () => {
+    const runner = await makeScopedModule(OptionalScopedFilter, makeContext({ tenantId: 't' }), {
+      ...makeAutoFieldAdapter(),
+      applyAutoField: undefined,
+    });
+    const qb = makeMockQB();
+    await expect(runner.apply(OptionalScopedFilter, {}, qb)).rejects.toMatchObject({
+      reason: 'no-adapter-support',
+    });
+    expect(qb.calls).toEqual([]);
   });
 
   it('{ optional: true } runs unscoped when there is no tenant', async () => {

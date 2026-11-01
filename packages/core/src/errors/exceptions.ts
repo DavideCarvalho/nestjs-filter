@@ -27,12 +27,14 @@ export class FilterStateUnavailableException extends FilterException {
 export class TenantScopeUnavailableException extends FilterException {
   constructor(
     public readonly filterName: string,
-    public readonly reason: 'no-tenant' | 'no-adapter-support',
+    public readonly reason: 'no-accessor' | 'no-tenant' | 'no-adapter-support',
   ) {
     super(
-      reason === 'no-tenant'
-        ? `@TenantScoped filter ${filterName} ran with no tenant in context. Bind @dudousxd/nestjs-context, or pass { optional: true } if this filter may run without a tenant.`
-        : `@TenantScoped filter ${filterName} needs an adapter that implements applyAutoField.`,
+      {
+        'no-accessor': `@TenantScoped filter ${filterName} ran with no context accessor. Bind @dudousxd/nestjs-context, or pass { optional: true } if this filter may run without a tenant.`,
+        'no-tenant': `@TenantScoped filter ${filterName} ran with no tenant in context. Pass { optional: true } if this filter may run without a tenant.`,
+        'no-adapter-support': `@TenantScoped filter ${filterName} needs an adapter that implements applyAutoField.`,
+      }[reason],
     );
   }
 }

@@ -26,6 +26,10 @@ export type {
 export { Computed, getComputedMap, getComputedOptsMap } from './decorator/computed.decorator.js';
 export type { ComputedOptions } from './decorator/computed.decorator.js';
 export type {
+  TenantScopedMetadata,
+  TenantScopedOptions,
+} from './decorator/tenant-scoped.decorator.js';
+export type {
   ComputedContext,
   ComputedReturn,
   ComputedSource,
