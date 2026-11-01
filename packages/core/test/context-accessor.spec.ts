@@ -154,7 +154,7 @@ async function makeModule(accessor?: ContextAccessor) {
       provide: FILTER_MODULE_OPTIONS,
       useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
     },
-    { provide: FILTER_ADAPTER, useValue: adapter },
+    { provide: FILTER_ADAPTER, useValue: makeAutoFieldAdapter() },
   ];
   const mod = await Test.createTestingModule({
     providers: accessor
@@ -218,7 +218,7 @@ async function makeScopedModule(
       provide: FILTER_MODULE_OPTIONS,
       useValue: { inputNormalizer: 'camelCase', validation: 'off', dropId: false },
     },
-    { provide: FILTER_ADAPTER, useValue: makeAutoFieldAdapter() },
+    { provide: FILTER_ADAPTER, useValue: adapter },
   ];
   const mod = await Test.createTestingModule({
     providers: accessor
