@@ -14,6 +14,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "check:exports": "node scripts/check-package-exports.mjs --all",
     "build": "turbo run build",
     "test": "turbo run test",
     "test:db": "turbo run test:db",
@@ -24,7 +25,7 @@
     "format": "biome format --write .",
     "changeset": "changeset",
     "version-packages": "changeset version && node scripts/sync-version.mjs && biome check --write .",
-    "release": "node scripts/sync-version.mjs --check && pnpm --filter './packages/*' build && changeset publish"
+    "release": "node scripts/sync-version.mjs --check && pnpm --filter './packages/*' build && pnpm check:exports && changeset publish"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
