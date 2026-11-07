@@ -47,6 +47,8 @@ export {
 export type { ContextAccessor, ContextStore, UserRef } from './context-accessor.js';
 export { ApplyFilterInterceptor } from './interceptor/apply-filter.interceptor.js';
 export { FilterExceptionFilter } from './filter/filter-exception.filter.js';
+export { FILTER_MESSAGES, type FilterMessageKey } from './i18n/messages.js';
+export type { FilterTranslator } from './i18n/filter-i18n.js';
 export { FilterRunner, buildComputedRegistry } from './runner.js';
 export type { ComputedRegistryEntry } from './runner.js';
 export { FilterModule } from './module.js';

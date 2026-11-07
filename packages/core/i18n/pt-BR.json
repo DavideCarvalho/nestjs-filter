@@ -1,0 +1,17 @@
+{
+  "filter": {
+    "validationFailed": "Falha na validação dos filtros.",
+    "groupByCountSpecRequired": "groupByCount exige uma especificação `{{ field }}` (com um `bucket` numérico positivo opcional).",
+    "invalidGroupByCountField": "Campo de groupByCount inválido: \"{field}\".",
+    "invalidExtentField": "Campo de extent inválido: \"{field}\".",
+    "histogramSpecRequired": "histogram exige uma especificação `{{ field }}` (com uma quantidade positiva de `buckets` opcional).",
+    "invalidHistogramField": "Campo de histogram inválido: \"{field}\".",
+    "histogramFieldNotNumeric": "Campo de histogram inválido: \"{field}\" é uma coluna do tipo {type} e os buckets do histogram são numéricos (FLOOR(value / width)). Use `extent` para o intervalo, ou `groupByCount` para agrupar pelos valores.",
+    "histogramFieldIsDate": "Campo de histogram inválido: \"{field}\" mede datas e os buckets do histogram são numéricos (FLOOR(value / width)). Use `extent` para o intervalo.",
+    "histogramFieldNotFinite": "Campo de histogram inválido: \"{field}\" não resultou em um número finito, então não pode ser dividido em buckets.",
+    "unknownFilterColumn": "Coluna de filtro desconhecida: \"{field}\".",
+    "operatorNotAllowed": "O operador \"{operator}\" não é permitido no campo \"{field}\".",
+    "invalidSortField": "Campo de ordenação inválido: \"{field}\".",
+    "invalidDistinctField": "Campo de distinct inválido: \"{field}\"."
+  }
+}

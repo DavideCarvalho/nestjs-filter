@@ -83,6 +83,11 @@ class UsersController {
 
 - **`FilterExceptionFilter`** -- Catches `FilterValidationException` and returns `{ statusCode: 400, message, errors }`.
 
+Client-facing messages (this one and the runner's 400s) are translated through
+[`@nestjs/i18n`](https://docs.nestjs.com/techniques/i18n) when the app registers it (optional peer), as
+`filter.*` keys; merge `@dudousxd/nestjs-filter/i18n/en.json` / `pt-BR.json` into your catalogs. Missing
+keys stay in English. See the Controllers guide ("Translated messages").
+
 ### Testing (from `@dudousxd/nestjs-filter/testing`)
 
 - **`FilterTestingModule`** -- `forRoot(options?)` and `forFeature(filters)`. Defaults to `validation: 'off'`.

@@ -12,6 +12,7 @@ pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-drizzle
 ```
 
 Peer dependencies: `drizzle-orm` >= 0.40 < 1.0, `@nestjs/common` >= 10, `@nestjs/core` >= 10.
+Optional: [`@nestjs/drizzle`](https://docs.nestjs.com/data/drizzle) >= 0.0.2, whose database the adapter uses by default.
 
 ## Quick Start
 
@@ -76,32 +77,29 @@ export class UserFilter extends DrizzleFilter<typeof users> {
 ```
 
 ```typescript
-// app.module.ts — drizzle ships no Nest module; provide `db` under your own token
-import { Global, Module } from '@nestjs/common';
+// app.module.ts — the database comes from NestJS's @nestjs/drizzle (https://docs.nestjs.com/data/drizzle)
+import { Module } from '@nestjs/common';
+import { DrizzleModule } from '@nestjs/drizzle';
 import { FilterModule } from '@dudousxd/nestjs-filter';
 import { drizzleAdapter } from '@dudousxd/nestjs-filter-drizzle';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { schema } from './schema.js';
 
-export const DRIZZLE = Symbol('DRIZZLE');
-
-@Global()
-@Module({
-  providers: [{ provide: DRIZZLE, useFactory: () => drizzle(process.env.DATABASE_URL!, { schema }) }],
-  exports: [DRIZZLE],
-})
-class DatabaseModule {}
-
 @Module({
   imports: [
-    DatabaseModule,
-    FilterModule.forRoot({ inputNormalizer: 'camelCase', adapter: drizzleAdapter({ connection: DRIZZLE }) }),
+    DrizzleModule.forRoot({ drizzle, connection: process.env.DATABASE_URL!, schema }),
+    // no `connection`/`db`: injects getDrizzleToken(name) from @nestjs/drizzle
+    FilterModule.forRoot({ inputNormalizer: 'camelCase', adapter: drizzleAdapter() }),
     FilterModule.forFeature([UserFilter]),
   ],
   controllers: [UsersController],
 })
 export class AppModule {}
 ```
+
+Named connection: `drizzleAdapter({ name: 'reports' })` for `DrizzleModule.forRoot({ name: 'reports', ... })`.
+`@nestjs/drizzle` is an optional peer: without it, pass your own token (`drizzleAdapter({ connection: DRIZZLE })`,
+provided from a `@Global()` module) or the instance (`drizzleAdapter({ db })`).
 
 ```typescript
 // users.controller.ts
