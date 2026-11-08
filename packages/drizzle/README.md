@@ -12,7 +12,7 @@ pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-drizzle
 ```
 
 Peer dependencies: `drizzle-orm` >= 0.40 < 1.0, `@nestjs/common` >= 10, `@nestjs/core` >= 10.
-Optional: [`@nestjs/drizzle`](https://docs.nestjs.com/data/drizzle) >= 0.0.2, whose database the adapter uses by default.
+Optional: [`@nestjs/drizzle`](https://docs.nestjs.com/data/drizzle) >= 0.0.2 < 1.0, whose database the adapter uses by default.
 
 ## Quick Start
 
