@@ -1,5 +1,13 @@
 # @example/drizzle-app
 
+## 0.0.8
+
+### Patch Changes
+
+- Updated dependencies [[`81bab1b`](https://github.com/DavideCarvalho/nestjs-filter/commit/81bab1b68b01b8b5c195b60a2df6e4c4373a34ab)]:
+  - @dudousxd/nestjs-filter@1.37.1
+  - @dudousxd/nestjs-filter-drizzle@0.2.1
+
 ## 0.0.7
 
 ### Patch Changes

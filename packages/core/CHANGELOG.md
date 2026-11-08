@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter
 
+## 1.37.1
+
+### Patch Changes
+
+- [#199](https://github.com/DavideCarvalho/nestjs-filter/pull/199) [`81bab1b`](https://github.com/DavideCarvalho/nestjs-filter/commit/81bab1b68b01b8b5c195b60a2df6e4c4373a34ab) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - README: state the full `@nestjs/i18n` and `@nestjs/drizzle` peer ranges.
+
 ## 1.37.0
 
 ### Minor Changes
