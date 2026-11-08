@@ -36,6 +36,8 @@ import {
   TenantScopeUnavailableException,
   UnknownFilterKeyException,
 } from './errors/exceptions.js';
+import { type FilterTranslator, I18N_SERVICE, filterMessage } from './i18n/filter-i18n.js';
+import type { FilterMessageKey } from './i18n/messages.js';
 import { expandBracketKeys } from './input/bracket-keys.js';
 import { resolveDispatchTarget } from './input/dispatcher.js';
 import { normalizeInput } from './input/normalizer.js';
@@ -233,8 +235,20 @@ export class FilterRunner {
     @Optional()
     @Inject(CONTEXT_ACCESSOR)
     private readonly contextAccessor?: ContextAccessor,
+    @Optional()
+    @Inject(I18N_SERVICE)
+    private readonly i18n?: FilterTranslator,
   ) {
     this.defaultAdapter = injectedAdapter;
+  }
+
+  /**
+   * A 400 with the client-facing message for `key`, translated through
+   * `@nestjs/i18n` (`filter.<key>`) when the app registers it and its catalogs
+   * have the key, in English otherwise.
+   */
+  private badRequest(key: FilterMessageKey, args?: Record<string, unknown>): BadRequestException {
+    return new BadRequestException(filterMessage(this.i18n, key, args));
   }
 
   /**
@@ -1990,9 +2004,7 @@ export class FilterRunner {
 
     const spec = this.parseGroupByCount(structured.groupByCount);
     if (!spec) {
-      throw new BadRequestException(
-        'groupByCount requires a `{ field }` specification (with an optional positive numeric `bucket`).',
-      );
+      throw this.badRequest('groupByCountSpecRequired');
     }
     if (!adapter?.groupByCount) {
       throw new Error(
@@ -2027,7 +2039,7 @@ export class FilterRunner {
       // distinct field), regardless of the ambient throwOnInvalid policy.
       const validated = this.validateDistinct([field], undefined, adapter, entity, false);
       if (validated.length === 0 || !validated[0]) {
-        throw new BadRequestException(`Invalid groupByCount field: "${spec.field}".`);
+        throw this.badRequest('invalidGroupByCountField', { field: spec.field });
       }
       groupField = validated[0];
     }
@@ -2218,7 +2230,7 @@ export class FilterRunner {
         // — the policy (drop, or throw when configured to) is still distinct's,
         // just worded for the key the client actually sent.
         if (throwOnInvalid) {
-          throw new BadRequestException(`Invalid extent field: "${field}".`);
+          throw this.badRequest('invalidExtentField', { field });
         }
         continue;
       }
@@ -2376,9 +2388,7 @@ export class FilterRunner {
     const structured = this.extractStructuredInput(input);
     const spec = this.parseHistogram(structured.histogram);
     if (!spec) {
-      throw new BadRequestException(
-        'histogram requires a `{ field }` specification (with an optional positive `buckets` count).',
-      );
+      throw this.badRequest('histogramSpecRequired');
     }
 
     const adapter = this.resolveAdapter(opts.filterClass, entity);
@@ -2418,7 +2428,7 @@ export class FilterRunner {
     // `groupByCount` rejects its grouping field: dropping the only field there
     // is would leave an empty histogram that reads as "no matching rows".
     if (!target) {
-      throw new BadRequestException(`Invalid histogram field: "${spec.field}".`);
+      throw this.badRequest('invalidHistogramField', { field: spec.field });
     }
     this.assertBucketable(target, entity, adapter);
 
@@ -2541,9 +2551,7 @@ export class FilterRunner {
     if (typeof target !== 'string') return;
     const info = adapter.getEntityFields?.(entity)?.find((f) => f.name === target);
     if (!info || info.type === 'number' || info.type === 'unknown') return;
-    throw new BadRequestException(
-      `Invalid histogram field: "${target}" is a ${info.type} column and histogram buckets are numeric (FLOOR(value / width)). Use \`extent\` for its range, or \`groupByCount\` to group by its values.`,
-    );
+    throw this.badRequest('histogramFieldNotNumeric', { field: target, type: info.type });
   }
 
   /**
@@ -2565,18 +2573,14 @@ export class FilterRunner {
   private toBucketableNumber(value: unknown, field: string): number | null {
     if (value === null || value === undefined) return null;
     if (value instanceof Date) {
-      throw new BadRequestException(
-        `Invalid histogram field: "${field}" measures dates and histogram buckets are numeric (FLOOR(value / width)). Use \`extent\` for its range.`,
-      );
+      throw this.badRequest('histogramFieldIsDate', { field });
     }
     const numeric =
       typeof value === 'number' || typeof value === 'bigint' || typeof value === 'string'
         ? Number(value)
         : Number.NaN;
     if (!Number.isFinite(numeric)) {
-      throw new BadRequestException(
-        `Invalid histogram field: "${field}" did not measure to a finite number, so it cannot be bucketed.`,
-      );
+      throw this.badRequest('histogramFieldNotFinite', { field });
     }
     return numeric;
   }
@@ -2949,7 +2953,7 @@ export class FilterRunner {
           }
 
           if (throwOnInvalid) {
-            throw new BadRequestException(`Unknown filter column: "${clause.field}".`);
+            throw this.badRequest('unknownFilterColumn', { field: clause.field });
           }
           if (!warned.has(clause.field)) {
             warned.add(clause.field);
@@ -3175,9 +3179,7 @@ export class FilterRunner {
           const op = normalizeOperator(clause.operator);
           if (permitted.has(op)) return true;
           if (throwOnInvalid) {
-            throw new BadRequestException(
-              `Operator "${op}" is not allowed on field "${clause.field}".`,
-            );
+            throw this.badRequest('operatorNotAllowed', { operator: op, field: clause.field });
           }
           return false;
         })
@@ -3215,7 +3217,7 @@ export class FilterRunner {
 
     const reject = (op: FilterOperator): undefined => {
       if (throwOnInvalid) {
-        throw new BadRequestException(`Operator "${op}" is not allowed on field "${field}".`);
+        throw this.badRequest('operatorNotAllowed', { operator: op, field });
       }
       return undefined;
     };
@@ -3423,7 +3425,7 @@ export class FilterRunner {
       if (throwOnInvalid) {
         for (const s of sorts) {
           if (!predicate(s)) {
-            throw new BadRequestException(`Invalid sort field: "${s.field}".`);
+            throw this.badRequest('invalidSortField', { field: s.field });
           }
         }
         return sorts;
@@ -3546,7 +3548,7 @@ export class FilterRunner {
         if (adapter.applyAggregateSort) {
           if (!this.isAggregateSortAllowed(sort.field, allowlist, adapter, autoFieldSet)) {
             if (throwOnInvalid) {
-              throw new BadRequestException(`Invalid sort field: "${sort.field}".`);
+              throw this.badRequest('invalidSortField', { field: sort.field });
             }
             continue;
           }
@@ -3603,7 +3605,7 @@ export class FilterRunner {
       if (throwOnInvalid) {
         for (const f of fields) {
           if (!predicate(f)) {
-            throw new BadRequestException(`Invalid distinct field: "${f}".`);
+            throw this.badRequest('invalidDistinctField', { field: f });
           }
         }
         return fields;

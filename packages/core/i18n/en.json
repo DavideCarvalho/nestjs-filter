@@ -1,0 +1,17 @@
+{
+  "filter": {
+    "validationFailed": "Filter input validation failed.",
+    "groupByCountSpecRequired": "groupByCount requires a `{{ field }}` specification (with an optional positive numeric `bucket`).",
+    "invalidGroupByCountField": "Invalid groupByCount field: \"{field}\".",
+    "invalidExtentField": "Invalid extent field: \"{field}\".",
+    "histogramSpecRequired": "histogram requires a `{{ field }}` specification (with an optional positive `buckets` count).",
+    "invalidHistogramField": "Invalid histogram field: \"{field}\".",
+    "histogramFieldNotNumeric": "Invalid histogram field: \"{field}\" is a {type} column and histogram buckets are numeric (FLOOR(value / width)). Use `extent` for its range, or `groupByCount` to group by its values.",
+    "histogramFieldIsDate": "Invalid histogram field: \"{field}\" measures dates and histogram buckets are numeric (FLOOR(value / width)). Use `extent` for its range.",
+    "histogramFieldNotFinite": "Invalid histogram field: \"{field}\" did not measure to a finite number, so it cannot be bucketed.",
+    "unknownFilterColumn": "Unknown filter column: \"{field}\".",
+    "operatorNotAllowed": "Operator \"{operator}\" is not allowed on field \"{field}\".",
+    "invalidSortField": "Invalid sort field: \"{field}\".",
+    "invalidDistinctField": "Invalid distinct field: \"{field}\"."
+  }
+}

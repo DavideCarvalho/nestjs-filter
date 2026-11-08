@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { FILTER_ADAPTER, FilterModule } from '@dudousxd/nestjs-filter';
 import { Global, Module } from '@nestjs/common';
+import { DrizzleModule, getDrizzleToken } from '@nestjs/drizzle';
 import { Test } from '@nestjs/testing';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { describe, expect, it } from 'vitest';
@@ -10,8 +11,7 @@ import { DrizzleFilterModule, drizzleAdapter } from '../src/module.js';
 const DRIZZLE = Symbol('DRIZZLE');
 const db = drizzle.mock();
 
-// Drizzle has no Nest module of its own; apps typically expose the db from a
-// @Global() module like this one.
+// An app-owned token (the `connection` option), from a @Global() module.
 @Global()
 @Module({ providers: [{ provide: DRIZZLE, useValue: db }], exports: [DRIZZLE] })
 class DatabaseModule {}
@@ -80,6 +80,50 @@ describe('drizzleAdapter descriptor', () => {
       imports: [FilterModule.forRoot({ validation: 'off', adapter: drizzleAdapter({ db }) })],
     }).compile();
     expect(mod.get(FILTER_ADAPTER)).toBeInstanceOf(DrizzleAdapter);
+    await mod.close();
+  });
+});
+
+describe('with @nestjs/drizzle', () => {
+  const reports = drizzle.mock();
+
+  it('drizzleAdapter() uses the default DrizzleModule connection', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        DrizzleModule.forRoot({ db, autoCloseConnection: false }),
+        FilterModule.forRoot({ validation: 'off', adapter: drizzleAdapter() }),
+      ],
+    }).compile();
+    const adapter = mod.get<DrizzleAdapter>(FILTER_ADAPTER);
+    expect(adapter.db).toBe(mod.get(getDrizzleToken()));
+    expect(adapter.db).toBe(db);
+    await mod.close();
+  });
+
+  it('drizzleAdapter({ name }) uses the named connection', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        DrizzleModule.forRoot({ db, autoCloseConnection: false }),
+        DrizzleModule.forRoot({ name: 'reports', db: reports, autoCloseConnection: false }),
+        FilterModule.forRoot({ validation: 'off', adapter: drizzleAdapter({ name: 'reports' }) }),
+      ],
+    }).compile();
+    expect(mod.get<DrizzleAdapter>(FILTER_ADAPTER).db).toBe(reports);
+    await mod.close();
+  });
+
+  it('DrizzleFilterModule.forRoot({ name }) uses the named connection', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [
+        DrizzleModule.forRootAsync({
+          name: 'reports',
+          useFactory: () => ({ db: reports, autoCloseConnection: false }),
+        }),
+        FilterModule.forRoot({ validation: 'off' }),
+        DrizzleFilterModule.forRoot({ name: 'reports' }),
+      ],
+    }).compile();
+    expect(mod.get<DrizzleAdapter>(FILTER_ADAPTER).db).toBe(reports);
     await mod.close();
   });
 });

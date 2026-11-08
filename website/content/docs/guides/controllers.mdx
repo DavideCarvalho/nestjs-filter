@@ -207,6 +207,41 @@ The filter catches `FilterValidationException` and returns:
   You can also apply `FilterExceptionFilter` at the controller level with `@UseFilters(FilterExceptionFilter)` instead of globally.
 </Callout>
 
+### Translated messages
+
+The `message` above, and the messages of the 400s the runner throws (`Invalid sort field: "x".`,
+`Operator "gt" is not allowed on field "x".`, …), are looked up as `filter.*` keys through
+NestJS's [`@nestjs/i18n`](https://docs.nestjs.com/techniques/i18n) when the app registers
+`I18nModule`, in the request's locale. Without it — or for a key the app's catalogs lack —
+they stay in English. `@nestjs/i18n` is an optional peer; nothing to configure on the filter side.
+
+`@nestjs/i18n` has no per-library catalogs, so merge the shipped ones into yours.
+`@dudousxd/nestjs-filter/i18n/en.json` and `@dudousxd/nestjs-filter/i18n/pt-BR.json` hold
+`{ "filter": { ... } }`:
+
+```ts
+import { I18nModule, InMemoryI18nLoader } from '@nestjs/i18n';
+import filterEn from '@dudousxd/nestjs-filter/i18n/en.json' with { type: 'json' };
+import filterPtBR from '@dudousxd/nestjs-filter/i18n/pt-BR.json' with { type: 'json' };
+
+I18nModule.forRoot({
+  loader: new InMemoryI18nLoader({
+    en: { ...appEn, ...filterEn },
+    'pt-BR': { ...appPtBR, ...filterPtBR },
+  }),
+});
+```
+
+With `JsonI18nLoader`, each file is a namespace named after it, so copy the inner `filter`
+object to `<path>/<locale>/filter.json`. Messages use `{field}`-style placeholders (and `{{ }}`
+for literal braces), the default formatter's syntax. The full key list is `FILTER_MESSAGES`,
+exported from the package.
+
+To get the `I18nService` injected, register the exception filter as a class
+(`{ provide: APP_FILTER, useClass: FilterExceptionFilter }` or
+`@UseFilters(FilterExceptionFilter)`), or pass it to an instance:
+`app.useGlobalFilters(new FilterExceptionFilter(app.get(I18nService)))`.
+
 ---
 
 ## Multiple filters on one method

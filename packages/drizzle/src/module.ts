@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { FILTER_ADAPTER_IMPL } from '@dudousxd/nestjs-filter';
 import {
   type DynamicModule,
@@ -11,12 +12,20 @@ import { DrizzleAdapter, type DrizzleAdapterOptions } from './drizzle.adapter.js
 import type { DrizzleDatabase } from './types.js';
 
 /**
- * Where the adapter gets its drizzle database. Drizzle ships no NestJS module,
- * so apps provide the `db` themselves — usually as a provider under their own
- * token. Name that token (`connection`), or hand over the instance (`db`).
+ * Where the adapter gets its drizzle database:
+ *
+ * - `{ name? }` (or nothing): the database registered with `@nestjs/drizzle`'s
+ *   `DrizzleModule.forRoot({ name })` — the token comes from its
+ *   `getDrizzleToken(name)`; omit `name` for the default connection.
+ * - `{ connection }`: any injection token the app provides the `db` under.
+ * - `{ db }`: the instance itself.
  */
 export type DrizzleFilterModuleOptions = DrizzleAdapterOptions &
-  ({ connection: InjectionToken; db?: never } | { db: DrizzleDatabase; connection?: never });
+  (
+    | { name?: string; connection?: never; db?: never }
+    | { connection: InjectionToken; name?: never; db?: never }
+    | { db: DrizzleDatabase; name?: never; connection?: never }
+  );
 
 /**
  * {@link DrizzleFilterModuleOptions} plus the module(s) that provide the
@@ -26,16 +35,53 @@ export type DrizzleFilterModuleRootOptions = DrizzleFilterModuleOptions & {
   imports?: ModuleMetadata['imports'];
 };
 
-function adapterProvider(options: DrizzleFilterModuleOptions): Provider {
-  const { connection, db, ...rest } = options as DrizzleFilterModuleRootOptions;
+const requirePeer = createRequire(import.meta.url);
+
+/**
+ * `@nestjs/drizzle`'s token for the connection `name`, from its own
+ * `getDrizzleToken()`. The package is an optional peer, loaded only when no
+ * `connection` or `db` is given.
+ */
+function officialDrizzleToken(name: string | undefined): InjectionToken {
+  let drizzleModule: { getDrizzleToken(name?: string): InjectionToken };
+  try {
+    drizzleModule = requirePeer('@nestjs/drizzle');
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    const message = String((error as { message?: unknown }).message ?? '');
+    if (
+      (code === 'MODULE_NOT_FOUND' || code === 'ERR_MODULE_NOT_FOUND') &&
+      /Cannot find (module|package) '@nestjs\/drizzle'/.test(message)
+    ) {
+      throw new Error(
+        'nestjs-filter-drizzle: no `connection` or `db` was given, so the adapter uses the database ' +
+          'registered with @nestjs/drizzle (DrizzleModule.forRoot), but @nestjs/drizzle is not installed. ' +
+          'Install it, or pass `connection` (your own token) or `db` (the instance).',
+      );
+    }
+    throw error;
+  }
+  return drizzleModule.getDrizzleToken(name);
+}
+
+function splitOptions(options: DrizzleFilterModuleOptions) {
+  const { connection, db, name, ...rest } = options as DrizzleFilterModuleRootOptions & {
+    name?: string;
+  };
   const { imports: _imports, ...adapterOptions } = rest;
+  const token = db === undefined ? (connection ?? officialDrizzleToken(name)) : undefined;
+  return { db, token, adapterOptions };
+}
+
+function adapterProvider(options: DrizzleFilterModuleOptions): Provider {
+  const { db, token, adapterOptions } = splitOptions(options);
   if (db !== undefined) {
     return { provide: FILTER_ADAPTER_IMPL, useValue: new DrizzleAdapter(db, adapterOptions) };
   }
   return {
     provide: FILTER_ADAPTER_IMPL,
     useFactory: (instance: DrizzleDatabase) => new DrizzleAdapter(instance, adapterOptions),
-    inject: [connection as InjectionToken],
+    inject: [token as InjectionToken],
   };
 }
 
@@ -44,11 +90,12 @@ function adapterProvider(options: DrizzleFilterModuleOptions): Provider {
 export class DrizzleFilterModule {
   /**
    * Registers the Drizzle adapter as the application-wide filter adapter.
-   * The `connection` token must be resolvable from this module: provide it
-   * globally (the usual `@Global()` database module), or pass the module that
-   * exports it in `imports`.
+   * With no `connection` or `db`, it uses the database `@nestjs/drizzle`
+   * registers (global). A `connection` token must be resolvable from this
+   * module: provide it globally, or pass the module that exports it in
+   * `imports`.
    */
-  static forRoot(options: DrizzleFilterModuleRootOptions): DynamicModule {
+  static forRoot(options: DrizzleFilterModuleRootOptions = {}): DynamicModule {
     return {
       module: DrizzleFilterModule,
       imports: options.imports ?? [],
@@ -60,24 +107,23 @@ export class DrizzleFilterModule {
 
 /**
  * The adapter as a descriptor, for `FilterModule.forRoot({ adapter })`.
- *
- * A function, not a constant, because the database token is the app's own —
- * the same argument `DrizzleFilterModule.forRoot` takes. Preferred over the
- * module form: one module owns the adapter token instead of two, so there is
- * nothing for the container to disambiguate. The `connection` token must be
- * provided globally (FilterModule's own providers resolve it).
+ * Preferred over the module form: one module owns the adapter token instead
+ * of two, so there is nothing for the container to disambiguate. The database
+ * must be provided globally (FilterModule's own providers resolve it), which
+ * `@nestjs/drizzle`'s `DrizzleModule` does.
  *
  * ```ts
- * FilterModule.forRoot({ adapter: drizzleAdapter({ connection: DRIZZLE, schema }) })
+ * DrizzleModule.forRoot({ drizzle, connection: process.env.DATABASE_URL }),
+ * FilterModule.forRoot({ adapter: drizzleAdapter({ schema }) })
  * ```
  */
-export const drizzleAdapter = (options: DrizzleFilterModuleOptions) => {
-  const { connection, db, ...adapterOptions } = options;
+export const drizzleAdapter = (options: DrizzleFilterModuleOptions = {}) => {
+  const { db, token, adapterOptions } = splitOptions(options);
   if (db !== undefined) {
     return { useFactory: () => new DrizzleAdapter(db, adapterOptions), inject: [] } as const;
   }
   return {
     useFactory: (instance: DrizzleDatabase) => new DrizzleAdapter(instance, adapterOptions),
-    inject: [connection as InjectionToken],
+    inject: [token as InjectionToken],
   } as const;
 };

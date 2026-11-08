@@ -31,7 +31,8 @@
   },
   "files": ["dist/", "skills"],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "prepack": "node ../../scripts/check-package-exports.mjs",
+    "build": "tsc -p tsconfig.json --incremental false",
     "test": "vitest run",
     "test:types": "tsc -p tsconfig.typecheck.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.typecheck.json"

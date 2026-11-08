@@ -6,8 +6,9 @@ description: >
   DrizzleFilter<typeof table> (a BaseFilter whose this.$query is a DrizzleQuery accumulator),
   writing @FilterFor methods with drizzle operators (this.$query.where(gte(t.age, v))),
   whereHas / whereDoesntHave relation EXISTS, the escaped whereLike / whereILike helpers,
-  registering the adapter with drizzleAdapter({ connection: TOKEN }) or
-  DrizzleFilterModule.forRoot, passing the relations() schema, and executing with
+  registering the adapter with drizzleAdapter() over @nestjs/drizzle's DrizzleModule
+  (drizzleAdapter({ name }) for a named connection), drizzleAdapter({ connection: TOKEN })
+  or DrizzleFilterModule.forRoot, passing the relations() schema, and executing with
   q.execute() / q.executeAndCount(). Use when building filters on a Drizzle backend,
   wiring the db token, or debugging relation filters inside @Relations (aliased tables).
 metadata:
@@ -32,9 +33,12 @@ pnpm add @dudousxd/nestjs-filter @dudousxd/nestjs-filter-drizzle
 
 Peer deps: `drizzle-orm` >= 0.40 < 1.0, `@nestjs/common` >= 10, `@nestjs/core` >= 10.
 
-Drizzle has no NestJS module, so the app provides the drizzle instance under its own token
-(globally), and the adapter is pointed at that token. Pass the schema (tables AND
-`relations()`) to `drizzle()` — the adapter reads relations from it:
+With NestJS's `@nestjs/drizzle` (https://docs.nestjs.com/data/drizzle, an optional peer),
+register the database with `DrizzleModule.forRoot(...)` and call `drizzleAdapter()` with no
+`connection`/`db`: it injects `getDrizzleToken(name)` (pass `{ name }` for a named
+connection). Without `@nestjs/drizzle`, the app provides the drizzle instance under its own
+token (globally) and points the adapter at it, as below. Either way, pass the schema (tables
+AND `relations()`) to drizzle — the adapter reads relations from it:
 
 ```typescript
 import { Global, Module, Injectable, Controller, Get } from '@nestjs/common';
@@ -152,5 +156,5 @@ Source: `packages/drizzle/src/schema-metadata.ts`
 ### Providing the db token in a non-global module
 
 `drizzleAdapter({ connection })` is resolved by FilterModule's own providers, so the token
-must be global. Otherwise use `DrizzleFilterModule.forRoot({ connection, imports: [DbModule] })`.
+must be global (`@nestjs/drizzle`'s `DrizzleModule` already is). Otherwise use `DrizzleFilterModule.forRoot({ connection, imports: [DbModule] })`.
 Source: `packages/drizzle/src/module.ts`
