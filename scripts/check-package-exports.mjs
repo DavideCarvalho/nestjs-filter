@@ -50,6 +50,21 @@ function patternMatches(pkgDir, target) {
   return false;
 }
 
+/** Whether `target` is covered by the package's `files` allowlist (always, without one). */
+function shipped(pkg, target) {
+  if (!Array.isArray(pkg.files)) return true;
+  const path = target.replace(/^\.\//, '');
+  if (path === 'package.json') return true;
+  return pkg.files.some((entry) => {
+    const allowed = entry.replace(/^\.\//, '').replace(/\/\*\*?$|\/$/, '');
+    if (allowed.includes('*')) {
+      const [head, tail] = allowed.split('*');
+      return path.startsWith(head) && path.endsWith(tail ?? '');
+    }
+    return path === allowed || path.startsWith(`${allowed}/`);
+  });
+}
+
 function checkPackage(pkgDir) {
   const pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
   const targets = [];
@@ -64,6 +79,8 @@ function checkPackage(pkgDir) {
       ? patternMatches(pkgDir, target)
       : existsSync(join(pkgDir, target));
     if (!ok) missing.push(`${where} → ${target}`);
+    // Present in the source tree but outside the `files` allowlist: it would not ship.
+    else if (!shipped(pkg, target)) missing.push(`${where} → ${target} (not in "files")`);
   }
   return { name: pkg.name ?? relative(repoRoot, pkgDir), private: pkg.private === true, missing };
 }

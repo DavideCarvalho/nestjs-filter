@@ -34,7 +34,8 @@ export type FilterMessageKey = keyof typeof FILTER_MESSAGES;
 /** Fills `{name}` placeholders the way `@nestjs/i18n`'s default formatter does. */
 export function formatFilterMessage(message: string, args: Record<string, unknown> = {}): string {
   return message.replace(/\{\{|\}\}|\{(\w+)\}/g, (match, name: string | undefined) => {
-    if (name === undefined) return match[0] as string;
+    if (match === '{{') return '{';
+    if (match === '}}' || name === undefined) return '}';
     return Object.hasOwn(args, name) ? String(args[name]) : match;
   });
 }
