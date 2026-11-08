@@ -1,5 +1,15 @@
 # @dudousxd/nestjs-filter
 
+## 1.37.0
+
+### Minor Changes
+
+- [#197](https://github.com/DavideCarvalho/nestjs-filter/pull/197) [`3774fbd`](https://github.com/DavideCarvalho/nestjs-filter/commit/3774fbdc09779521a52458875ca8bdd0e0a3fe28) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Translate client-facing error messages through NestJS's `@nestjs/i18n` when the app registers it (optional peer). `FilterExceptionFilter`'s `message` and the runner's `BadRequestException`s (invalid sort/distinct/extent/histogram/groupByCount field, operator not allowed, unknown filter column) are looked up as `filter.*` keys in the request's locale, checked with `exists()` first; without `@nestjs/i18n`, or for a key the catalogs lack, they stay in English. Ships `@dudousxd/nestjs-filter/i18n/en.json` and `pt-BR.json` for apps to merge into their catalogs, and exports `FILTER_MESSAGES`. `FilterExceptionFilter` takes an optional `I18nService` constructor argument (injected when registered as a class).
+
+### Patch Changes
+
+- [#197](https://github.com/DavideCarvalho/nestjs-filter/pull/197) [`3774fbd`](https://github.com/DavideCarvalho/nestjs-filter/commit/3774fbdc09779521a52458875ca8bdd0e0a3fe28) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix packages that could be published without files their `exports` point to. `tsc` builds no longer use a `.tsbuildinfo` that can outlive `dist/` and skip emitting files. A new `check:exports` step (also `prepack`) fails the release if any `exports`/`main`/`types` path is missing.
+
 ## 1.36.0
 
 ### Minor Changes

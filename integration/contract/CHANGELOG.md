@@ -1,5 +1,16 @@
 # @integration/contract
 
+## 0.0.43
+
+### Patch Changes
+
+- Updated dependencies [[`3774fbd`](https://github.com/DavideCarvalho/nestjs-filter/commit/3774fbdc09779521a52458875ca8bdd0e0a3fe28), [`3774fbd`](https://github.com/DavideCarvalho/nestjs-filter/commit/3774fbdc09779521a52458875ca8bdd0e0a3fe28), [`3774fbd`](https://github.com/DavideCarvalho/nestjs-filter/commit/3774fbdc09779521a52458875ca8bdd0e0a3fe28)]:
+  - @dudousxd/nestjs-filter@1.37.0
+  - @dudousxd/nestjs-filter-drizzle@0.2.0
+  - @dudousxd/nestjs-filter-memory@0.1.3
+  - @dudousxd/nestjs-filter-mikro-orm@1.37.0
+  - @dudousxd/nestjs-filter-typeorm@1.37.0
+
 ## 0.0.42
 
 ### Patch Changes

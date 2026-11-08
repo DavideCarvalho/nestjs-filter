@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter-react
 
+## 0.3.1
+
+### Patch Changes
+
+- [#197](https://github.com/DavideCarvalho/nestjs-filter/pull/197) [`3774fbd`](https://github.com/DavideCarvalho/nestjs-filter/commit/3774fbdc09779521a52458875ca8bdd0e0a3fe28) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix packages that could be published without files their `exports` point to. `tsc` builds no longer use a `.tsbuildinfo` that can outlive `dist/` and skip emitting files. A new `check:exports` step (also `prepack`) fails the release if any `exports`/`main`/`types` path is missing.
+
 ## 0.3.0
 
 ### Minor Changes
