@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       clickhouse:
-        image: clickhouse/clickhouse-server:25.8
+        image: clickhouse/clickhouse-server:25.12
         env:
           CLICKHOUSE_USER: test
           CLICKHOUSE_PASSWORD: test
