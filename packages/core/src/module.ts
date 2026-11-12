@@ -1,5 +1,6 @@
 import { type DynamicModule, Module, type Provider, type Type } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
+import { FilterDevTools } from './explain/dev-tools.js';
 import { ApplyFilterInterceptor } from './interceptor/apply-filter.interceptor.js';
 import { FilterRunner } from './runner.js';
 import { FILTER_ADAPTER, FILTER_ADAPTER_IMPL, FILTER_MODULE_OPTIONS } from './tokens.js';
@@ -38,6 +39,7 @@ export class FilterModule {
         inject: [{ token: FILTER_ADAPTER_IMPL, optional: true }],
       },
       FilterRunner,
+      FilterDevTools,
       ApplyFilterInterceptor,
       { provide: APP_INTERCEPTOR, useExisting: ApplyFilterInterceptor },
     ];
@@ -60,6 +62,7 @@ export class FilterModule {
         inject: [{ token: FILTER_ADAPTER_IMPL, optional: true }],
       },
       FilterRunner,
+      FilterDevTools,
       ApplyFilterInterceptor,
       { provide: APP_INTERCEPTOR, useExisting: ApplyFilterInterceptor },
     ];

@@ -17,6 +17,7 @@
     "validation",
     "spatie-input",
     "async-configuration",
+    "mcp-tools",
     "testing",
     "operators",
     "codegen",

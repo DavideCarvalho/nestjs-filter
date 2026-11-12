@@ -53,6 +53,24 @@ export { FilterRunner, buildComputedRegistry } from './runner.js';
 export type { ComputedRegistryEntry } from './runner.js';
 export { FilterModule } from './module.js';
 export {
+  DEV_TOOLS_SLOT,
+  type DevToolCall,
+  type DevToolInputProperty,
+  type DevToolInputSchema,
+  type DevToolsRegistration,
+  FilterDevTools,
+  type FilterDevTool,
+  type FilterDevToolsDeps,
+  filterDevTools,
+  registerFilterDevTools,
+} from './explain/dev-tools.js';
+export {
+  type FilterExplanation,
+  type ParsedFilterRequest,
+  type RecordedCondition,
+  decodeQueryString,
+} from './explain/explain.js';
+export {
   FilterException,
   FilterNotRegisteredException,
   FilterMissingEntityException,

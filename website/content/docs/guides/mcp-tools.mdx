@@ -1,0 +1,76 @@
+---
+title: MCP dev tools
+description: Let a coding agent dry-run a query string against one of your filters, with no database, over the Aviary dev MCP endpoint.
+icon: Terminal
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+When the app also mounts `@dudousxd/nestjs-agent-mcp-server`, `FilterModule` adds a read-only tool
+to its Aviary dev MCP endpoint (`/mcp/aviary` by default). Connect your agent to it:
+
+```bash
+claude mcp add --transport http aviary http://localhost:3000/mcp/aviary
+```
+
+Then ask things like *"why does `?name=Al&sort=-age` return every user?"*.
+
+## `filter_explain_query`
+
+| Input | |
+| --- | --- |
+| `name` | The filter class name: `UserFilter`, or `userfilter`, or `user`. |
+| `query` | The query string, with or without the leading `?`. |
+
+It runs the query string through the same parsing, alias, validation, allow-list and `@FilterFor`
+code a request does, against a query builder and an adapter that only record calls. It never
+touches the database. It returns:
+
+| Field | What it holds |
+| --- | --- |
+| `parsed` | What the server reads from the query: `where` (column filters), `filter` (the structured keys, normalized), `sort`, `search`, `include`, `distinct`, `select`, `paginate`. |
+| `conditions` | The conditions the request produces, in order: adapter calls (`applyColumnFilters`, `applyAutoField`, `applySort`…) and calls your `@FilterFor` methods make on the query builder. |
+| `rejected`, `rejection` | Whether the request would fail, with the status and message the client would get. |
+| `dropped` | What the filter ignores in silence under `throwOnInvalid: false`: the message the request would fail with under `throwOnInvalid: true`. `null` when nothing is dropped. |
+| `tenantScope` | The `@TenantScoped` field, when the filter has one. The tenant comes from the live request, so the dry run names the field and doesn't apply it. |
+
+The tool finds filter classes among your providers (`FilterModule.forFeature([...])`) and the
+`@ApplyFilter(...)` routes of your controllers. An unknown name answers with the list it knows.
+
+The same dry run is available from code:
+
+```ts
+import { decodeQueryString, FilterRunner } from '@dudousxd/nestjs-filter';
+
+const why = await runner.explain(UserFilter, decodeQueryString('filter[email]=x&sort=-name'));
+why.rejected;   // true or false
+why.conditions; // [{ via: 'adapter', method: 'applyAutoField', args: ['email', …] }, …]
+```
+
+## Who may call it
+
+filter has no console, so it registers its tool without a gate of its own. The dev endpoint's
+`devTools.authorize` decides:
+
+```ts
+AgentMcpServerModule.forRoot({
+  devTools: {
+    authorize: (context) => /* the same forms a console's authorize accepts */,
+  },
+});
+```
+
+Without `devTools.authorize`, the tool is open outside production and denied in production.
+
+<Callout type="warn">
+  The tool needs an `@dudousxd/nestjs-agent-mcp-server` release with endpoint-level
+  `devTools.authorize`. filter registers without an `authorize` and stays out of a hub that reports
+  it cannot gate libs without a console. Earlier releases refuse a lib that has no `authorize`, so
+  the tool doesn't show up there; upgrade to get it.
+</Callout>
+
+## Turning it off
+
+```ts
+FilterModule.forRoot({ devTools: false });
+```

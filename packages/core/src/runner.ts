@@ -36,6 +36,15 @@ import {
   TenantScopeUnavailableException,
   UnknownFilterKeyException,
 } from './errors/exceptions.js';
+import {
+  type FilterExplanation,
+  type ParsedFilterRequest,
+  type RecordedCondition,
+  recordingAdapter,
+  recordingBuilder,
+  rejectionOf,
+  show,
+} from './explain/explain.js';
 import { type FilterTranslator, I18N_SERVICE, filterMessage } from './i18n/filter-i18n.js';
 import type { FilterMessageKey } from './i18n/messages.js';
 import { expandBracketKeys } from './input/bracket-keys.js';
@@ -660,6 +669,8 @@ export class FilterRunner {
       native?: boolean;
       distinctOrder?: boolean | undefined;
       defaultSort?: string | SortItem[] | undefined;
+      /** @internal Dry run ({@link explain}): records conditions, never touches the database. */
+      dryRun?: { conditions: RecordedCondition[]; strict: boolean };
     } = {},
   ): Promise<Q> {
     const filter = await this.resolveFilter(FilterClass);
@@ -667,7 +678,9 @@ export class FilterRunner {
     // filters, structured filter keys, sort, distinct, select) as well as
     // the computed-field/entity lookups further down.
     const filterableMeta = getFilterableMetadata(FilterClass);
-    const adapter = this.resolveAdapter(FilterClass, filterableMeta?.entity);
+    const resolvedAdapter = this.resolveAdapter(FilterClass, filterableMeta?.entity);
+    const dryRun = internal.dryRun;
+    const adapter = dryRun ? recordingAdapter(resolvedAdapter, dryRun.conditions) : resolvedAdapter;
     // Merges the inline `computed` map and `@Computed` methods into one
     // alias → source registry, resolved once per apply() call.
     const computedRegistry = buildComputedRegistry(FilterClass, filter);
@@ -712,12 +725,13 @@ export class FilterRunner {
       async () => {
         await this.runSetup(filter);
 
-        // @TenantScoped: scopes the query. With nothing to scope it by, warns or throws.
-        this.applyTenantScope(FilterClass, qb, adapter, contextAccessor);
+        // @TenantScoped: scopes the query. With nothing to scope it by, warns or throws. A dry run
+        // reports the scope instead: the tenant comes from the live request.
+        if (!dryRun) this.applyTenantScope(FilterClass, qb, adapter, contextAccessor);
 
         // Resolve the (possibly operator-restricting) allowlist once for this run.
         const normalizedAllowed = normalizeAllowed(filterableMeta?.allowed);
-        const throwOnInvalidPolicy = this.resolveThrowOnInvalid(FilterClass);
+        const throwOnInvalidPolicy = dryRun?.strict || this.resolveThrowOnInvalid(FilterClass);
 
         // Drop `where` clauses on blacklisted fields — both the static
         // `@Filterable.blocked` config and any runtime `blacklistMethod` keys
@@ -1517,6 +1531,59 @@ export class FilterRunner {
         }
       }
     }
+  }
+
+  /**
+   * Dry-runs a request against a filter class with no database: the same parse, alias, validation,
+   * allow-list and `@FilterFor` code a request runs, against a query builder and an adapter that
+   * only record calls. Returns what the parser reads, the conditions the request produces (or why it
+   * fails), and what the filter silently drops under its `throwOnInvalid` policy. The
+   * `@TenantScoped` constraint is reported, not applied: the tenant comes from the live request.
+   */
+  async explain<F extends object>(
+    FilterClass: Type<F>,
+    input: Record<string, unknown>,
+    context: FilterContext = {},
+  ): Promise<FilterExplanation> {
+    const prepared = this.prepareInput(input, {});
+    const parsed: ParsedFilterRequest = {
+      where: show(prepared.columnFilters) as unknown[],
+      filter: show(prepared.normalized) as Record<string, unknown>,
+      sort: show(prepared.rawSort),
+      search: show(prepared.rawSearch),
+      include: show(prepared.rawInclude),
+      distinct: show(prepared.rawDistinct),
+      select: show(prepared.rawSelect),
+      paginate: show(prepared.rawPaginate),
+    };
+    const run = async (strict: boolean) => {
+      const conditions: RecordedCondition[] = [];
+      try {
+        await this.apply(FilterClass, input, recordingBuilder(conditions), context, {
+          dryRun: { conditions, strict },
+        });
+        return { conditions, error: undefined };
+      } catch (error) {
+        return { conditions, error: error as unknown };
+      }
+    };
+    const configured = await run(false);
+    let dropped: string | null = null;
+    if (configured.error === undefined && !this.resolveThrowOnInvalid(FilterClass)) {
+      const strict = await run(true);
+      if (strict.error !== undefined) dropped = rejectionOf(strict.error).message;
+    }
+    const scope = getTenantScopedMetadata(FilterClass);
+    return {
+      filter: FilterClass.name,
+      input: show(input) as Record<string, unknown>,
+      parsed,
+      rejected: configured.error !== undefined,
+      rejection: configured.error !== undefined ? rejectionOf(configured.error) : null,
+      dropped,
+      conditions: configured.error === undefined ? configured.conditions : [],
+      tenantScope: scope ? { field: scope.field, required: scope.required === true } : null,
+    };
   }
 
   /**
