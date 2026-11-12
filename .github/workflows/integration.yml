@@ -52,7 +52,7 @@ jobs:
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7.0.0
         with:
-          node-version: 20.20.2
+          node-version: 24.22.2
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter './packages/*' build
@@ -86,7 +86,7 @@ jobs:
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7.0.0
         with:
-          node-version: 20.20.2
+          node-version: 24.22.2
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter './packages/*' build
