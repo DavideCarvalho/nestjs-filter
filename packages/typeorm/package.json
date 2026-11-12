@@ -47,7 +47,7 @@
     "@nestjs/testing": "12.0.3",
     "@nestjs/typeorm": "12.0.3",
     "@types/node": "20.19.43",
-    "better-sqlite3": "11.10.0",
+    "better-sqlite3": "12.11.1",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "typeorm": "0.3.31",
