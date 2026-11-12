@@ -26,7 +26,7 @@
     "format": "biome format --write .",
     "changeset": "changeset",
     "version-packages": "changeset version && node scripts/sync-version.mjs && biome check --write .",
-    "release": "node scripts/sync-version.mjs --check && pnpm --filter './packages/*' build && pnpm check:exports && changeset publish"
+    "release": "node scripts/sync-version.mjs --check && pnpm --filter './packages/*' build && pnpm check:exports && pnpm check:package && changeset publish"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
