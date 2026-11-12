@@ -1,4 +1,4 @@
-export const VERSION = '2.0.0';
+export const VERSION = '2.0.1';
 export { MikroOrmFilter } from './mikro-orm-filter.js';
 export { MikroOrmAdapter } from './mikro-orm.adapter.js';
 export { MikroOrmFilterModule, mikroOrmAdapter } from './module.js';

@@ -1,5 +1,13 @@
 # @dudousxd/nestjs-filter-client
 
+## 2.0.1
+
+### Patch Changes
+
+- [#216](https://github.com/DavideCarvalho/nestjs-filter/pull/216) [`c6c5b8d`](https://github.com/DavideCarvalho/nestjs-filter/commit/c6c5b8d4e99fc35e2ae8239f25586e2940675633) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Require Node.js 24 or newer: `engines.node` is now `>=24` (was `>=20`). CI tests on Node 24 and 26. Nothing else changed: upgrade Node, then the packages.
+
+  > Released as **2.0.1**: `2.0.0` of `@dudousxd/nestjs-filter` and `-mikro-orm` exists on npm from an accidental publish, so this major (Node 24+) ships one patch past it for the whole linked group.
+
 ## 1.37.0
 
 ### Patch Changes

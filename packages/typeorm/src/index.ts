@@ -1,4 +1,4 @@
-export const VERSION = '2.0.0';
+export const VERSION = '2.0.1';
 export { TypeOrmFilter } from './typeorm-filter.js';
 export { TypeOrmAdapter } from './typeorm.adapter.js';
 export { TypeOrmFilterModule, typeOrmAdapter } from './module.js';

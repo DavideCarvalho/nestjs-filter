@@ -1,4 +1,4 @@
-export const VERSION = '0.1.3';
+export const VERSION = '0.2.0';
 export { ClickHouseAdapter } from './clickhouse.adapter.js';
 export type { ClickHouseAdapterOptions } from './clickhouse.adapter.js';
 export { ClickHouseFilter } from './clickhouse-filter.js';
