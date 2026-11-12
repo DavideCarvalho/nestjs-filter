@@ -7,6 +7,7 @@ import { BaseFilter } from '../src/base-filter.js';
 import { ApplyFilter } from '../src/decorator/apply-filter.decorator.js';
 import { FilterFor } from '../src/decorator/filter-for.decorator.js';
 import { Filterable } from '../src/decorator/filterable.decorator.js';
+import { Relations } from '../src/decorator/relations.decorator.js';
 import { TenantScoped } from '../src/decorator/tenant-scoped.decorator.js';
 import {
   DEV_TOOLS_SLOT,
@@ -133,6 +134,70 @@ describe('FilterRunner.explain (dry run)', () => {
     expect(strict.rejection?.message).toMatch(/password/);
     expect(strict.conditions).toEqual([]);
     expect(strict.dropped).toBeNull();
+  });
+
+  it('reports a client sort the filter drops in silence', async () => {
+    const { adapter } = makeAdapter();
+    const runner = await runnerWith(adapter);
+    const result = await runner.explain(UserFilter, decodeQueryString('sort=-password'));
+    expect(result.rejected).toBe(false);
+    expect(result.dropped).toMatch(/password/);
+  });
+
+  it('records a @Relations constraint with the related filter’s conditions nested', async () => {
+    class Post {}
+
+    @Injectable()
+    @Filterable({ entity: Post, autoFields: false })
+    class PostFilter extends BaseFilter<{ andWhere(arg: unknown): unknown }> {
+      @FilterFor()
+      postTitle(value: string) {
+        this.$query.andWhere({ title: value });
+      }
+    }
+
+    @Injectable()
+    @Filterable({ entity: User, autoFields: ['name'] })
+    @Relations({ posts: { filter: PostFilter, keys: ['postTitle'] } })
+    class UserPostsFilter extends BaseFilter<unknown> {}
+
+    const ran: string[] = [];
+    const adapter: FilterAdapter = {
+      createQueryBuilder: () => ({}),
+      getEntityFields: () => fields,
+      getEntityRelations: () => [],
+      applyAutoField: () => ran.push('applyAutoField'),
+      async applyRelationConstraint(_qb, _relation, callback) {
+        ran.push('applyRelationConstraint');
+        await callback({});
+      },
+    };
+    const mod = await Test.createTestingModule({
+      providers: [
+        UserPostsFilter,
+        PostFilter,
+        FilterRunner,
+        { provide: FILTER_MODULE_OPTIONS, useValue: { validation: 'off' } },
+        { provide: FILTER_ADAPTER, useValue: adapter },
+      ],
+    }).compile();
+    const result = await mod
+      .get(FilterRunner)
+      .explain(UserPostsFilter, decodeQueryString('filter[name]=Al&filter[postTitle]=Hello'));
+
+    expect(ran).toEqual([]);
+    expect(result.rejected).toBe(false);
+    expect(result.conditions).toEqual([
+      { via: 'adapter', method: 'applyAutoField', args: ['name', 'Al'] },
+      {
+        via: 'adapter',
+        method: 'applyRelationConstraint',
+        args: [
+          'posts',
+          { conditions: [{ via: 'builder', method: 'andWhere', args: [{ title: 'Hello' }] }] },
+        ],
+      },
+    ]);
   });
 
   it('reports the tenant scope instead of applying it (no tenant in a dry run)', async () => {

@@ -1050,6 +1050,7 @@ export class FilterRunner {
             relationName,
             entries,
             context,
+            dryRun,
           );
         }
         // Process pushed entries (BFS: pushed handlers may push more entries)
@@ -1197,7 +1198,7 @@ export class FilterRunner {
             // this one it never asked for. A narrowed `static sort` allowlist
             // that excludes a projected column must drop the ORDER BY, not turn
             // an otherwise valid distinct request into a 400.
-            sorts.length > 0 ? this.resolveThrowOnInvalid(FilterClass) : false,
+            sorts.length > 0 ? throwOnInvalidPolicy : false,
             computedRegistry,
             autoFieldSet,
           );
@@ -1259,11 +1260,13 @@ export class FilterRunner {
     relationName: string,
     entries: Array<[string, unknown]>,
     context: FilterContext,
+    dryRun?: { conditions: RecordedCondition[]; strict: boolean },
   ): Promise<void> {
     // The RELATED filter's adapter, not the outer one: a relation is constrained through the class
     // that declares it, and that class may name its own backend.
     const adapter = this.resolveAdapter(RelatedFilterClass);
-    if (!adapter?.applyRelationConstraint) {
+    // A dry run with no adapter at all records every call, the relation constraint included.
+    if (!adapter?.applyRelationConstraint && !(dryRun && adapter === null)) {
       this.warnUnsupported(`Relation "${relationName}" provided`, 'applyRelationConstraint');
       return;
     }
@@ -1271,6 +1274,27 @@ export class FilterRunner {
     for (const [key, value] of entries) {
       inputObj[key] = value;
     }
+    if (dryRun) {
+      // Recorded, never run: the related filter's own conditions nest under the constraint.
+      const nested: RecordedCondition[] = [];
+      dryRun.conditions.push({
+        via: 'adapter',
+        method: 'applyRelationConstraint',
+        args: [relationName, { conditions: nested }],
+      });
+      await this.apply(
+        RelatedFilterClass,
+        { filter: inputObj },
+        recordingBuilder(nested),
+        context,
+        {
+          native: true,
+          dryRun: { conditions: nested, strict: dryRun.strict },
+        },
+      );
+      return;
+    }
+    if (!adapter?.applyRelationConstraint) return;
     await adapter.applyRelationConstraint(qb, relationName, async (relationQb: unknown) => {
       await this.apply(RelatedFilterClass, { filter: inputObj }, relationQb, context, {
         native: true,
