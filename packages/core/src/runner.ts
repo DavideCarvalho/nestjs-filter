@@ -1539,6 +1539,8 @@ export class FilterRunner {
    * only record calls. Returns what the parser reads, the conditions the request produces (or why it
    * fails), and what the filter silently drops under its `throwOnInvalid` policy. The
    * `@TenantScoped` constraint is reported, not applied: the tenant comes from the live request.
+   * The filter's own `setup()` and `@FilterFor` methods run as in a request, twice when the strict
+   * pass runs; a method that calls an injected service makes that call.
    */
   async explain<F extends object>(
     FilterClass: Type<F>,

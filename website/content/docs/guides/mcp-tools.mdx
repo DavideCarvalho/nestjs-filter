@@ -23,8 +23,9 @@ Then ask things like *"why does `?name=Al&sort=-age` return every user?"*.
 | `query` | The query string, with or without the leading `?`. |
 
 It runs the query string through the same parsing, alias, validation, allow-list and `@FilterFor`
-code a request does, against a query builder and an adapter that only record calls. It never
-touches the database. It returns:
+code a request does, against a query builder and an adapter that only record calls, so the query
+never reaches the database. Your filter's own code does run as in a request: a `setup()` or
+`@FilterFor` method that calls an injected service makes that call. It returns:
 
 | Field | What it holds |
 | --- | --- |
