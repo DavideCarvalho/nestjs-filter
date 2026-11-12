@@ -1,0 +1,13 @@
+---
+title: Upgrading
+description: What to change in your project when you move to a new major or minor of nestjs-filter.
+icon: CircleArrowUp
+---
+
+## Node.js 24
+
+`@dudousxd/nestjs-filter` 2.x (with `-client`, `-mikro-orm` and `-typeorm`) and the 0.x adapters released alongside it
+(`-clickhouse`, `-codegen`, `-drizzle`, `-memory`, `-react`) require **Node.js 24 or newer**.
+
+Upgrade the Node.js version your app runs on (and builds with), then upgrade the packages. The API did not change.
+Under `engine-strict`, installing on Node 20 or 22 now fails.

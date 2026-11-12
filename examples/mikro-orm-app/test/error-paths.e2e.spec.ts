@@ -150,9 +150,13 @@ describe('mikro-orm example app — error / security paths (e2e)', () => {
 
   // Concurrent requests
   it('concurrent requests with different filters return correct results', async () => {
+    // Listen once first: given an unbound server, supertest calls listen(0) per request, and two
+    // concurrent listen() calls on one server reset a connection on Node 26.
+    const server = app.getHttpServer();
+    if (!server.listening) await new Promise<void>((resolve) => server.listen(0, resolve));
     const [res1, res2] = await Promise.all([
-      request(app.getHttpServer()).get('/users?filter[role]=admin'),
-      request(app.getHttpServer()).get('/users?filter[role]=user'),
+      request(server).get('/users?filter[role]=admin'),
+      request(server).get('/users?filter[role]=user'),
     ]);
 
     expect(res1.status).toBe(200);
