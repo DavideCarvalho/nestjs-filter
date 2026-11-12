@@ -58,10 +58,13 @@ export {
   type DevToolInputProperty,
   type DevToolInputSchema,
   type DevToolsRegistration,
+  type DiscoveredFilter,
   FilterDevTools,
   type FilterDevTool,
   type FilterDevToolsDeps,
+  type IdentifiedFilter,
   filterDevTools,
+  identifyFilters,
   registerFilterDevTools,
 } from './explain/dev-tools.js';
 export {

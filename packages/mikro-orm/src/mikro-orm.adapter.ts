@@ -18,7 +18,7 @@ import {
   valueToColumnFilters,
 } from '@dudousxd/nestjs-filter';
 import { aggregateDistinctAlias, isDateColumnType } from '@dudousxd/nestjs-filter/aggregate';
-import { QueryFlag, type RawQueryFragment, ReferenceKind, raw } from '@mikro-orm/core';
+import { QueryFlag, RawQueryFragment, ReferenceKind, raw } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/sql';
 import type { Type } from '@nestjs/common';
 import { resolveColumnFilters, resolveOperator } from './operator-resolver.js';
@@ -2134,6 +2134,32 @@ export class MikroOrmAdapter implements FilterAdapter {
   async getResult(qb: unknown): Promise<unknown[]> {
     const queryBuilder = qb as { getResultList: () => Promise<unknown[]> };
     return queryBuilder.getResultList();
+  }
+
+  /**
+   * Renders MikroORM values for a dry run (`filter_explain_query`): a `raw()`/`sql` fragment as its
+   * SQL and params, and a condition keyed by `raw()` (a symbol key, invisible to a plain copy) with
+   * the fragment's SQL as the key. Never runs a query.
+   */
+  describeValue(value: unknown): unknown {
+    if (value instanceof RawQueryFragment) return { sql: value.sql, params: value.params };
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    if (typeof RawQueryFragment.isKnownFragmentSymbol !== 'function') return undefined;
+    const symbols = Object.getOwnPropertySymbols(value).filter((key) =>
+      RawQueryFragment.isKnownFragmentSymbol(key),
+    );
+    if (symbols.length === 0) return undefined;
+    const out: Record<string, unknown> = Object.fromEntries(Object.entries(value));
+    for (const key of symbols) {
+      const fragment = RawQueryFragment.getKnownFragment(key);
+      const label = fragment
+        ? fragment.params.length > 0
+          ? `${fragment.sql} ${JSON.stringify(fragment.params)}`
+          : fragment.sql
+        : String(key.description);
+      out[label] = (value as Record<symbol, unknown>)[key];
+    }
+    return out;
   }
 
   getPrimaryKey(entity: Type<unknown>): string | null {

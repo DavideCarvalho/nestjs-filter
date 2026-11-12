@@ -49,8 +49,14 @@ export interface FilterExplanation {
 const MAX_STRING = 200;
 const MAX_ITEMS = 50;
 
+/**
+ * Renders an ORM-native value (a SQL fragment, a column…) readably, or returns `undefined` for a
+ * value it doesn't own. A dry run takes it from the adapter's `describeValue`.
+ */
+export type ValueDescriber = (value: unknown) => unknown;
+
 /** A JSON-safe, size-bounded copy of a recorded argument. */
-export function show(value: unknown, depth = 0): unknown {
+export function show(value: unknown, describe?: ValueDescriber, depth = 0): unknown {
   if (typeof value === 'string') {
     return value.length > MAX_STRING ? `${value.slice(0, MAX_STRING)}…` : value;
   }
@@ -59,33 +65,63 @@ export function show(value: unknown, depth = 0): unknown {
   if (value instanceof Date) return value.toISOString();
   if (value === null || typeof value !== 'object') return value;
   if (depth >= 6) return '…';
-  if (Array.isArray(value)) return value.slice(0, MAX_ITEMS).map((v) => show(v, depth + 1));
+  if (describe) {
+    let described: unknown;
+    try {
+      described = describe(value);
+    } catch {
+      described = undefined;
+    }
+    // The described form may nest more ORM values (a condition object keyed by a raw fragment).
+    if (described !== undefined && described !== value) return show(described, describe, depth + 1);
+  }
+  if (Array.isArray(value))
+    return value.slice(0, MAX_ITEMS).map((v) => show(v, describe, depth + 1));
   const ctor = (value as object).constructor;
   const out: Record<string, unknown> = {};
   if (ctor && ctor !== Object) out.$type = ctor.name;
-  for (const [k, v] of Object.entries(value).slice(0, MAX_ITEMS)) out[k] = show(v, depth + 1);
+  for (const [k, v] of Object.entries(value).slice(0, MAX_ITEMS)) {
+    out[k] = show(v, describe, depth + 1);
+  }
   return out;
 }
 
-/** A query builder that records every call instead of building SQL. */
-export function recordingBuilder(conditions: RecordedCondition[]): unknown {
-  const qb: unknown = new Proxy(
-    {},
-    {
-      get(_target, prop) {
-        if (typeof prop !== 'string' || prop === 'then' || prop === 'toJSON') return undefined;
-        return (...args: unknown[]) => {
-          conditions.push({ via: 'builder', method: prop, args: args.map((a) => show(a)) });
-          return qb;
-        };
-      },
+/** How a dry run's query builder records. */
+export interface RecordingBuilderOptions {
+  /** Renders ORM-native arguments (the adapter's `describeValue`). */
+  describe?: ValueDescriber | undefined;
+  /**
+   * A real query builder to shadow: its properties and getters (`columns`, `table`, `alias`…) are
+   * read from it, so filter code sees real columns; its methods are recorded, never called.
+   */
+  target?: object | undefined;
+}
+
+/** A query builder that records every method call instead of building SQL. */
+export function recordingBuilder(
+  conditions: RecordedCondition[],
+  options: RecordingBuilderOptions = {},
+): unknown {
+  const { describe, target } = options;
+  const qb: unknown = new Proxy(target ?? {}, {
+    get(t, prop) {
+      if (typeof prop !== 'string' || prop === 'then' || prop === 'toJSON') return undefined;
+      if (target && prop in t) {
+        // Getters run against the real builder (private fields need the real receiver).
+        const value = Reflect.get(t, prop, t);
+        if (typeof value !== 'function') return value;
+      }
+      return (...args: unknown[]) => {
+        conditions.push({ via: 'builder', method: prop, args: args.map((a) => show(a, describe)) });
+        return qb;
+      };
     },
-  );
+  });
   return qb;
 }
 
 /** Adapter methods that read metadata only: they run as they are, so field checks stay real. */
-const READ_ONLY = /^(get|resolve|createQueryBuilder$)/;
+const READ_ONLY = /^(get|resolve|createQueryBuilder$|describeValue$)/;
 
 /**
  * The adapter a dry run uses: metadata lookups (`getEntityFields`, `resolveFieldPath`…) go to the
@@ -96,6 +132,7 @@ const READ_ONLY = /^(get|resolve|createQueryBuilder$)/;
 export function recordingAdapter(
   real: FilterAdapter | null,
   conditions: RecordedCondition[],
+  describe?: ValueDescriber,
 ): FilterAdapter {
   const target = (real ?? {}) as Record<string, unknown>;
   return new Proxy(target, {
@@ -108,7 +145,7 @@ export function recordingAdapter(
       if (!prop.startsWith('apply')) return undefined;
       if (real && typeof value !== 'function') return undefined;
       return (_qb: unknown, ...args: unknown[]) => {
-        conditions.push({ via: 'adapter', method: prop, args: args.map((a) => show(a)) });
+        conditions.push({ via: 'adapter', method: prop, args: args.map((a) => show(a, describe)) });
       };
     },
   }) as unknown as FilterAdapter;

@@ -40,6 +40,7 @@ import {
   type FilterExplanation,
   type ParsedFilterRequest,
   type RecordedCondition,
+  type ValueDescriber,
   recordingAdapter,
   recordingBuilder,
   rejectionOf,
@@ -100,6 +101,11 @@ type AutoFieldSet = { has(key: string): boolean };
  * {@link FilterEntity}) has no prototype to borrow, and no `@Computed` methods
  * either, so a bare object stands in.
  */
+/** The adapter's `describeValue`, bound, for rendering a dry run's recorded arguments. */
+function describerOf(adapter: FilterAdapter | null): ValueDescriber | undefined {
+  return adapter?.describeValue ? (value) => adapter.describeValue?.(value) : undefined;
+}
+
 function entityPrototypeOf(entity: FilterEntity): object {
   return typeof entity === 'function' ? Object.create(entity.prototype as object) : {};
 }
@@ -680,7 +686,9 @@ export class FilterRunner {
     const filterableMeta = getFilterableMetadata(FilterClass);
     const resolvedAdapter = this.resolveAdapter(FilterClass, filterableMeta?.entity);
     const dryRun = internal.dryRun;
-    const adapter = dryRun ? recordingAdapter(resolvedAdapter, dryRun.conditions) : resolvedAdapter;
+    const adapter = dryRun
+      ? recordingAdapter(resolvedAdapter, dryRun.conditions, describerOf(resolvedAdapter))
+      : resolvedAdapter;
     // Merges the inline `computed` map and `@Computed` methods into one
     // alias → source registry, resolved once per apply() call.
     const computedRegistry = buildComputedRegistry(FilterClass, filter);
@@ -1285,7 +1293,7 @@ export class FilterRunner {
       await this.apply(
         RelatedFilterClass,
         { filter: inputObj },
-        recordingBuilder(nested),
+        this.dryRunBuilder(RelatedFilterClass, nested),
         context,
         {
           native: true,
@@ -1558,6 +1566,27 @@ export class FilterRunner {
   }
 
   /**
+   * The query builder of a dry run: it shadows a real builder of the filter's entity when the
+   * adapter can make one (so `this.$query.columns`, `.table`, `.alias` read real values), and
+   * records every method call instead of running it. Arguments are rendered by the adapter's
+   * `describeValue`.
+   */
+  private dryRunBuilder(FilterClass: Type<object>, conditions: RecordedCondition[]): unknown {
+    const entity = getFilterableMetadata(FilterClass)?.entity;
+    const adapter = this.resolveAdapter(FilterClass, entity);
+    let target: object | undefined;
+    if (adapter && entity !== undefined) {
+      try {
+        const created = adapter.createQueryBuilder(entity);
+        if (created !== null && typeof created === 'object') target = created;
+      } catch {
+        // No real builder (the ORM isn't ready, a global-context guard…): a plain recorder.
+      }
+    }
+    return recordingBuilder(conditions, { describe: describerOf(adapter), target });
+  }
+
+  /**
    * Dry-runs a request against a filter class with no database: the same parse, alias, validation,
    * allow-list and `@FilterFor` code a request runs, against a query builder and an adapter that
    * only record calls. Returns what the parser reads, the conditions the request produces (or why it
@@ -1585,7 +1614,7 @@ export class FilterRunner {
     const run = async (strict: boolean) => {
       const conditions: RecordedCondition[] = [];
       try {
-        await this.apply(FilterClass, input, recordingBuilder(conditions), context, {
+        await this.apply(FilterClass, input, this.dryRunBuilder(FilterClass, conditions), context, {
           dryRun: { conditions, strict },
         });
         return { conditions, error: undefined };

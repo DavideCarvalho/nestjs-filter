@@ -19,7 +19,7 @@ Then ask things like *"why does `?name=Al&sort=-age` return every user?"*.
 
 | Input | |
 | --- | --- |
-| `name` | The filter class name: `UserFilter`, or `userfilter`, or `user`. |
+| `name` | The filter's id or class name: `UserFilter`, or `userfilter`, or `user`. |
 | `query` | The query string, with or without the leading `?`. |
 
 It runs the query string through the same parsing, alias, validation, allow-list and `@FilterFor`
@@ -30,13 +30,29 @@ never reaches the database. Your filter's own code does run as in a request: a `
 | Field | What it holds |
 | --- | --- |
 | `parsed` | What the server reads from the query: `where` (column filters), `filter` (the structured keys, normalized), `sort`, `search`, `include`, `distinct`, `select`, `paginate`. |
-| `conditions` | The conditions the request produces, in order: adapter calls (`applyColumnFilters`, `applyAutoField`, `applySort`…) and calls your `@FilterFor` methods make on the query builder. |
+| `id` | The filter's id (see below). |
+| `conditions` | The conditions the request produces, in order: adapter calls (`applyColumnFilters`, `applyAutoField`, `applySort`…) and calls your `@FilterFor` methods make on the query builder. The adapter renders its own values: a Drizzle `eq(...)` or `sql` fragment shows as `{ sql, params }` in your database's dialect, a MikroORM `raw()` as its SQL, a TypeORM `Brackets` as the conditions inside it. |
 | `rejected`, `rejection` | Whether the request would fail, with the status and message the client would get. |
 | `dropped` | What the filter ignores in silence under `throwOnInvalid: false`: the message the request would fail with under `throwOnInvalid: true`. `null` when nothing is dropped. |
 | `tenantScope` | The `@TenantScoped` field, when the filter has one. The tenant comes from the live request, so the dry run names the field and doesn't apply it. |
 
+In the dry run, `this.$query` reads properties from a real query builder of the filter's entity, so
+`this.columns.projectId`, `this.$query.table` or `this.$query.alias` hold real values. Its methods
+are recorded, never called.
+
+### Finding a filter
+
 The tool finds filter classes among your providers (`FilterModule.forFeature([...])`) and the
-`@ApplyFilter(...)` routes of your controllers. An unknown name answers with the list it knows.
+`@ApplyFilter(...)` routes of your controllers. Each one has an id:
+
+- its class name, when no other filter has that name;
+- otherwise `Name@Controller.handler`, after the first route that applies it, such as
+  `GeneratedFilter@UsersController.list`;
+- or `Name#1`, `Name#2`… for same-named filters that no route applies.
+
+`name` matches an id first, then a class name. A class name that several filters share (filters a
+factory builds, for example) answers with their ids instead of picking one. An unknown name answers
+with every id.
 
 The same dry run is available from code:
 
@@ -71,6 +87,11 @@ Without `devTools.authorize`, the tool is open outside production and denied in 
 </Callout>
 
 ## Turning it off
+
+`FilterModule` registers the tool whenever it is loaded, even with nothing else configured; the dev
+endpoint's `devTools.authorize` (denied in production by default) decides who reaches it. filter
+logs no boot warning of its own: the dev endpoint already warns once about open dev tools. To leave
+the tool out:
 
 ```ts
 FilterModule.forRoot({ devTools: false });

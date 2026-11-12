@@ -704,6 +704,16 @@ export interface FilterAdapter {
   getPrimaryKey?(entity: FilterEntity): string | null;
 
   /**
+   * Renders an ORM-native value readably for a dry run (`FilterRunner.explain`, the
+   * `filter_explain_query` dev tool): a SQL fragment as its SQL text and params, a column as its
+   * name. Returns `undefined` for anything that isn't the ORM's own, which is then shown as plain
+   * data. Never touches the database.
+   *
+   * Optional — without it, recorded arguments are shown as plain data.
+   */
+  describeValue?(value: unknown): unknown;
+
+  /**
    * Applies a keyset (cursor) WHERE predicate to the query builder for
    * row-value comparison across the keyset columns.
    *

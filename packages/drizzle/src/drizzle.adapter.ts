@@ -18,7 +18,9 @@ import { aggregateDistinctAlias } from '@dudousxd/nestjs-filter/aggregate';
 import { Logger } from '@nestjs/common';
 import {
   Column,
+  Param,
   SQL,
+  StringChunk,
   Table,
   aliasedTable,
   and,
@@ -99,6 +101,34 @@ function totalFromPage(rows: number, limit?: number, offset?: number): number | 
   if (limit != null && rows >= limit) return undefined;
   if (rows === 0 && skipped > 0) return undefined;
   return skipped + rows;
+}
+
+/** A dialect-free rendering of a SQL fragment: literal text, `"column"` names, `?` for params. */
+function plainSql(fragment: SQL, params: unknown[], depth = 0): string {
+  if (depth > 20) return '…';
+  return fragment.queryChunks
+    .map((chunk): string => {
+      if (is(chunk, StringChunk)) return chunk.value.join('');
+      if (is(chunk, SQL)) return plainSql(chunk, params, depth + 1);
+      if (is(chunk, Column)) return `"${getTableName(chunk.table)}"."${chunk.name}"`;
+      if (is(chunk, Table)) return `"${getTableName(chunk)}"`;
+      if (Array.isArray(chunk)) {
+        const items = chunk.map((c: unknown) => {
+          if (is(c, SQL)) return plainSql(c, params, depth + 1);
+          params.push(c);
+          return '?';
+        });
+        return `(${items.join(', ')})`;
+      }
+      if (is(chunk, Param)) {
+        params.push(chunk.value);
+        return '?';
+      }
+      if (chunk !== null && typeof chunk === 'object') return '?';
+      params.push(chunk);
+      return '?';
+    })
+    .join('');
 }
 
 function asQuery(qb: unknown): DrizzleQuery<Table> {
@@ -443,6 +473,35 @@ export class DrizzleAdapter implements FilterAdapter {
     asQuery(qb)
       .limit(size)
       .offset(page * size);
+  }
+
+  /**
+   * Renders drizzle values for a dry run (`filter_explain_query`): a SQL fragment as the dialect's
+   * SQL text and params, a column as its table and name, a table as its name. Never runs a query.
+   */
+  describeValue(value: unknown): unknown {
+    if (is(value, SQL.Aliased)) return { ...this.renderSql(value.sql), as: value.fieldAlias };
+    if (is(value, SQL)) return this.renderSql(value);
+    if (is(value, Column)) return { table: getTableName(value.table), column: value.name };
+    if (is(value, Table)) return { table: getTableName(value) };
+    return undefined;
+  }
+
+  private renderSql(fragment: SQL): { sql: string; params: unknown[] } {
+    const dialect = (this.db as unknown as { dialect?: { sqlToQuery?: unknown } }).dialect;
+    if (dialect && typeof dialect.sqlToQuery === 'function') {
+      try {
+        const query = (dialect.sqlToQuery as (s: SQL) => { sql: string; params: unknown[] }).call(
+          dialect,
+          fragment,
+        );
+        return { sql: query.sql, params: query.params };
+      } catch {
+        // Falls through to the plain rendering.
+      }
+    }
+    const params: unknown[] = [];
+    return { sql: plainSql(fragment, params), params };
   }
 
   getPrimaryKey(entity: FilterEntity): string | null {

@@ -100,25 +100,93 @@ function devToolsSlot(): Partial<DevToolsSlot> {
 
 // ── filter's tools ─────────────────────────────────────────────────────────────
 
+/** A filter class the app uses, with the routes that apply it (`Controller.handler`). */
+export interface DiscoveredFilter {
+  filterClass: Type<object>;
+  routes: string[];
+}
+
 /** What the tools read about this app, at call time. */
 export interface FilterDevToolsDeps {
-  /** The filter classes of this app (`@Filterable` providers and `@ApplyFilter` routes). */
-  filters: () => ReadonlyArray<Type<object>>;
+  /**
+   * The filter classes of this app (`@Filterable` providers and `@ApplyFilter` routes), in a
+   * stable order. A bare class counts as used by no route.
+   */
+  filters: () => ReadonlyArray<DiscoveredFilter | Type<object>>;
   runner: () => FilterRunner;
 }
 
-/** Finds a filter class by its class name (exact, then case-insensitive, then without `Filter`). */
-export function findFilter(
-  filters: ReadonlyArray<Type<object>>,
-  name: string,
-): Type<object> | undefined {
+/** A filter with the id the tools know it by. */
+export interface IdentifiedFilter extends DiscoveredFilter {
+  /**
+   * Unique within the app: the class name when no other filter shares it; otherwise
+   * `Name@Controller.handler` (the first route that applies it), or `Name#n` for a filter no route
+   * applies (n counts the same-named ones in discovery order).
+   */
+  id: string;
+}
+
+/** Gives every filter a unique id (see {@link IdentifiedFilter.id}). */
+export function identifyFilters(
+  filters: ReadonlyArray<DiscoveredFilter | Type<object>>,
+): IdentifiedFilter[] {
+  const entries: DiscoveredFilter[] = filters.map((f) =>
+    typeof f === 'function' ? { filterClass: f, routes: [] } : f,
+  );
+  const sameName = new Map<string, number>();
+  for (const { filterClass } of entries) {
+    sameName.set(filterClass.name, (sameName.get(filterClass.name) ?? 0) + 1);
+  }
+  const taken = new Set<string>();
+  const unrouted = new Map<string, number>();
+  return entries.map((entry) => {
+    const name = entry.filterClass.name || 'AnonymousFilter';
+    let id = name;
+    if ((sameName.get(entry.filterClass.name) ?? 0) > 1) {
+      const route = entry.routes[0];
+      if (route !== undefined) {
+        id = `${name}@${route}`;
+      } else {
+        const n = (unrouted.get(name) ?? 0) + 1;
+        unrouted.set(name, n);
+        id = `${name}#${n}`;
+      }
+    }
+    // Two same-named filters on one route: number the later ones.
+    let unique = id;
+    for (let n = 2; taken.has(unique); n++) unique = `${id}#${n}`;
+    taken.add(unique);
+    return { ...entry, id: unique };
+  });
+}
+
+/** The outcome of {@link findFilter}. */
+export type FilterLookup =
+  | { found: IdentifiedFilter }
+  | { ambiguous: IdentifiedFilter[] }
+  | { missing: true };
+
+/**
+ * Finds a filter by id, then by class name (exact, then case-insensitive, then without `Filter`).
+ * A name more than one filter class carries is ambiguous: the candidates come back instead.
+ */
+export function findFilter(filters: ReadonlyArray<IdentifiedFilter>, name: string): FilterLookup {
   const wanted = name.trim();
   const lower = wanted.toLowerCase();
-  return (
-    filters.find((f) => f.name === wanted) ??
-    filters.find((f) => f.name.toLowerCase() === lower) ??
-    filters.find((f) => f.name.toLowerCase() === `${lower}filter`)
-  );
+  const byId =
+    filters.find((f) => f.id === wanted) ?? filters.find((f) => f.id.toLowerCase() === lower);
+  if (byId) return { found: byId };
+  const matchers: Array<(f: IdentifiedFilter) => boolean> = [
+    (f) => f.filterClass.name === wanted,
+    (f) => f.filterClass.name.toLowerCase() === lower,
+    (f) => f.filterClass.name.toLowerCase() === `${lower}filter`,
+  ];
+  for (const matches of matchers) {
+    const hits = filters.filter(matches);
+    if (hits.length === 1) return { found: hits[0] as IdentifiedFilter };
+    if (hits.length > 1) return { ambiguous: hits };
+  }
+  return { missing: true };
 }
 
 /** The filter dev tools: `filter_explain_query`. */
@@ -137,7 +205,10 @@ export function filterDevTools(deps: FilterDevToolsDeps): FilterDevTool[] {
         properties: {
           name: {
             type: 'string',
-            description: 'The filter class name (e.g. "UserFilter"; "user" also matches).',
+            description:
+              'The filter id or class name (e.g. "UserFilter"; "user" also matches). Filters sharing a ' +
+              'class name have ids like "GeneratedFilter@UsersController.list"; an unknown or ' +
+              'ambiguous name answers with the ids.',
           },
           query: {
             type: 'string',
@@ -148,20 +219,27 @@ export function filterDevTools(deps: FilterDevToolsDeps): FilterDevTool[] {
       },
       async run(input) {
         const name = typeof input.name === 'string' ? input.name : '';
-        const filters = deps.filters();
-        const FilterClass = findFilter(filters, name);
-        if (!FilterClass) {
-          const known = filters.map((f) => f.name).sort();
+        const filters = identifyFilters(deps.filters());
+        const lookup = findFilter(filters, name);
+        if ('ambiguous' in lookup) {
+          throw new Error(
+            `"${name}" names ${lookup.ambiguous.length} filters. Pass one of these ids: ${lookup.ambiguous.map((f) => f.id).join(', ')}.`,
+          );
+        }
+        if ('missing' in lookup) {
+          const known = filters.map((f) => f.id).sort();
           throw new Error(
             `No filter named "${name}". Known filters: ${known.length > 0 ? known.join(', ') : '(none)'}.`,
           );
         }
+        const { id, filterClass: FilterClass } = lookup.found;
         const query = typeof input.query === 'string' ? input.query : '';
         const decoded = decodeQueryString(query);
         // The request as the interceptor sees it on a GET (`source: 'auto'` reads the query).
-        return deps
+        const explanation = await deps
           .runner()
           .explain(FilterClass, decoded, { req: { method: 'GET', query: decoded } });
+        return { id, ...explanation };
       },
     },
   ];
@@ -198,13 +276,18 @@ export function registerFilterDevTools(deps: FilterDevToolsDeps): {
   }
 }
 
-/** Every `@Filterable` class the app registers as a provider or applies on a route. */
-export function discoverFilters(modules: ModulesContainer): Array<Type<object>> {
-  const found = new Set<Type<object>>();
-  const consider = (candidate: unknown) => {
-    if (typeof candidate === 'function' && getFilterableMetadata(candidate)) {
-      found.add(candidate as Type<object>);
+/** Every `@Filterable` class the app registers as a provider or applies on a route, with its routes. */
+export function discoverFilters(modules: ModulesContainer): DiscoveredFilter[] {
+  const found = new Map<Type<object>, string[]>();
+  const consider = (candidate: unknown, route?: string) => {
+    if (typeof candidate !== 'function' || !getFilterableMetadata(candidate)) return;
+    const filterClass = candidate as Type<object>;
+    let routes = found.get(filterClass);
+    if (!routes) {
+      routes = [];
+      found.set(filterClass, routes);
     }
+    if (route !== undefined && !routes.includes(route)) routes.push(route);
   };
   for (const module of modules.values()) {
     for (const wrapper of module.providers.values()) consider(wrapper.metatype);
@@ -213,11 +296,13 @@ export function discoverFilters(modules: ModulesContainer): Array<Type<object>> 
       if (!controller?.prototype) continue;
       for (const key of Object.getOwnPropertyNames(controller.prototype)) {
         if (key === 'constructor') continue;
-        for (const entry of getApplyFilterMetadata(controller, key)) consider(entry.filterClass);
+        for (const entry of getApplyFilterMetadata(controller, key)) {
+          consider(entry.filterClass, `${controller.name}.${key}`);
+        }
       }
     }
   }
-  return [...found];
+  return [...found].map(([filterClass, routes]) => ({ filterClass, routes }));
 }
 
 /** Registers the filter dev tools at module init and removes them at module destroy. */

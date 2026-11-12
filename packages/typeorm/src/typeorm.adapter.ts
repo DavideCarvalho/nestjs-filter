@@ -18,8 +18,10 @@ import {
   type DataSource,
   type EntityMetadata,
   In,
+  NotBrackets,
   type ObjectLiteral,
   type SelectQueryBuilder,
+  type WhereExpressionBuilder,
 } from 'typeorm';
 import { applyColumnFiltersTypeOrm, applyOperator } from './operator-resolver.js';
 
@@ -949,6 +951,29 @@ export class TypeOrmAdapter implements FilterAdapter {
 
   async getResult(qb: unknown): Promise<unknown[]> {
     return (qb as SelectQueryBuilder<ObjectLiteral>).getMany();
+  }
+
+  /**
+   * Renders TypeORM values for a dry run (`filter_explain_query`): `Brackets` / `NotBrackets`
+   * as the conditions their factory adds, instead of an opaque function. Never runs a query.
+   */
+  describeValue(value: unknown): unknown {
+    if (!(value instanceof Brackets)) return undefined;
+    const conditions: Array<{ method: string; args: unknown[] }> = [];
+    const recorder: unknown = new Proxy(
+      {},
+      {
+        get(_target, prop) {
+          if (typeof prop !== 'string' || prop === 'then') return undefined;
+          return (...args: unknown[]) => {
+            conditions.push({ method: prop, args });
+            return recorder;
+          };
+        },
+      },
+    );
+    value.whereFactory(recorder as WhereExpressionBuilder);
+    return value instanceof NotBrackets ? { notBrackets: conditions } : { brackets: conditions };
   }
 
   getPrimaryKey(entity: Type<unknown>): string | null {

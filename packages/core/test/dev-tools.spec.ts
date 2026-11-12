@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Controller, Get, Injectable, Module } from '@nestjs/common';
+import { Controller, Get, Injectable, Module, type Type } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { EntityFieldInfo, FilterAdapter } from '../src/adapter/adapter.js';
@@ -12,7 +12,9 @@ import { TenantScoped } from '../src/decorator/tenant-scoped.decorator.js';
 import {
   DEV_TOOLS_SLOT,
   type FilterDevTool,
+  filterDevTools,
   findFilter,
+  identifyFilters,
   registerFilterDevTools,
 } from '../src/explain/dev-tools.js';
 import { decodeQueryString } from '../src/explain/explain.js';
@@ -60,9 +62,10 @@ class StrictUserFilter extends BaseFilter<unknown> {}
 @Filterable({ entity: User, autoFields: ['name'] })
 class OrgUserFilter extends BaseFilter<unknown> {}
 
-async function runnerWith(adapter: FilterAdapter) {
+async function runnerWith(adapter: FilterAdapter, extra: Array<Type<object>> = []) {
   const mod = await Test.createTestingModule({
     providers: [
+      ...extra,
       UserFilter,
       StrictUserFilter,
       OrgUserFilter,
@@ -107,6 +110,41 @@ describe('FilterRunner.explain (dry run)', () => {
       method: 'applyAutoField',
       args: ['name', 'Al'],
     });
+  });
+
+  it('reads real builder properties, records its methods, and renders ORM values', async () => {
+    class Expr {
+      constructor(
+        readonly text: string,
+        readonly params: unknown[],
+      ) {}
+    }
+    const calls: string[] = [];
+    const realBuilder = {
+      columns: { age: { columnName: 'age' } },
+      andWhere: () => calls.push('andWhere'),
+    };
+    const { adapter } = makeAdapter();
+    adapter.createQueryBuilder = () => realBuilder;
+    adapter.describeValue = (value) =>
+      value instanceof Expr ? { sql: value.text, params: value.params } : undefined;
+
+    @Injectable()
+    @Filterable({ entity: User, autoFields: false })
+    class ColumnFilter extends BaseFilter<typeof realBuilder> {
+      @FilterFor('minAge')
+      minAge(value: string) {
+        const column = this.$query.columns.age;
+        this.$query.andWhere(new Expr(`${column.columnName} >= ?`, [Number(value)]) as never);
+      }
+    }
+    const runner = await runnerWith(adapter, [ColumnFilter]);
+    const result = await runner.explain(ColumnFilter, decodeQueryString('minAge=18'));
+    expect(result.rejected).toBe(false);
+    expect(result.conditions).toEqual([
+      { via: 'builder', method: 'andWhere', args: [{ sql: 'age >= ?', params: [18] }] },
+    ]);
+    expect(calls).toEqual([]);
   });
 
   it('shows that bare keys next to `sort` are not read as filters', async () => {
@@ -263,11 +301,73 @@ describe('filter_explain_query dev tool', () => {
   });
 
   it('matches names exactly, case-insensitively, and without the Filter suffix', () => {
-    const filters = [UserFilter, StrictUserFilter];
-    expect(findFilter(filters, 'UserFilter')).toBe(UserFilter);
-    expect(findFilter(filters, 'userfilter')).toBe(UserFilter);
-    expect(findFilter(filters, 'StrictUser')).toBe(StrictUserFilter);
-    expect(findFilter(filters, 'nope')).toBeUndefined();
+    const filters = identifyFilters([UserFilter, StrictUserFilter]);
+    const found = (name: string) => {
+      const lookup = findFilter(filters, name);
+      return 'found' in lookup ? lookup.found.filterClass : lookup;
+    };
+    expect(found('UserFilter')).toBe(UserFilter);
+    expect(found('userfilter')).toBe(UserFilter);
+    expect(found('StrictUser')).toBe(StrictUserFilter);
+    expect(found('nope')).toEqual({ missing: true });
+  });
+
+  it('gives same-named filters unique ids and refuses the ambiguous name', async () => {
+    // A factory builds every filter under one class name.
+    const make = (field: string) => {
+      @Injectable()
+      @Filterable({ entity: User, autoFields: [field] })
+      class GeneratedFilter extends BaseFilter<unknown> {}
+      return GeneratedFilter;
+    };
+    const [a, b, c, d] = [make('name'), make('age'), make('email'), make('name')];
+    const ids = identifyFilters([
+      { filterClass: a, routes: ['UsersController.list'] },
+      { filterClass: b, routes: ['PostsController.list', 'PostsController.export'] },
+      { filterClass: c, routes: [] },
+      d,
+    ]).map((f) => f.id);
+    expect(ids).toEqual([
+      'GeneratedFilter@UsersController.list',
+      'GeneratedFilter@PostsController.list',
+      'GeneratedFilter#1',
+      'GeneratedFilter#2',
+    ]);
+    // Two same-named filters on one route still get distinct ids.
+    expect(
+      identifyFilters([
+        { filterClass: a, routes: ['R.x'] },
+        { filterClass: b, routes: ['R.x'] },
+      ]).map((f) => f.id),
+    ).toEqual(['GeneratedFilter@R.x', 'GeneratedFilter@R.x#2']);
+
+    const { adapter } = makeAdapter();
+    const runner = await runnerWith(adapter, [a, b]);
+    const [tool] = filterDevTools({
+      filters: () => [
+        { filterClass: a, routes: ['UsersController.list'] },
+        { filterClass: b, routes: ['PostsController.list'] },
+        UserFilter,
+      ],
+      runner: () => runner,
+    });
+    await expect(tool?.run({ name: 'GeneratedFilter', query: '' })).rejects.toThrow(
+      '"GeneratedFilter" names 2 filters. Pass one of these ids: GeneratedFilter@UsersController.list, GeneratedFilter@PostsController.list.',
+    );
+    await expect(tool?.run({ name: 'generated', query: '' })).rejects.toThrow(/names 2 filters/);
+    await expect(tool?.run({ name: 'Nope', query: '' })).rejects.toThrow(
+      'Known filters: GeneratedFilter@PostsController.list, GeneratedFilter@UsersController.list, UserFilter.',
+    );
+    const out = (await tool?.run({
+      name: 'GeneratedFilter@PostsController.list',
+      query: 'age=3',
+    })) as { id: string; conditions: unknown[] };
+    expect(out.id).toBe('GeneratedFilter@PostsController.list');
+    expect(out.conditions).toContainEqual({
+      via: 'adapter',
+      method: 'applyAutoField',
+      args: ['age', '3'],
+    });
   });
 });
 
