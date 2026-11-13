@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import type { FilterAdapter } from '../../src/adapter/adapter.js';
@@ -263,6 +263,21 @@ describe('FilterRunner with column filters', () => {
         qb,
       ),
     ).rejects.toThrow(/Unknown filter operator/);
+  });
+
+  it('answers a malformed where[] clause with a 400, not a 500', async () => {
+    const runner = (await makeModule(makeAdapter())).get(FilterRunner);
+    for (const clause of [
+      { field: 'name', operator: 'eq', value: 1 },
+      { field: 'name; drop', operator: 'equals', value: 1 },
+      { field: 'name', operator: 'between', value: [1] },
+    ]) {
+      const failure = await runner
+        .apply(UserFilter, { filter: { where: [clause] } }, makeMockQB())
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(BadRequestException);
+      expect((failure as BadRequestException).getStatus()).toBe(400);
+    }
   });
 
   it('does not treat non-array where as column filters', async () => {

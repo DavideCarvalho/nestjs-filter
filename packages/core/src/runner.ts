@@ -55,6 +55,7 @@ import { parseSpatieInput } from './input/spatie-parser.js';
 import { validateInput } from './input/validator.js';
 import type { ColumnFilter, FilterOperator } from './operators/types.js';
 import {
+  InvalidColumnFilterError,
   isValidFieldPath,
   normalizeOperator,
   validateColumnFilters,
@@ -264,6 +265,20 @@ export class FilterRunner {
    */
   private badRequest(key: FilterMessageKey, args?: Record<string, unknown>): BadRequestException {
     return new BadRequestException(filterMessage(this.i18n, key, args));
+  }
+
+  /**
+   * {@link validateColumnFilters} for client input: a malformed clause (an unknown operator, a bad
+   * field path, a missing value) is the client's mistake, so it surfaces as a 400 with the
+   * validator's message rather than a 500.
+   */
+  private validateClientFilters(filters: ColumnFilter[]): void {
+    try {
+      validateColumnFilters(filters);
+    } catch (error) {
+      if (error instanceof InvalidColumnFilterError) throw new BadRequestException(error.message);
+      throw error;
+    }
   }
 
   /**
@@ -802,7 +817,7 @@ export class FilterRunner {
             throwOnInvalidPolicy,
           );
           if (opAllowed.length > 0) {
-            validateColumnFilters(opAllowed);
+            this.validateClientFilters(opAllowed);
             adapter.applyColumnFilters(qb, opAllowed, filterableMeta?.entity);
           }
         } else if (plainColumnFilters.length > 0 && !adapter?.applyColumnFilters) {
@@ -817,7 +832,7 @@ export class FilterRunner {
               throwOnInvalidPolicy,
             );
             if (opAllowed.length > 0) {
-              validateColumnFilters(opAllowed);
+              this.validateClientFilters(opAllowed);
               for (const clause of opAllowed) {
                 // `applyComputedField` takes the STRUCTURED operator-object
                 // form (it re-expands it through `valueToColumnFilters`
@@ -1043,7 +1058,7 @@ export class FilterRunner {
               // Same three gates, in the same order, as the `where[]` path above:
               // operator allowlist, then the SQL-safe field-path grammar, then the
               // adapter. A sub-path must not be a way around either policy.
-              validateColumnFilters(jsonFilters);
+              this.validateClientFilters(jsonFilters);
               adapter.applyColumnFilters(qb as unknown, jsonFilters, filterableMeta.entity);
             }
             continue;
@@ -1824,7 +1839,7 @@ export class FilterRunner {
         throwOnInvalid,
       );
       if (knownFilters.length > 0) {
-        validateColumnFilters(knownFilters);
+        this.validateClientFilters(knownFilters);
         adapter.applyColumnFilters(qb, knownFilters, entity);
       }
     } else if (columnFilters.length > 0 && !adapter?.applyColumnFilters) {
@@ -1876,7 +1891,7 @@ export class FilterRunner {
               adapter.resolveFieldPath(entity, key) === 'json'
             ) {
               const jsonFilters = this.valueToColumnFilters(key, value);
-              validateColumnFilters(jsonFilters);
+              this.validateClientFilters(jsonFilters);
               adapter.applyColumnFilters(qb as unknown, jsonFilters, entity);
             }
           } else if (fieldNames.has(key)) {
