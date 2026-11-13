@@ -282,6 +282,17 @@ export class FilterRunner {
   }
 
   /**
+   * {@link validateClientFilters} for an aggregate clause (`posts.$count`), whose `$` path the
+   * column grammar would reject: the operator and value are checked under a placeholder field, and
+   * the canonical clause (aliases resolved) comes back under its own field.
+   */
+  private validateAggregateClause(clause: ColumnFilter): ColumnFilter {
+    const checked: ColumnFilter = { ...clause, field: 'aggregate' };
+    this.validateClientFilters([checked]);
+    return { ...checked, field: clause.field };
+  }
+
+  /**
    * Soft-detects the current-request context accessor owned by
    * `@dudousxd/nestjs-context`. Prefers the value injected into this module;
    * falls back to a non-strict {@link ModuleRef} lookup so an accessor provided
@@ -876,7 +887,11 @@ export class FilterRunner {
               // is enforced at the point of use.
               const aggregatePath = parseAggregatePath(field);
               if (!aggregatePath) continue;
-              adapter.applyAggregateField(qb as unknown, aggregatePath, clause);
+              adapter.applyAggregateField(
+                qb as unknown,
+                aggregatePath,
+                this.validateAggregateClause(clause),
+              );
             }
           } else {
             this.warnUnsupported(
@@ -973,7 +988,11 @@ export class FilterRunner {
               );
               if (filtered !== undefined) {
                 for (const columnFilter of this.valueToColumnFilters(key, filtered)) {
-                  adapter.applyAggregateField(qb as unknown, aggregatePath, columnFilter);
+                  adapter.applyAggregateField(
+                    qb as unknown,
+                    aggregatePath,
+                    this.validateAggregateClause(columnFilter),
+                  );
                 }
               }
             } else {

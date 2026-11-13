@@ -280,6 +280,21 @@ describe('FilterRunner with column filters', () => {
     }
   });
 
+  it('keeps the validator message on the 400, in dynamic mode too', async () => {
+    const runner = (await makeModule(makeAdapter())).get(FilterRunner);
+    const where = [{ field: 'name', operator: 'eq', value: 1 }];
+    const failures = [
+      await runner.apply(UserFilter, { filter: { where } }, makeMockQB()).catch((e: unknown) => e),
+      await runner
+        .applyDynamic(FakeEntity, { filter: { where } }, makeMockQB())
+        .catch((e: unknown) => e),
+    ];
+    for (const failure of failures) {
+      expect(failure).toBeInstanceOf(BadRequestException);
+      expect((failure as BadRequestException).message).toMatch(/Unknown filter operator "eq"/);
+    }
+  });
+
   it('does not treat non-array where as column filters', async () => {
     const adapter = makeAdapter();
     const mod = await makeModule(adapter);
