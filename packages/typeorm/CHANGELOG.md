@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter-typeorm
 
+## 2.1.0
+
+### Minor Changes
+
+- [#221](https://github.com/DavideCarvalho/nestjs-filter/pull/221) [`f616987`](https://github.com/DavideCarvalho/nestjs-filter/commit/f6169874f268e4fd6e84cbd95dd4a7c3b0a4b724) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Add the optional `FilterAdapter.describeValue(value)`, which renders an ORM value readably for a dry run. The Drizzle adapter renders SQL fragments as the dialect's SQL text and params, and columns and tables by name. MikroORM renders `raw()` / `sql` fragments, including conditions keyed by `raw()`. TypeORM renders `Brackets` / `NotBrackets` as the conditions they add. In a dry run, `this.$query` reads properties such as `columns`, `table` and `alias` from a real query builder.
+
 ## 2.0.1
 
 ### Patch Changes

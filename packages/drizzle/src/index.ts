@@ -1,4 +1,4 @@
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 export { DrizzleFilter } from './drizzle-filter.js';
 export { DrizzleAdapter, detectDialect } from './drizzle.adapter.js';
 export type { DrizzleAdapterOptions } from './drizzle.adapter.js';
