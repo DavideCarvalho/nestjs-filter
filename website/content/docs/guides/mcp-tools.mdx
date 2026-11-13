@@ -1,0 +1,98 @@
+---
+title: MCP dev tools
+description: Let a coding agent dry-run a query string against one of your filters, with no database, over the Aviary dev MCP endpoint.
+icon: Terminal
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+When the app also mounts `@dudousxd/nestjs-agent-mcp-server`, `FilterModule` adds a read-only tool
+to its Aviary dev MCP endpoint (`/mcp/aviary` by default). Connect your agent to it:
+
+```bash
+claude mcp add --transport http aviary http://localhost:3000/mcp/aviary
+```
+
+Then ask things like *"why does `?name=Al&sort=-age` return every user?"*.
+
+## `filter_explain_query`
+
+| Input | |
+| --- | --- |
+| `name` | The filter's id or class name: `UserFilter`, or `userfilter`, or `user`. |
+| `query` | The query string, with or without the leading `?`. |
+
+It runs the query string through the same parsing, alias, validation, allow-list and `@FilterFor`
+code a request does, against a query builder and an adapter that only record calls, so the query
+never reaches the database. Your filter's own code does run as in a request: a `setup()` or
+`@FilterFor` method that calls an injected service makes that call. It returns:
+
+| Field | What it holds |
+| --- | --- |
+| `parsed` | What the server reads from the query: `where` (column filters), `filter` (the structured keys, normalized), `sort`, `search`, `include`, `distinct`, `select`, `paginate`. |
+| `id` | The filter's id (see below). |
+| `conditions` | The conditions the request produces, in order: adapter calls (`applyColumnFilters`, `applyAutoField`, `applySort`…) and calls your `@FilterFor` methods make on the query builder. The adapter renders its own values: a Drizzle `eq(...)` or `sql` fragment shows as `{ sql, params }` in your database's dialect, a MikroORM `raw()` as its SQL, a TypeORM `Brackets` as the conditions inside it. |
+| `rejected`, `rejection` | Whether the request would fail, with the status and message the client would get. |
+| `dropped` | What the filter ignores in silence under `throwOnInvalid: false`: the message the request would fail with under `throwOnInvalid: true`. `null` when nothing is dropped. |
+| `tenantScope` | The `@TenantScoped` field, when the filter has one. The tenant comes from the live request, so the dry run names the field and doesn't apply it. |
+
+In the dry run, `this.$query` reads properties from a real query builder of the filter's entity, so
+`this.columns.projectId`, `this.$query.table` or `this.$query.alias` hold real values. Its methods
+are recorded, never called.
+
+### Finding a filter
+
+The tool finds filter classes among your providers (`FilterModule.forFeature([...])`) and the
+`@ApplyFilter(...)` routes of your controllers. Each one has an id:
+
+- its class name, when no other filter has that name;
+- otherwise `Name@Controller.handler`, after the first route that applies it, such as
+  `GeneratedFilter@UsersController.list`;
+- or `Name#1`, `Name#2`… for same-named filters that no route applies.
+
+`name` matches an id first, then a class name. A class name that several filters share (filters a
+factory builds, for example) answers with their ids instead of picking one. An unknown name answers
+with every id.
+
+The same dry run is available from code:
+
+```ts
+import { decodeQueryString, FilterRunner } from '@dudousxd/nestjs-filter';
+
+const why = await runner.explain(UserFilter, decodeQueryString('filter[email]=x&sort=-name'));
+why.rejected;   // true or false
+why.conditions; // [{ via: 'adapter', method: 'applyAutoField', args: ['email', …] }, …]
+```
+
+## Who may call it
+
+filter has no console, so it registers its tool without a gate of its own. The dev endpoint's
+`devTools.authorize` decides:
+
+```ts
+AgentMcpServerModule.forRoot({
+  devTools: {
+    authorize: (context) => /* the same forms a console's authorize accepts */,
+  },
+});
+```
+
+Without `devTools.authorize`, the tool is open outside production and denied in production.
+
+<Callout type="warn">
+  The tool needs an `@dudousxd/nestjs-agent-mcp-server` release with endpoint-level
+  `devTools.authorize`. filter registers without an `authorize` and stays out of a hub that reports
+  it cannot gate libs without a console. Earlier releases refuse a lib that has no `authorize`, so
+  the tool doesn't show up there; upgrade to get it.
+</Callout>
+
+## Turning it off
+
+`FilterModule` registers the tool whenever it is loaded, even with nothing else configured; the dev
+endpoint's `devTools.authorize` (denied in production by default) decides who reaches it. filter
+logs no boot warning of its own: the dev endpoint already warns once about open dev tools. To leave
+the tool out:
+
+```ts
+FilterModule.forRoot({ devTools: false });
+```

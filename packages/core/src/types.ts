@@ -284,6 +284,12 @@ export interface FilterAdapterDescriptor {
 
 export interface FilterModuleOptions {
   /**
+   * Register the `filter_explain_query` MCP dev tool on the Aviary dev endpoint
+   * (`@dudousxd/nestjs-agent-mcp-server`), gated by that endpoint's `devTools.authorize`. Default
+   * `true`; `false` leaves it out.
+   */
+  devTools?: boolean;
+  /**
    * The ORM adapter, e.g. `mikroOrmAdapter` from
    * `@dudousxd/nestjs-filter-mikro-orm`. Preferred over importing the adapter's
    * own module: it keeps a single provider for the adapter token, so there is
