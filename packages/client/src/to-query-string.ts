@@ -104,6 +104,10 @@ export function filterQueryToQueryString(query: Partial<FilterQueryResult>): str
   if (query.paginate) {
     parts.push(flatObjectToQueryString({ paginate: query.paginate }));
   }
+  for (const key of ['after', 'before', 'first', 'last'] as const) {
+    const value = query[key];
+    if (value !== undefined) parts.push(`${key}=${encode(value)}`);
+  }
   return parts.filter(Boolean).join('&');
 }
 

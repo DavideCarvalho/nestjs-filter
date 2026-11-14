@@ -61,6 +61,7 @@ Full documentation: **[davidecarvalho.github.io/nestjs-filter](https://davidecar
 - **`runner.describe(entity)`** -- metadata-derived field + one-hop relation map (memoized) for dynamic UIs / generic endpoints
 - **`runner.findAndCount(entity, input)`** -- runs + executes a dynamic query with **pagination-safe** to-many relation loading
 - **`FilterRunner.apply()`** for programmatic use in services
+- **List API helpers** -- `parsePageParams` / `parseCursorParams` / `resolveSort` read `page`+`size`, `after`/`before`+`first`/`last` and `sort` (400 via `ListQueryError` on bad input); `offsetPage` / `cursorPage` / `cursorPageFrom` build the `{ data, meta }` response. The client mirrors them with `.after()`/`.before()`/`.first()`/`.last()`, `OffsetPage<T>` / `CursorPageResponse<T>` and next-page helpers
 - **`FilterTestingModule` + `makeMockQueryBuilder`** for isolated unit tests
 - **`FilterExceptionFilter`** maps validation errors to 400 responses
 - **Input normalization** (camelCase, snake_case, or custom)

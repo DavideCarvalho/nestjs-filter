@@ -207,6 +207,10 @@ export interface TypedFilterQueryBuilder<
   include(...relations: string[]): this;
   search(term: string): this;
   page(page: number, size?: number): this;
+  after(cursor: string, first?: number): this;
+  before(cursor: string, last?: number): this;
+  first(size: number): this;
+  last(size: number): this;
   or(callback: (builder: TypedFilterQueryBuilder<Fields, M, K>) => void): this;
   and(callback: (builder: TypedFilterQueryBuilder<Fields, M, K>) => void): this;
   set(key: string, value: unknown): this;
