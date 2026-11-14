@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter-client
 
+## 2.2.0
+
+### Minor Changes
+
+- [#225](https://github.com/DavideCarvalho/nestjs-filter/pull/225) [`cb7f60a`](https://github.com/DavideCarvalho/nestjs-filter/commit/cb7f60a77bac5bc90e3f5629ae7185fea39c4657) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Cursor paging on the builder: `.after(cursor, first?)`, `.before(cursor, last?)`, `.first(n)` and `.last(n)`, sent as `after`/`before`/`first`/`last` and mutually exclusive with `.page()` (the last call wins). New response types `OffsetPage<T>`, `OffsetPageMeta`, `CursorPageResponse<T>`, `CursorPageMeta`, and the `nextOffsetPageParam` / `prevOffsetPageParam` / `nextCursorPageParam` / `prevCursorPageParam` helpers for TanStack Query's `getNextPageParam`.
+
 ## 2.0.1
 
 ### Patch Changes
