@@ -5,7 +5,7 @@ description: >
   Covers filterQuery() chaining — where(field, op, value), the where(field, value) shorthand
   (scalar auto-equals, array auto-in), convenience methods (equals/contains/in/between/gte/
   isNull...), accumulating add() for ranges, or()/and() groups, set()/include()/search()/
-  sort()/page() envelope keys, and the .build() result { filter: { where: [...] }, ... } plus
+  sort()/page()/after()/before()/first()/last() envelope keys, and the .build() result { filter: { where: [...] }, ... } plus
   .toQueryString() / .toFlatObject(). Also covers filterQueryTyped<Fields, Types>() for
   compile-time field/operator/value checking, and the payload types — UnpagedFilterQuery (the
   query minus paging, for exports/counts/cache keys) and ColumnFilterClause (a predicate or a
@@ -102,10 +102,13 @@ Source: `packages/client/src/filter-query-builder.ts` (`or`, `and`, `build`)
 ### 3. Envelope keys and serialization
 
 `set(key, value)` adds top-level extras (e.g. `page`/`size` for auto-fields), and
-`include()` / `search()` / `sort()` / `distinct()` / `extent()` / `page()` populate the
+`include()` / `search()` / `sort()` / `distinct()` / `extent()` / `page()` / `after()` /
+`before()` / `first()` / `last()` populate the
 structured envelope — `extent('cost', 'completedAt')` asks for each field's `MIN`/`MAX` over
 the filtered set (a range control sizing itself), and is variadic because the server measures
-every named field in one query. `.build()` returns the JSON object; `.toQueryString()` serializes to a
+every named field in one query. Offset (`.page()`) and cursor (`.after()` / `.before()` /
+`.first()` / `.last()`, sent as `after` / `before` / `first` / `last`) paging are mutually
+exclusive: the last call wins. `.build()` returns the JSON object; `.toQueryString()` serializes to a
 `filter[...]`-bracketed GET string; `.toFlatObject()` emits `{ field: value }` for the
 auto-fields path (groups are not representable flat).
 
@@ -119,7 +122,7 @@ const qs = filterQuery()
 const res = await fetch(`/api/users?${qs}`);
 ```
 
-Source: `packages/client/src/filter-query-builder.ts` (`set`, `include`, `search`, `sort`, `page`, `toQueryString`, `toFlatObject`)
+Source: `packages/client/src/filter-query-builder.ts` (`set`, `include`, `search`, `sort`, `page`, `after`, `before`, `first`, `last`, `toQueryString`, `toFlatObject`)
 
 ### 4. `filterQueryTyped<Fields, Types, Kinds>()` for compile-time safety
 
@@ -166,14 +169,15 @@ Source: `packages/client/src/typed-filter-query-builder.ts`
 `build()` returns `FilterQueryResult`. When you need the same query **without** the paging
 window — a CSV/report export where the server owns the page size, a count-only request, a
 prefetch, a cache key — annotate it `UnpagedFilterQuery`, the base `FilterQueryResult`
-extends. Every envelope key survives; only `paginate` is absent.
+extends. Every envelope key survives; only the paging keys are absent (`paginate` plus
+`after` / `before` / `first` / `last`).
 
 ```typescript
 import type { UnpagedFilterQuery } from '@dudousxd/nestjs-filter-client';
 
 function exportBody(query: UnpagedFilterQuery) { /* server decides the slice */ }
 
-const { paginate, ...unpaged } = filterQuery().contains('name', 'fleet').page(0, 25).build();
+const { paginate, after, before, first, last, ...unpaged } = filterQuery().contains('name', 'fleet').page(0, 25).build();
 exportBody(unpaged);
 ```
 
@@ -197,7 +201,7 @@ Source: `packages/client/src/filter-query-builder.ts` (`UnpagedFilterQuery`),
 
 ## Common mistakes
 
-### Writing `Omit<FilterQueryResult, 'paginate'>` for the un-paged query
+### Writing `Omit<FilterQueryResult, 'paginate' | 'after' | ...>` for the un-paged query
 
 `FilterQueryResult` ends in `[key: string]: unknown` so `set()` extras survive. `Omit`
 rebuilds a type from `keyof`, which for an index-signature type is just `string | number`,
@@ -206,7 +210,7 @@ accepted, and no error to warn you. Use the exported `UnpagedFilterQuery`.
 
 ```typescript
 // Wrong — collapses to { [x: string]: unknown }; `filtre` typechecks
-type ExportBody = Omit<FilterQueryResult, 'paginate'>;
+type ExportBody = Omit<FilterQueryResult, 'paginate' | 'after' | 'before' | 'first' | 'last'>;
 
 // Correct
 import type { UnpagedFilterQuery } from '@dudousxd/nestjs-filter-client';
@@ -219,7 +223,7 @@ new envelope key cannot go missing from it. Source:
 ### Expecting `.build()` to return `{ where: [...] }` at the top level
 
 `build()` nests the conditions under `filter`. The result is
-`{ filter: { where: [...] }, include?, search?, sort?, distinct?, extent?, paginate?, ...extra }`.
+`{ filter: { where: [...] }, include?, search?, sort?, distinct?, extent?, paginate?, after?, before?, first?, last?, ...extra }`.
 Reading `result.where` (instead of `result.filter.where`) is `undefined`.
 
 ```typescript
