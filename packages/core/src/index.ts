@@ -152,6 +152,7 @@ export {
   offsetPage,
   parseCursorParams,
   parsePageParams,
+  rejectUnknownParams,
   resolveSort,
 } from './pagination/list-api.js';
 export type {
