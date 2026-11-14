@@ -1,5 +1,11 @@
 # @dudousxd/nestjs-filter
 
+## 2.1.1
+
+### Patch Changes
+
+- [#224](https://github.com/DavideCarvalho/nestjs-filter/pull/224) [`8fc7ad7`](https://github.com/DavideCarvalho/nestjs-filter/commit/8fc7ad7d434a2830501be387468b31c5af7fe213) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - A malformed `where[]` clause from the client (an unknown operator such as `eq`, an invalid field path, a missing or wrongly shaped value) now answers `400 Bad Request` with the validator's message, instead of a `500`. Aggregate clauses (`posts.$count`, in `where[]` or as a filter key) are checked the same way. `validateColumnFilters` itself still throws `InvalidColumnFilterError` when you call it directly.
+
 ## 2.1.0
 
 ### Minor Changes
