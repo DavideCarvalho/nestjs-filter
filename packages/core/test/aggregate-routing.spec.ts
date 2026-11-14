@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import type { FilterAdapter } from '../src/adapter/adapter.js';
@@ -151,5 +151,41 @@ describe('aggregate path routing (core)', () => {
     const qb = makeMockQB();
     await runner.apply(AggregateFilter, { filter: {}, sort: '-name' }, qb);
     expect(qb.calls).toEqual([['andWhere', { $sort: [{ field: 'name', direction: 'desc' }] }]]);
+  });
+
+  it('answers a malformed aggregate clause with a 400, structured or in where[]', async () => {
+    const runner = (await makeModule(makeAdapter())).get(FilterRunner);
+    const inputs = [
+      { filter: { where: [{ field: 'posts.$count', operator: 'eq', value: 1 }] } },
+      { filter: { where: [{ field: 'posts.$count', operator: 'between', value: [1] }] } },
+      { filter: { 'posts.$count': { between: [1] } } },
+    ];
+    for (const input of inputs) {
+      const failure = await runner
+        .apply(AggregateFilter, input, makeMockQB())
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(BadRequestException);
+    }
+  });
+
+  it('hands the adapter the canonical operator of an aliased aggregate clause', async () => {
+    const runner = (await makeModule(makeAdapter())).get(FilterRunner);
+    const qb = makeMockQB();
+    await runner.apply(
+      AggregateFilter,
+      { filter: { where: [{ field: 'posts.$count', operator: '>', value: 2 }] } },
+      qb,
+    );
+    expect(qb.calls).toEqual([
+      [
+        'andWhere',
+        {
+          $aggregateField: {
+            aggregate: { relation: 'posts', fn: 'count' },
+            filter: { field: 'posts.$count', operator: 'gt', value: 2 },
+          },
+        },
+      ],
+    ]);
   });
 });

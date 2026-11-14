@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import type { FilterAdapter } from '../../src/adapter/adapter.js';
@@ -263,6 +263,36 @@ describe('FilterRunner with column filters', () => {
         qb,
       ),
     ).rejects.toThrow(/Unknown filter operator/);
+  });
+
+  it('answers a malformed where[] clause with a 400, not a 500', async () => {
+    const runner = (await makeModule(makeAdapter())).get(FilterRunner);
+    for (const clause of [
+      { field: 'name', operator: 'eq', value: 1 },
+      { field: 'name; drop', operator: 'equals', value: 1 },
+      { field: 'name', operator: 'between', value: [1] },
+    ]) {
+      const failure = await runner
+        .apply(UserFilter, { filter: { where: [clause] } }, makeMockQB())
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(BadRequestException);
+      expect((failure as BadRequestException).getStatus()).toBe(400);
+    }
+  });
+
+  it('keeps the validator message on the 400, in dynamic mode too', async () => {
+    const runner = (await makeModule(makeAdapter())).get(FilterRunner);
+    const where = [{ field: 'name', operator: 'eq', value: 1 }];
+    const failures = [
+      await runner.apply(UserFilter, { filter: { where } }, makeMockQB()).catch((e: unknown) => e),
+      await runner
+        .applyDynamic(FakeEntity, { filter: { where } }, makeMockQB())
+        .catch((e: unknown) => e),
+    ];
+    for (const failure of failures) {
+      expect(failure).toBeInstanceOf(BadRequestException);
+      expect((failure as BadRequestException).message).toMatch(/Unknown filter operator "eq"/);
+    }
   });
 
   it('does not treat non-array where as column filters', async () => {
