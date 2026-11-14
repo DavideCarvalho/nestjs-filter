@@ -24,6 +24,18 @@ export interface OffsetPagination {
 }
 
 /**
+ * Cursor (keyset) pagination parameters: `after` / `before` are the opaque cursors a cursor-paged
+ * response returns in `meta.nextCursor` / `meta.prevCursor`; `first` / `last` are page sizes
+ * (forward / backward).
+ */
+export interface CursorPagination {
+  after?: string;
+  before?: string;
+  first?: number;
+  last?: number;
+}
+
+/**
  * A single already-resolved filter triple for {@link FilterQueryBuilder.fromFilters}.
  * Unlike a vanilla TanStack `{ id, value }` (where the operator is inferred), the
  * operator here was chosen by application code — a filter dropdown, a saved view,
@@ -120,6 +132,11 @@ export interface UnpagedFilterQuery {
  */
 export interface FilterQueryResult extends UnpagedFilterQuery {
   paginate?: OffsetPagination;
+  /** Cursor paging, set by `.after()` / `.before()` / `.first()` / `.last()`. */
+  after?: string;
+  before?: string;
+  first?: number;
+  last?: number;
 }
 
 /**
@@ -137,6 +154,7 @@ export class FilterQueryBuilder {
   private extentFields: string[] = [];
   private groupByCountSpec: GroupByCountSpec | undefined;
   private pagination: OffsetPagination | undefined;
+  private cursor: CursorPagination | undefined;
 
   // ─── Reactivity (framework-agnostic store contract) ──────────────────────
   // The builder doubles as an observable store so framework adapters
@@ -371,6 +389,7 @@ export class FilterQueryBuilder {
     this.extentFields = [];
     this.groupByCountSpec = undefined;
     this.pagination = undefined;
+    this.cursor = undefined;
     this.notify();
     return this;
   }
@@ -702,19 +721,106 @@ export class FilterQueryBuilder {
   }
 
   /**
-   * Sets offset-based pagination.
+   * Sets offset-based pagination. `toQueryString()` sends it as `page=…&size=…`; `build()` puts
+   * it in `paginate`. Replaces any cursor pagination.
    *
-   * @param page - Zero-based page number.
+   * The number is sent as given. An Aviary list endpoint (`parsePageParams`) reads `page` as
+   * **1-based**; the runner's structured `paginate` input is zero-based.
+   *
+   * @param page - Page number, in the base the endpoint expects.
    * @param size - Number of records per page (default 25).
    *
    * @example
-   * filterQuery().page(0, 25).build()
-   * // → { ..., paginate: { page: 0, size: 25 } }
+   * filterQuery().page(1, 25).toQueryString()
+   * // → 'page=1&size=25'
    */
   page(page: number, size = 25): this {
     this.pagination = { page, size };
+    this.cursor = undefined;
     this.notify();
     return this;
+  }
+
+  // ─── Cursor pagination ──────────────────────────────────────────────────
+  //
+  // An endpoint pages either by offset (`page`) or by cursor (`after`/`before` + `first`/`last`),
+  // never both, so the two styles are mutually exclusive on the builder: whichever was set last
+  // wins. `page()` drops every cursor param; any cursor method drops `page`/`size`. Inside the
+  // cursor style, `after` and `before` replace each other, and so do `first` and `last`.
+
+  /**
+   * Requests the page after `cursor` (a `meta.nextCursor`), optionally with a forward page size.
+   * Sent as `after=…` (and `first=…`). Replaces any `before` cursor and any `page()` pagination.
+   *
+   * @throws TypeError when `cursor` is not a non-empty string.
+   * @throws RangeError when `first` is given and is not an integer of at least 1.
+   *
+   * @example
+   * filterQuery().after(meta.nextCursor, 50).toQueryString()
+   * // → 'after=…&first=50'
+   */
+  after(cursor: string, first?: number): this {
+    this.setCursor('after', cursor, first === undefined ? undefined : ['first', first]);
+    return this;
+  }
+
+  /**
+   * Requests the page before `cursor` (a `meta.prevCursor`), optionally with a backward page
+   * size. Sent as `before=…` (and `last=…`). Replaces any `after` cursor and any `page()`
+   * pagination.
+   *
+   * @throws TypeError when `cursor` is not a non-empty string.
+   * @throws RangeError when `last` is given and is not an integer of at least 1.
+   */
+  before(cursor: string, last?: number): this {
+    this.setCursor('before', cursor, last === undefined ? undefined : ['last', last]);
+    return this;
+  }
+
+  /**
+   * Sets the cursor page size when paging forward (`after`, or the first page). Sent as
+   * `first=…`. Replaces any `last` size and any `page()` pagination.
+   *
+   * @throws RangeError when `size` is not an integer of at least 1.
+   */
+  first(size: number): this {
+    this.setCursor(undefined, undefined, ['first', size]);
+    return this;
+  }
+
+  /**
+   * Sets the cursor page size when paging backward (`before`). Sent as `last=…`. Replaces any
+   * `first` size and any `page()` pagination.
+   *
+   * @throws RangeError when `size` is not an integer of at least 1.
+   */
+  last(size: number): this {
+    this.setCursor(undefined, undefined, ['last', size]);
+    return this;
+  }
+
+  private setCursor(
+    key: 'after' | 'before' | undefined,
+    cursor: string | undefined,
+    size: ['first' | 'last', number] | undefined,
+  ): void {
+    if (key !== undefined && (typeof cursor !== 'string' || cursor.length === 0)) {
+      throw new TypeError(`${key} must be a non-empty cursor string, got ${String(cursor)}`);
+    }
+    if (size !== undefined && (!Number.isInteger(size[1]) || size[1] < 1)) {
+      throw new RangeError(`${size[0]} must be an integer >= 1, got ${size[1]}`);
+    }
+    const next: CursorPagination = {};
+    const prev = this.cursor ?? {};
+    if (key !== undefined && cursor !== undefined) next[key] = cursor;
+    else if (prev.after !== undefined) next.after = prev.after;
+    else if (prev.before !== undefined) next.before = prev.before;
+    if (size !== undefined) next[size[0]] = size[1];
+    else if (prev.first !== undefined) next.first = prev.first;
+    else if (prev.last !== undefined) next.last = prev.last;
+    this.cursor = next;
+    this.pagination = undefined;
+    this.notify();
   }
 
   // ─── Reactivity ───────────────────────────────────────────────────────────
@@ -839,6 +945,9 @@ export class FilterQueryBuilder {
     if (this.pagination !== undefined) {
       result.paginate = { ...this.pagination };
     }
+    if (this.cursor !== undefined) {
+      Object.assign(result, this.cursor);
+    }
     return result;
   }
 
@@ -899,6 +1008,14 @@ export class FilterQueryBuilder {
     if (this.pagination !== undefined) {
       parts.push(`page=${encodeURIComponent(String(this.pagination.page))}`);
       parts.push(`size=${encodeURIComponent(String(this.pagination.size))}`);
+    }
+
+    // Build cursor pagination
+    if (this.cursor !== undefined) {
+      for (const key of ['after', 'before', 'first', 'last'] as const) {
+        const value = this.cursor[key];
+        if (value !== undefined) parts.push(`${key}=${encodeURIComponent(String(value))}`);
+      }
     }
 
     // Build extra keys

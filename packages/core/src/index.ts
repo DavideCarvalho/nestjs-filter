@@ -145,6 +145,29 @@ export {
   extractCursorValues,
 } from './pagination/cursor.js';
 export type { CursorValues } from './pagination/cursor.js';
+export {
+  ListQueryError,
+  cursorPage,
+  cursorPageFrom,
+  offsetPage,
+  parseCursorParams,
+  parsePageParams,
+  resolveSort,
+} from './pagination/list-api.js';
+export type {
+  CursorPageInit,
+  CursorPageMeta,
+  CursorPageResponse,
+  CursorParamsOptions,
+  OffsetPage,
+  OffsetPageInit,
+  OffsetPageMeta,
+  PageParams,
+  PageSizeOptions,
+  ParsedCursorParams,
+  ResolveSortOptions,
+  ResolvedSortItem,
+} from './pagination/list-api.js';
 export type {
   ColumnFilter,
   FilterOperator,

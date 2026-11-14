@@ -88,6 +88,27 @@ Client-facing messages (this one and the runner's 400s) are translated through
 `filter.*` keys; merge `@dudousxd/nestjs-filter/i18n/en.json` / `pt-BR.json` into your catalogs. Missing
 keys stay in English. See the Controllers guide ("Translated messages").
 
+### List API helpers
+
+Request parsing and `{ data, meta }` envelopes for the Aviary HTTP list convention. Every
+rejection is a `ListQueryError` (extends `BadRequestException`, so Nest answers 400).
+
+- **`parsePageParams(query, { defaultSize?, maxSize? })`** → `{ page, size, offset }`. `page` is 1-based (default 1); `size` over `maxSize` is clamped; junk, `0` or negatives → 400.
+- **`parseCursorParams(query, { defaultSize?, maxSize?, decode? })`** → `{ after?, before?, size, backward, decoded? }`. Reads `after`/`before` + `first`/`last`; both cursors, bad sizes, or a cursor `decode` refuses → 400.
+- **`resolveSort(query.sort, { sortable, default? })`** → `{ field, direction }[]`. `-field` is descending; a field outside `sortable` → 400.
+- **`offsetPage(rows, { total, page, size })`** → `{ data, meta: { total, perPage, currentPage, lastPage, firstPage } }`.
+- **`cursorPage(rows, { nextCursor?, prevCursor?, hasNext?, hasPrev? })`** and **`cursorPageFrom(await runner.findPage(...), map?)`** → `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }`.
+- Types: `OffsetPage<T>`, `OffsetPageMeta`, `CursorPageResponse<T>`, `CursorPageMeta`.
+
+```ts
+const { page, size, offset } = parsePageParams(query, { defaultSize: 50, maxSize: 200 });
+const sort = resolveSort(query.sort, { sortable: ['createdAt', 'name'], default: '-createdAt' });
+const [rows, total] = await repo.findAndCount({ sort, offset, limit: size });
+return offsetPage(rows, { total, page, size });
+```
+
+See the Cursor Pagination guide ("List API helpers") for the cursor flow.
+
 ### Testing (from `@dudousxd/nestjs-filter/testing`)
 
 - **`FilterTestingModule`** -- `forRoot(options?)` and `forFeature(filters)`. Defaults to `validation: 'off'`.

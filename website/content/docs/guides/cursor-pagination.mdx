@@ -246,6 +246,7 @@ export class FeedService {
   <Tab value="Controller">
 ```ts
 import { Controller, Get, Query } from '@nestjs/common';
+import { cursorPageFrom } from '@dudousxd/nestjs-filter';
 import { FeedService } from './feed.service.js';
 
 @Controller('feed')
@@ -256,17 +257,109 @@ export class FeedController {
   @Get()
   async list(@Query() query: Record<string, unknown>) {
     const page = await this.feed.page(query);
-    return {
-      data: page.items,
-      pageInfo: {
-        endCursor: page.nextCursor,
-        startCursor: page.prevCursor,
-        hasNextPage: page.hasNext,
-        hasPreviousPage: page.hasPrev,
-      },
-    };
+    // → { data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }
+    return cursorPageFrom(page);
   }
 }
 ```
   </Tab>
 </Tabs>
+
+---
+
+## List API helpers
+
+Aviary HTTP list endpoints share one wire format and one response envelope. Core exports the
+helpers that read the request and build the response, so an endpoint does not hand-roll them.
+They work with any store, not only `findPage`.
+
+| Concern | Request | Helper |
+| ------- | ------- | ------ |
+| Offset paging | `page` (1-based, default 1) + `size` (default per endpoint, over the cap → clamped) | `parsePageParams(query, { defaultSize, maxSize })` → `{ page, size, offset }` |
+| Cursor paging | `after` / `before` (opaque) + `first` / `last` (sizes, capped) | `parseCursorParams(query, { defaultSize, maxSize, decode? })` → `{ after?, before?, size, backward, decoded? }` |
+| Sort | `sort=-createdAt,name` | `resolveSort(query.sort, { sortable, default })` → `{ field, direction }[]` |
+
+Responses:
+
+```jsonc
+// offsetPage(rows, { total, page, size })
+{ "data": [], "meta": { "total": 120, "perPage": 50, "currentPage": 1, "lastPage": 3, "firstPage": 1 } }
+
+// cursorPage(rows, { nextCursor, prevCursor }) or cursorPageFrom(await runner.findPage(...))
+{ "data": [], "meta": { "nextCursor": "eyJ…", "prevCursor": null, "hasNext": true, "hasPrev": false } }
+```
+
+Every rejection is a `ListQueryError`, which extends `BadRequestException`, so Nest answers **400**
+with no extra wiring:
+
+- `page`, `size`, `first` or `last` that is not a whole number of at least 1 (`size` over `maxSize` is
+  clamped, not rejected);
+- both `after` and `before`, or a cursor that `decode` refuses (returns `null` or throws);
+- a sort field outside `sortable`.
+
+```ts
+import { Controller, Get, Query } from '@nestjs/common';
+import {
+  FilterRunner,
+  cursorPageFrom,
+  decodeCursor,
+  offsetPage,
+  parseCursorParams,
+  parsePageParams,
+  resolveSort,
+} from '@dudousxd/nestjs-filter';
+
+@Controller('posts')
+export class PostsController {
+  constructor(private readonly runner: FilterRunner) {}
+
+  // GET /posts?sort=-createdAt&after=<cursor>&first=20
+  @Get('feed')
+  async feed(@Query() query: Record<string, unknown>) {
+    const { after, before, size, backward } = parseCursorParams(query, {
+      defaultSize: 20,
+      maxSize: 100,
+      decode: decodeCursor, // a malformed cursor becomes a 400 instead of page 1
+    });
+    const sort = resolveSort(query.sort, { sortable: ['createdAt', 'title'], default: '-createdAt' });
+    const page = await this.runner.findPage(Post, {
+      sort,
+      paginate: backward ? { before, last: size } : { after, first: size },
+    });
+    return cursorPageFrom(page);
+  }
+
+  // GET /posts?page=2&size=50&sort=title
+  @Get()
+  async list(@Query() query: Record<string, unknown>) {
+    const { page, size, offset } = parsePageParams(query, { defaultSize: 50, maxSize: 200 });
+    const sort = resolveSort(query.sort, { sortable: ['createdAt', 'title'], default: '-createdAt' });
+    const [rows, total] = await this.posts.findAndCount({ sort, offset, limit: size });
+    return offsetPage(rows, { total, page, size });
+  }
+}
+```
+
+On the client, `@dudousxd/nestjs-filter-client` has the matching response types (`OffsetPage<T>`,
+`CursorPageResponse<T>`), cursor methods on the builder, and next-page helpers for TanStack Query's
+`getNextPageParam`:
+
+```ts
+import { filterQuery, nextCursorPageParam, type CursorPageResponse } from '@dudousxd/nestjs-filter-client';
+
+filterQuery().sortDesc('createdAt').after(meta.nextCursor, 20).toQueryString();
+// → 'sort=-createdAt&after=eyJ…&first=20'
+
+useInfiniteQuery({
+  queryKey: ['posts'],
+  initialPageParam: undefined as string | undefined,
+  queryFn: ({ pageParam }): Promise<CursorPageResponse<Post>> =>
+    fetchPosts(pageParam ? filterQuery().after(pageParam, 20) : filterQuery().first(20)),
+  getNextPageParam: nextCursorPageParam,
+});
+```
+
+`nextOffsetPageParam` / `prevOffsetPageParam` do the same for offset pages, and `.page(page, size)`
+serializes as `page=…&size=…`. The builder sends the number as given, so pass a 1-based page to a
+list endpoint.
+

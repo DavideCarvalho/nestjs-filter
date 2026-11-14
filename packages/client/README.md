@@ -69,7 +69,7 @@ const qs = filterQuery()
 const qs = filterQuery()
   .contains('name', 'fleet')
   .gte('createdAt', '2026-01-01')
-  .set('page', 1)
+  .page(1, 25)
   .toQueryString();
 
 const res = await fetch(`/api/users?${qs}`);
@@ -109,7 +109,10 @@ const res = await fetch('/api/users', {
 | `startsWith` / `endsWith` | String match shorthands |
 | `or(callback)` | OR group |
 | `and(callback)` | AND group |
-| `set(key, value)` | Add extra keys (e.g. page, size) |
+| `page(page, size?)` | Offset paging, sent as `page=…&size=…` (list endpoints are 1-based) |
+| `after(cursor, first?)` / `before(cursor, last?)` | Cursor paging, sent as `after=…&first=…` / `before=…&last=…` |
+| `first(n)` / `last(n)` | Cursor page size forward / backward |
+| `set(key, value)` | Add extra keys |
 | `build()` | Returns `FilterQueryResult` object |
 | `toQueryString()` | Returns URL query string |
 | `toFlatObject()` | Returns flat object for auto-fields |
@@ -119,10 +122,39 @@ const res = await fetch('/api/users', {
 | Type | What it is |
 |---|---|
 | `FilterQueryResult` | What `build()` returns: the whole envelope, paging included |
-| `UnpagedFilterQuery` | The same envelope **without** `paginate` — `FilterQueryResult` extends it |
+| `UnpagedFilterQuery` | The same envelope **without** the paging keys (`paginate`, `after`/`before`/`first`/`last`) — `FilterQueryResult` extends it |
+| `OffsetPage<T>` / `OffsetPageMeta` | An offset list response: `{ data, meta: { total, perPage, currentPage, lastPage, firstPage } }` |
+| `CursorPageResponse<T>` / `CursorPageMeta` | A cursor list response: `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }` |
 | `ColumnFilter` | One predicate: `field` + `operator` (+ `value`) |
 | `ColumnFilterGroup` | A pure boolean group: `{ OR: [...] }` / `{ AND: [...] }`, no field, no operator |
 | `ColumnFilterClause` | `ColumnFilter \| ColumnFilterGroup` — what one entry of `filter.where` may be |
+
+### Paging a list endpoint
+
+An endpoint pages by offset **or** by cursor, so `page()` and the cursor methods replace each
+other: whichever was called last wins. `after`/`before` replace each other, and so do
+`first`/`last`.
+
+```typescript
+filterQuery().page(2, 50).toQueryString();                // → 'page=2&size=50'
+filterQuery().after(meta.nextCursor, 20).toQueryString(); // → 'after=eyJ…&first=20'
+filterQuery().before(meta.prevCursor, 20).toQueryString(); // → 'before=eyJ…&last=20'
+```
+
+`nextOffsetPageParam` / `prevOffsetPageParam` and `nextCursorPageParam` / `prevCursorPageParam`
+read a response's `meta` and return the next (previous) page or cursor, or `undefined` at the
+end, which is the contract of TanStack Query's `getNextPageParam`:
+
+```typescript
+import { filterQuery, nextOffsetPageParam, type OffsetPage } from '@dudousxd/nestjs-filter-client';
+
+useInfiniteQuery({
+  queryKey: ['users'],
+  initialPageParam: 1,
+  queryFn: ({ pageParam }): Promise<OffsetPage<User>> => fetchUsers(filterQuery().page(pageParam, 50)),
+  getNextPageParam: nextOffsetPageParam,
+});
+```
 
 ### `UnpagedFilterQuery` — the query minus the page
 

@@ -24,4 +24,8 @@ export type TypedFilterQuery<
     search?: string;
   };
   paginate?: { page: number; size: number };
+  after?: string;
+  before?: string;
+  first?: number;
+  last?: number;
 };

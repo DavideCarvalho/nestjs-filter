@@ -36,15 +36,15 @@ describe('UnpagedFilterQuery', () => {
     expectTypeOf<UnpagedFilterQuery['extent']>().toEqualTypeOf<string[] | undefined>();
   });
 
-  it('differs from FilterQueryResult by exactly `paginate`', () => {
+  it('differs from FilterQueryResult by exactly the paging keys', () => {
     // The lockstep guard: add a key to one and not the other and this fails.
     // Without it the two shapes drift the first time the envelope grows a key.
+    // Paging is `paginate` (offset) or `after`/`before`/`first`/`last` (cursor).
+    type PagingKeys = 'paginate' | 'after' | 'before' | 'first' | 'last';
     expectTypeOf<NamedKeys<FilterQueryResult>>().toEqualTypeOf<
-      NamedKeys<UnpagedFilterQuery> | 'paginate'
+      NamedKeys<UnpagedFilterQuery> | PagingKeys
     >();
-    expectTypeOf<
-      'paginate' extends NamedKeys<UnpagedFilterQuery> ? true : false
-    >().toEqualTypeOf<false>();
+    expectTypeOf<Extract<PagingKeys, NamedKeys<UnpagedFilterQuery>>>().toEqualTypeOf<never>();
   });
 
   it('still carries the open envelope, so `set()` extras survive', () => {
