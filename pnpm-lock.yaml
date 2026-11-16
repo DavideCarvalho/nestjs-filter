@@ -67,7 +67,7 @@ importers:
         version: 0.15.1
       drizzle-orm:
         specifier: 0.45.4
-        version: 0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.2)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7)
+        version: 0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.8)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7)
       reflect-metadata:
         specifier: 0.2.2
         version: 0.2.2
@@ -88,14 +88,14 @@ importers:
         specifier: 20.19.43
         version: 20.19.43
       '@types/supertest':
-        specifier: 6.0.3
-        version: 6.0.3
+        specifier: 7.2.1
+        version: 7.2.1
       express:
         specifier: 4.22.3
         version: 4.22.3
       supertest:
-        specifier: 7.2.2
-        version: 7.2.2
+        specifier: 7.3.2
+        version: 7.3.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -158,14 +158,14 @@ importers:
         specifier: 20.19.43
         version: 20.19.43
       '@types/supertest':
-        specifier: 6.0.3
-        version: 6.0.3
+        specifier: 7.2.1
+        version: 7.2.1
       express:
         specifier: 4.22.3
         version: 4.22.3
       supertest:
-        specifier: 7.2.2
-        version: 7.2.2
+        specifier: 7.3.2
+        version: 7.3.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -222,14 +222,14 @@ importers:
         specifier: 20.19.43
         version: 20.19.43
       '@types/supertest':
-        specifier: 6.0.3
-        version: 6.0.3
+        specifier: 7.2.1
+        version: 7.2.1
       express:
         specifier: 4.22.3
         version: 4.22.3
       supertest:
-        specifier: 7.2.2
-        version: 7.2.2
+        specifier: 7.3.2
+        version: 7.3.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -289,7 +289,7 @@ importers:
         version: 12.11.1
       drizzle-orm:
         specifier: 0.45.4
-        version: 0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.2)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7)
+        version: 0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.8)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7)
       mysql2:
         specifier: 3.24.6
         version: 3.24.6(@types/node@20.19.43)
@@ -362,7 +362,7 @@ importers:
         version: 0.15.1
       drizzle-orm:
         specifier: 0.45.4
-        version: 0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.2)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7)
+        version: 0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.8)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7)
       pg:
         specifier: 8.23.1
         version: 8.23.1
@@ -386,8 +386,8 @@ importers:
         specifier: 8.23.1
         version: 8.23.1
       '@types/supertest':
-        specifier: 6.0.3
-        version: 6.0.3
+        specifier: 7.2.1
+        version: 7.2.1
       better-sqlite3:
         specifier: 12.11.1
         version: 12.11.1
@@ -395,8 +395,8 @@ importers:
         specifier: 4.22.3
         version: 4.22.3
       supertest:
-        specifier: 7.2.2
-        version: 7.2.2
+        specifier: 7.3.2
+        version: 7.3.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -459,14 +459,14 @@ importers:
         specifier: 20.19.43
         version: 20.19.43
       '@types/supertest':
-        specifier: 6.0.3
-        version: 6.0.3
+        specifier: 7.2.1
+        version: 7.2.1
       express:
         specifier: 4.22.3
         version: 4.22.3
       supertest:
-        specifier: 7.2.2
-        version: 7.2.2
+        specifier: 7.3.2
+        version: 7.3.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -529,14 +529,14 @@ importers:
         specifier: 20.19.43
         version: 20.19.43
       '@types/supertest':
-        specifier: 6.0.3
-        version: 6.0.3
+        specifier: 7.2.1
+        version: 7.2.1
       express:
         specifier: 4.22.3
         version: 4.22.3
       supertest:
-        specifier: 7.2.2
-        version: 7.2.2
+        specifier: 7.3.2
+        version: 7.3.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -593,14 +593,14 @@ importers:
         specifier: 20.19.43
         version: 20.19.43
       '@types/supertest':
-        specifier: 6.0.3
-        version: 6.0.3
+        specifier: 7.2.1
+        version: 7.2.1
       express:
         specifier: 4.22.3
         version: 4.22.3
       supertest:
-        specifier: 7.2.2
-        version: 7.2.2
+        specifier: 7.3.2
+        version: 7.3.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -657,14 +657,14 @@ importers:
         specifier: 20.19.43
         version: 20.19.43
       '@types/supertest':
-        specifier: 6.0.3
-        version: 6.0.3
+        specifier: 7.2.1
+        version: 7.2.1
       express:
         specifier: 4.22.3
         version: 4.22.3
       supertest:
-        specifier: 7.2.2
-        version: 7.2.2
+        specifier: 7.3.2
+        version: 7.3.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -770,8 +770,8 @@ importers:
         specifier: 20.19.43
         version: 20.19.43
       '@types/supertest':
-        specifier: 6.0.3
-        version: 6.0.3
+        specifier: 7.2.1
+        version: 7.2.1
       class-transformer:
         specifier: 0.5.1
         version: 0.5.1
@@ -788,8 +788,8 @@ importers:
         specifier: 7.8.2
         version: 7.8.2
       supertest:
-        specifier: 7.2.2
-        version: 7.2.2
+        specifier: 7.3.2
+        version: 7.3.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -810,7 +810,7 @@ importers:
         version: 12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/drizzle':
         specifier: 0.0.2
-        version: 0.0.2(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(drizzle-orm@0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.2)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7))(reflect-metadata@0.2.2)
+        version: 0.0.2(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(drizzle-orm@0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.8)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7))(reflect-metadata@0.2.2)
       '@nestjs/testing':
         specifier: 12.0.3
         version: 12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3))
@@ -828,7 +828,7 @@ importers:
         version: 12.11.1
       drizzle-orm:
         specifier: 0.45.4
-        version: 0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.2)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7)
+        version: 0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.8)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7)
       mysql2:
         specifier: 3.24.6
         version: 3.24.6(@types/node@20.19.43)
@@ -3034,8 +3034,8 @@ packages:
   '@types/superagent@8.1.10':
     resolution: {integrity: sha512-nbt4IWXABhW0jGmmpRzCFNlbmwCTzZ2gTUsNIr+X+ItdqPms+PAJZbWsNzpS2USqXjcoNLQcO6nXo60zcPQiIg==}
 
-  '@types/supertest@6.0.3':
-    resolution: {integrity: sha512-8WzXq62EXFhJ7QsH3Ocb/iKQ/Ty9ZVWnVzoTKc9tyyFRRF3a74Tk2+TLFgaFFw364Ere+npzHKEJ6ga2LzIL7w==}
+  '@types/supertest@7.2.1':
+    resolution: {integrity: sha512-4CbBvoYVLHL7+yhbYrZET0vsvuyXTC05aRe7dNQkwMzm56auceoy6Yu3K50uZmwfHna1os3CMSgM/3QVkUtPTw==}
 
   '@types/unist@2.0.11':
     resolution: {integrity: sha512-CmBKiL6NNo/OqgmMn95Fk9Whlp2mtvIv+KNpQKN2F4SjvrEesubTRWGYSg+BnWZOnlCaSTU1sMpsBOzgbYhnsA==}
@@ -4175,6 +4175,10 @@ packages:
     resolution: {integrity: sha512-8RipRLol37bNs2bhoV67fiTEvdTrbMUYcFTiy3+wuuOnUog2QBHCZWXDRijWQfAkhBj2Uf5UnVaiWwA5vdd82w==}
     engines: {node: '>= 6'}
 
+  form-data@4.0.6:
+    resolution: {integrity: sha512-vKatAh4SlVfgbv+YtmhiRjhEMJsYpsG1Y2rMQtR+SVSbytsSD1YGzDIcrAJmdFec88u/+VoGmxnl+80gL1tRCQ==}
+    engines: {node: '>= 6'}
+
   formidable@3.5.4:
     resolution: {integrity: sha512-YikH+7CUTOtP44ZTnUhR7Ic2UASBPOqmaRkRKxRbywPTe5VxF7RRCck4af9wutiZ/QKM5nME9Bie2fFaPz5Gug==}
     engines: {node: '>=14.0.0'}
@@ -4427,6 +4431,10 @@ packages:
     resolution: {integrity: sha512-ej4AhfhfL2Q2zpMmLo7U1Uv9+PyhIZpgQLGT1F9miIGmiCJIoCgSmczFdrc97mWT4kVY72KA+WnnhJ5pghSvSg==}
     engines: {node: '>= 0.4'}
 
+  hasown@2.0.4:
+    resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
+    engines: {node: '>= 0.4'}
+
   hast-util-from-parse5@8.0.3:
     resolution: {integrity: sha512-3kxEVkEKt0zvcZ3hCRYI8rqrgwtlIOFMWkbclACvjlDw8Li9S2hk/d51OI0nr/gIpdMHNepwgOKqZ/sy0Clpyg==}
 
@@ -4669,10 +4677,6 @@ packages:
 
   jsonfile@4.0.0:
     resolution: {integrity: sha512-m6F1R3z8jjlf2imQHS2Qez5sjKWQzbuuhuJ/FKYFRZvPE3PuHcSMVZzfsLhGVOkfd20obL5SWEBew5ShlquNxg==}
-
-  kysely@0.29.2:
-    resolution: {integrity: sha512-s6WVJyEZrbm6jhBpiKHsGHyePMrVQKJ85wZCFCr9W4QHv6WTjWIrdvTmO9hDEA3bNK0xkrE2DqrHsXMLWuZpQg==}
-    engines: {node: '>=22.0.0'}
 
   kysely@0.29.8:
     resolution: {integrity: sha512-ixHU1H4R+LeC5Y0nAhYgiGRFpFRHm2DXKEmJSs/vbes9sKXyssyzxzE/NYiOJX5fY0BL28biCre3GqlCqUwyXQ==}
@@ -5593,6 +5597,10 @@ packages:
     resolution: {integrity: sha512-h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA==}
     engines: {node: '>=0.6'}
 
+  qs@6.17.1:
+    resolution: {integrity: sha512-jd3COkaKVgGUW+ZHyEHCG9bH7RoaaiWuMgzsIBjUMVjLAaWGWpoUAVwljVvBHxRu/2qEHnadLGZrkutYUBPQJA==}
+    engines: {node: '>=0.6'}
+
   quansync@0.2.11:
     resolution: {integrity: sha512-AifT7QEbW9Nri4tAwR5M/uzpBuqfZf+zwaEM/QkzEjj7NBuFD2rBuy0K3dE+8wltbezDV7JMA0WfnCPYRSYbXA==}
 
@@ -6081,12 +6089,12 @@ packages:
       babel-plugin-macros:
         optional: true
 
-  superagent@10.3.0:
-    resolution: {integrity: sha512-B+4Ik7ROgVKrQsXTV0Jwp2u+PXYLSlqtDAhYnkkD+zn3yg8s/zjA2MeGayPoY/KICrbitwneDHrjSotxKL+0XQ==}
+  superagent@10.4.2:
+    resolution: {integrity: sha512-u+PFV+VKiAKKzJqnCvveNya3N+pR/8jUZs/ek6jRfE41fpSCNdFY61L7NYmSgB6I9TTFM50ywoPXRKgw2k3wKw==}
     engines: {node: '>=14.18.0'}
 
-  supertest@7.2.2:
-    resolution: {integrity: sha512-oK8WG9diS3DlhdUkcFn4tkNIiIbBx9lI2ClF8K+b2/m8Eyv47LSawxUzZQSNKUrVb2KsqeTDCcjAAVPYaSLVTA==}
+  supertest@7.3.2:
+    resolution: {integrity: sha512-hR0dKRUE+PwZhHLdq/GRhf97HbUQte+AhbpWBQ9nh02tpjujVJj0GY4aygd1dAKdNZ7UZexWHpeItyJi/jLsgw==}
     engines: {node: '>=14.18.0'}
 
   supports-color@7.2.0:
@@ -7482,11 +7490,11 @@ snapshots:
     optionalDependencies:
       '@nestjs/platform-express': 12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3)
 
-  '@nestjs/drizzle@0.0.2(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(drizzle-orm@0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.2)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7))(reflect-metadata@0.2.2)':
+  '@nestjs/drizzle@0.0.2(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(drizzle-orm@0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.8)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7))(reflect-metadata@0.2.2)':
     dependencies:
       '@nestjs/common': 12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core': 12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
-      drizzle-orm: 0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.2)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7)
+      drizzle-orm: 0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.8)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7)
       reflect-metadata: 0.2.2
 
   '@nestjs/i18n@0.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3(@nestjs/common@12.0.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@standard-schema/spec@1.1.0)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)':
@@ -8464,7 +8472,7 @@ snapshots:
       '@types/node': 25.9.9
       form-data: 4.0.5
 
-  '@types/supertest@6.0.3':
+  '@types/supertest@7.2.1':
     dependencies:
       '@types/methods': 1.1.4
       '@types/superagent': 8.1.10
@@ -9254,12 +9262,12 @@ snapshots:
 
   dotenv@8.6.0: {}
 
-  drizzle-orm@0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.2)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7):
+  drizzle-orm@0.45.4(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.29.8)(mysql2@3.24.6(@types/node@20.19.43))(pg@8.23.1)(sqlite3@5.1.7):
     optionalDependencies:
       '@types/better-sqlite3': 7.6.13
       '@types/pg': 8.23.1
       better-sqlite3: 12.11.1
-      kysely: 0.29.2
+      kysely: 0.29.8
       mysql2: 3.24.6(@types/node@20.19.43)
       pg: 8.23.1
       sqlite3: 5.1.7
@@ -9626,6 +9634,14 @@ snapshots:
       hasown: 2.0.3
       mime-types: 2.1.35
 
+  form-data@4.0.6:
+    dependencies:
+      asynckit: 0.4.0
+      combined-stream: 1.0.8
+      es-set-tostringtag: 2.1.0
+      hasown: 2.0.4
+      mime-types: 2.1.35
+
   formidable@3.5.4:
     dependencies:
       '@paralleldrive/cuid2': 2.3.1
@@ -9873,6 +9889,10 @@ snapshots:
     optional: true
 
   hasown@2.0.3:
+    dependencies:
+      function-bind: 1.1.2
+
+  hasown@2.0.4:
     dependencies:
       function-bind: 1.1.2
 
@@ -10201,9 +10221,6 @@ snapshots:
   jsonfile@4.0.0:
     optionalDependencies:
       graceful-fs: 4.2.11
-
-  kysely@0.29.2:
-    optional: true
 
   kysely@0.29.8: {}
 
@@ -11362,6 +11379,11 @@ snapshots:
       es-define-property: 1.0.1
       side-channel: 1.1.1
 
+  qs@6.17.1:
+    dependencies:
+      es-define-property: 1.0.1
+      side-channel: 1.1.1
+
   quansync@0.2.11: {}
 
   queue-microtask@1.2.3: {}
@@ -12048,25 +12070,25 @@ snapshots:
       client-only: 0.0.1
       react: 19.3.1
 
-  superagent@10.3.0:
+  superagent@10.4.2:
     dependencies:
       component-emitter: 1.3.1
       cookiejar: 2.1.4
       debug: 4.4.3
       fast-safe-stringify: 2.1.1
-      form-data: 4.0.5
+      form-data: 4.0.6
       formidable: 3.5.4
       methods: 1.1.2
       mime: 2.6.0
-      qs: 6.15.2
+      qs: 6.17.1
     transitivePeerDependencies:
       - supports-color
 
-  supertest@7.2.2:
+  supertest@7.3.2:
     dependencies:
       cookie-signature: 1.2.2
       methods: 1.1.2
-      superagent: 10.3.0
+      superagent: 10.4.2
     transitivePeerDependencies:
       - supports-color
 
